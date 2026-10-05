@@ -1,0 +1,12 @@
+node_modules/
+dist/
+bin/
+obj/
+*.db
+*.db-shm
+*.db-wal
+backend/Potel.Api/wwwroot/
+.vs/
+.vscode/
+*.user
+.DS_Store
