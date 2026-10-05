@@ -35,6 +35,27 @@ public static class ProjectEndpoints
         return projects.Select(p => ToDto(p, entries)).ToList();
     }
 
+    // Factuurregels voor uren: één regel met het totaal of één regel per boeking.
+    public static List<InvoiceLine> HourLines(Project p, List<TimeEntry> entries, bool detailed) => detailed
+        ? entries.Select(e => new InvoiceLine
+        {
+            Description = $"{e.Date:dd-MM-yyyy} {(string.IsNullOrWhiteSpace(e.Description) ? p.Name : e.Description)}",
+            Quantity = Hours(e.Minutes), Unit = "uur", UnitPrice = p.HourlyRate,
+        }).ToList()
+        : [new InvoiceLine
+        {
+            Description = $"{p.Name}: werkzaamheden {entries[0].Date:dd-MM} t/m {entries[^1].Date:dd-MM-yyyy}",
+            Quantity = Hours(entries.Sum(e => e.Minutes)), Unit = "uur", UnitPrice = p.HourlyRate,
+        }];
+
+    // Open, factureerbare uren van een project; optioneel alleen de gekozen boekingen.
+    public static Task<List<TimeEntry>> OpenEntries(AppDb db, int projectId, int[]? ids = null)
+    {
+        var q = db.TimeEntries.Where(t => t.ProjectId == projectId && t.Billable && t.InvoiceId == null);
+        if (ids is { Length: > 0 }) q = q.Where(t => ids.Contains(t.Id));
+        return q.OrderBy(t => t.Date).ThenBy(t => t.Id).ToListAsync();
+    }
+
     static string? Validate(AppDb db, Project input)
     {
         if (string.IsNullOrWhiteSpace(input.Name)) return "Naam is verplicht";
@@ -104,29 +125,17 @@ public static class ProjectEndpoints
             if (p.Billing != Billing.Hourly)
                 return Results.BadRequest(new { error = "Dit project heeft een vaste prijs; maak de factuur zelf aan." });
 
-            var q = db.TimeEntries.Where(t => t.ProjectId == id && t.Billable && t.InvoiceId == null);
-            if (req?.EntryIds is { Length: > 0 } ids) q = q.Where(t => ids.Contains(t.Id));
-            var entries = await q.OrderBy(t => t.Date).ThenBy(t => t.Id).ToListAsync();
+            var entries = await OpenEntries(db, id, req?.EntryIds);
             if (entries.Count == 0) return Results.BadRequest(new { error = "Er zijn geen open uren om te factureren" });
 
             var settings = await SettingsEndpoints.GetAsync(db);
             var today = DateTime.Today;
-            List<InvoiceLine> lines = req?.Detailed == true
-                ? entries.Select(e => new InvoiceLine
-                {
-                    Description = $"{e.Date:dd-MM-yyyy} {(string.IsNullOrWhiteSpace(e.Description) ? p.Name : e.Description)}",
-                    Quantity = Hours(e.Minutes), UnitPrice = p.HourlyRate,
-                }).ToList()
-                : [new InvoiceLine
-                {
-                    Description = $"{p.Name}: werkzaamheden {entries[0].Date:dd-MM} t/m {entries[^1].Date:dd-MM-yyyy}",
-                    Quantity = Hours(entries.Sum(e => e.Minutes)), UnitPrice = p.HourlyRate,
-                }];
+            var lines = HourLines(p, entries, req?.Detailed == true);
 
             var inv = new Invoice
             {
                 Number = await InvoiceEndpoints.NextNumber(db), CustomerId = p.CustomerId, IssueDate = today,
-                DueDate = today.AddDays(settings.PaymentTermDays), Status = "concept", Notes = SettingsEndpoints.PaymentNote(settings), Lines = lines,
+                DueDate = today.AddDays(settings.PaymentTermDays), Status = "concept", Notes = SettingsEndpoints.DefaultNote, Lines = lines,
             };
             db.Invoices.Add(inv);
             await db.SaveChangesAsync();

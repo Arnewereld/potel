@@ -6,6 +6,7 @@ export interface Customer {
   phone?: string | null
   address?: string | null
   city?: string | null
+  vatNumber?: string | null
   notes?: string | null
   createdAt?: string
 }
@@ -32,6 +33,7 @@ export interface InvoiceLine {
   id?: number
   description: string
   quantity: number
+  unit: string
   unitPrice: number
   vatRate: number
 }
@@ -44,6 +46,9 @@ export interface Invoice {
   issueDate: string
   dueDate: string
   status: InvoiceStatus
+  reference?: string | null
+  reverseCharge: boolean
+  paidAt?: string | null
   notes?: string | null
   lines: InvoiceLine[]
 }

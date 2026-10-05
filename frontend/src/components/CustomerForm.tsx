@@ -4,7 +4,7 @@ import type { Customer } from '../lib/types'
 import { useToast } from '../lib/toast'
 import { Field, Modal } from './ui'
 
-const empty: Omit<Customer, 'id'> = { name: '', company: '', email: '', phone: '', address: '', city: '', notes: '' }
+const empty: Omit<Customer, 'id'> = { name: '', company: '', email: '', phone: '', address: '', city: '', vatNumber: '', notes: '' }
 
 export function CustomerForm({ customer, onClose, onSaved }: {
   customer?: Customer | null
@@ -47,7 +47,8 @@ export function CustomerForm({ customer, onClose, onSaved }: {
         <Field label="E-mail"><input type="email" value={form.email ?? ''} onChange={set('email')} /></Field>
         <Field label="Telefoon"><input value={form.phone ?? ''} onChange={set('phone')} /></Field>
         <Field label="Adres"><input value={form.address ?? ''} onChange={set('address')} /></Field>
-        <Field label="Plaats"><input value={form.city ?? ''} onChange={set('city')} /></Field>
+        <Field label="Postcode en plaats"><input value={form.city ?? ''} onChange={set('city')} /></Field>
+        <Field label="Btw-nummer" full><input value={form.vatNumber ?? ''} onChange={set('vatNumber')} placeholder="Nodig voor btw verlegd, bijv. DE123456789" /></Field>
         <Field label="Notities" full><textarea value={form.notes ?? ''} onChange={set('notes')} /></Field>
       </form>
     </Modal>

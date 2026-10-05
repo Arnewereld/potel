@@ -9,6 +9,7 @@ public class Customer
     public string? Phone { get; set; }
     public string? Address { get; set; }
     public string? City { get; set; }
+    public string? VatNumber { get; set; }
     public string? Notes { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
@@ -47,6 +48,11 @@ public class Invoice
     public DateTime IssueDate { get; set; } = DateTime.UtcNow.Date;
     public DateTime DueDate { get; set; } = DateTime.UtcNow.Date.AddDays(14);
     public string Status { get; set; } = "concept";
+    // Referentie of inkoopnummer van de klant.
+    public string? Reference { get; set; }
+    // Btw verlegd naar de afnemer, bijvoorbeeld bij een zakelijke klant in een ander EU-land.
+    public bool ReverseCharge { get; set; }
+    public DateTime? PaidAt { get; set; }
     public string? Notes { get; set; }
     public List<InvoiceLine> Lines { get; set; } = [];
 }
@@ -57,6 +63,7 @@ public class InvoiceLine
     public int InvoiceId { get; set; }
     public string Description { get; set; } = "";
     public decimal Quantity { get; set; } = 1;
+    public string Unit { get; set; } = "stuk";
     public decimal UnitPrice { get; set; }
     public decimal VatRate { get; set; } = 21;
 }

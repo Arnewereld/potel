@@ -15,11 +15,8 @@ public static class SettingsEndpoints
         return s;
     }
 
-    // De tekst onderaan een factuur, met betaaltermijn en rekeningnummer.
-    public static string PaymentNote(Settings s) =>
-        $"Graag binnen {s.PaymentTermDays} dagen overmaken"
-        + (string.IsNullOrWhiteSpace(s.Iban) ? "" : $" op {s.Iban} t.n.v. {s.CompanyName}")
-        + " onder vermelding van het factuurnummer.";
+    // De opmerking onder een nieuwe factuur. De betaalgegevens staan al in een eigen blok op de factuur.
+    public const string DefaultNote = "Bedankt voor de fijne samenwerking!";
 
     public static void MapSettings(this RouteGroupBuilder api)
     {

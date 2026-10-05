@@ -36,9 +36,9 @@ public static class Seed
 
         var customers = new List<Customer>
         {
-            new() { Name = "Sanne de Vries", Company = "Fietsplein B.V.", Email = "sanne@fietsplein.nl", Phone = "06 12345678", Address = "Oudegracht 12", City = "Utrecht", Notes = "Webshop op Next.js. Voorraad en orders lopen via Exact Online." },
+            new() { Name = "Sanne de Vries", Company = "Fietsplein B.V.", VatNumber = "NL812345678B01", Email = "sanne@fietsplein.nl", Phone = "06 12345678", Address = "Oudegracht 12", City = "Utrecht", Notes = "Webshop op Next.js. Voorraad en orders lopen via Exact Online." },
             new() { Name = "Mark Jansen", Company = "Jansen Logistiek", Email = "mark@jansenlogistiek.nl", Phone = "06 23456789", Address = "Industrieweg 4", City = "Rotterdam", Notes = "Chauffeurs gebruiken de planningsapp op Android." },
-            new() { Name = "Fatima El Amrani", Company = "Studio Noord", Email = "fatima@studionoord.nl", Phone = "06 34567890", Address = "Noordkade 88", City = "Amsterdam", Notes = "Designbureau; ik bouw hun ontwerpen onder hun naam." },
+            new() { Name = "Fatima El Amrani", Company = "Studio Noord", VatNumber = "NL860011223B01", Email = "fatima@studionoord.nl", Phone = "06 34567890", Address = "Noordkade 88", City = "Amsterdam", Notes = "Designbureau; ik bouw hun ontwerpen onder hun naam." },
             new() { Name = "Peter Bakker", Company = "Zorgnet Oost", Email = "peter@zorgnetoost.nl", Phone = "06 45678901", Address = "Hengelosestraat 1", City = "Enschede", Notes = "Onderhoudscontract voor het cliëntportaal (.NET + Angular)." },
         };
         db.Customers.AddRange(customers);
@@ -98,14 +98,14 @@ public static class Seed
             invoices.Add((new Invoice
             {
                 CustomerId = p.CustomerId, IssueDate = issue, DueDate = issue.AddDays(14),
-                Status = issue < thisMonth ? "betaald" : "verzonden", Notes = Endpoints.SettingsEndpoints.PaymentNote(settings),
-                Lines = [new InvoiceLine { Description = $"{p.Name}: werkzaamheden {issue.AddMonths(-1):MMMM yyyy}", Quantity = Math.Round(minutes / 60m, 2), UnitPrice = p.HourlyRate }],
+                Status = issue < thisMonth ? "betaald" : "verzonden", PaidAt = issue < thisMonth ? issue.AddDays(9) : null, Reference = p.Id == projects[3].Id ? "PO-2026-0412" : null, Notes = Endpoints.SettingsEndpoints.DefaultNote,
+                Lines = [new InvoiceLine { Description = $"{p.Name}: werkzaamheden {issue.AddMonths(-1):MMMM yyyy}", Quantity = Math.Round(minutes / 60m, 2), Unit = "uur", UnitPrice = p.HourlyRate }],
             }, month.ToList()));
         }
         var start = today.AddMonths(-4);
         invoices.Add((new Invoice
         {
-            CustomerId = customers[1].Id, IssueDate = start, DueDate = start.AddDays(14), Status = "betaald", Notes = Endpoints.SettingsEndpoints.PaymentNote(settings),
+            CustomerId = customers[1].Id, IssueDate = start, DueDate = start.AddDays(14), Status = "betaald", PaidAt = start.AddDays(6), Notes = Endpoints.SettingsEndpoints.DefaultNote,
             Lines = [new InvoiceLine { Description = "Planningsapp: aanbetaling 50% bij start", Quantity = 1, UnitPrice = 7250 }],
         }, []));
 

@@ -37,6 +37,9 @@ export function invoiceTotals(lines: InvoiceLine[]) {
   return { subtotal, vat, total: subtotal + vat }
 }
 
+const numFmt = new Intl.NumberFormat('nl-NL', { maximumFractionDigits: 2 })
+export const num = (n: number) => numFmt.format(n || 0)
+
 export const initials = (name: string) =>
   name.split(/\s+/).filter(Boolean).slice(0, 2).map(p => p[0]!.toUpperCase()).join('')
 
