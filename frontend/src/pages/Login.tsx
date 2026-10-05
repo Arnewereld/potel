@@ -1,5 +1,7 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { LogIn, Receipt, Target, Workflow, CalendarDays } from 'lucide-react'
+import { Logo } from './public/PublicSite'
 
 export function LoginPage({ onLogin }: { onLogin: (email: string, password: string) => Promise<void> }) {
   const [email, setEmail] = useState('')
@@ -36,14 +38,9 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
       </div>
 
       <form className="login-card" onSubmit={submit}>
-        <div className="brand" style={{ padding: 0, marginBottom: 22 }}>
-          <div className="brand-logo">
-            <svg viewBox="0 0 32 32" width="22" height="22"><circle cx="9" cy="16" r="3.4" fill="currentColor" /><circle cx="23" cy="9" r="3.4" fill="currentColor" /><circle cx="23" cy="23" r="3.4" fill="currentColor" /><path d="M12 16h3c3 0 3-7 5-7M12 16h3c3 0 3 7 5 7" stroke="currentColor" strokeWidth="2.2" fill="none" /></svg>
-          </div>
-          <span className="brand-name">Potel</span>
-        </div>
+        <div style={{ marginBottom: 22 }}><Logo /></div>
         <h1>Inloggen</h1>
-        <p className="muted" style={{ margin: '6px 0 22px' }}>Welkom terug. Log in om verder te gaan.</p>
+        <p className="muted" style={{ margin: '6px 0 22px' }}>Welkom terug. Nog geen account? <Link to="/aanmelden">Probeer 30 dagen gratis</Link></p>
         <label className="field">
           <span>E-mailadres</span>
           <input type="email" autoComplete="username" autoFocus required value={email} onChange={e => setEmail(e.target.value)} />

@@ -1,8 +1,37 @@
+using System.Text.Json.Serialization;
+
 namespace Potel.Api.Data;
 
-public class Customer
+// Elke klant van het portaal heeft een eigen werkruimte. Alle gegevens hangen aan een werkruimte
+// en zijn via een filter in AppDb alleen zichtbaar binnen de eigen werkruimte.
+public interface IWorkspaceOwned
+{
+    int WorkspaceId { get; set; }
+}
+
+public static class Plans
+{
+    public const string Trial = "proef";
+    public const string Solo = "zzp";
+    public const string Team = "team";
+    public static readonly string[] All = [Trial, Solo, Team];
+}
+
+public class Workspace
 {
     public int Id { get; set; }
+    public string Name { get; set; } = "";
+    public string Plan { get; set; } = Plans.Trial;
+    public DateTime? TrialEndsAt { get; set; }
+    // Leeg zolang de welkomstwizard nog niet is afgerond.
+    public DateTime? OnboardedAt { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class Customer : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
     public string Name { get; set; } = "";
     public string? Company { get; set; }
     public string? Email { get; set; }
@@ -19,9 +48,10 @@ public static class LeadStatus
     public static readonly string[] All = ["nieuw", "contact", "offerte", "gewonnen", "verloren"];
 }
 
-public class Lead
+public class Lead : IWorkspaceOwned
 {
     public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
     public string Name { get; set; } = "";
     public string? Company { get; set; }
     public string? Email { get; set; }
@@ -39,9 +69,10 @@ public static class InvoiceStatus
     public static readonly string[] All = ["concept", "verzonden", "betaald", "verlopen"];
 }
 
-public class Invoice
+public class Invoice : IWorkspaceOwned
 {
     public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
     public string Number { get; set; } = "";
     public int CustomerId { get; set; }
     public Customer? Customer { get; set; }
@@ -81,9 +112,10 @@ public static class Billing
     public static readonly string[] All = [Hourly, Fixed];
 }
 
-public class Project
+public class Project : IWorkspaceOwned
 {
     public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
     public string Name { get; set; } = "";
     public int CustomerId { get; set; }
     public Customer? Customer { get; set; }
@@ -99,9 +131,10 @@ public class Project
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
-public class TimeEntry
+public class TimeEntry : IWorkspaceOwned
 {
     public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
     public int ProjectId { get; set; }
     public DateTime Date { get; set; } = DateTime.UtcNow.Date;
     public int Minutes { get; set; }
@@ -113,9 +146,10 @@ public class TimeEntry
 }
 
 // Eén rij met de gegevens van de freelancer zelf: voor op de factuur en voor de doelen op het dashboard.
-public class Settings
+public class Settings : IWorkspaceOwned
 {
     public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
     public string CompanyName { get; set; } = "Jouw Naam Development";
     public string? OwnerName { get; set; }
     public string? Address { get; set; }
@@ -131,11 +165,15 @@ public class Settings
     public int WeeklyHoursTarget { get; set; } = 32;
     // Het urencriterium voor de zelfstandigenaftrek.
     public int YearlyHoursTarget { get; set; } = 1225;
+    // Huisstijl op de factuur: een logo als data-URL en een accentkleur.
+    public string? LogoDataUrl { get; set; }
+    public string BrandColor { get; set; } = "#ff6d5a";
 }
 
-public class Appointment
+public class Appointment : IWorkspaceOwned
 {
     public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
     public string Title { get; set; } = "";
     public DateTime Start { get; set; }
     public DateTime End { get; set; }
@@ -147,26 +185,29 @@ public class Appointment
 }
 
 // Eigen modules: de gebruiker bepaalt zelf de velden, records worden als JSON opgeslagen.
-public class CustomModule
+public class CustomModule : IWorkspaceOwned
 {
     public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
     public string Name { get; set; } = "";
     public string Icon { get; set; } = "box";
     public string Color { get; set; } = "#ff6d5a";
     public string FieldsJson { get; set; } = "[]";
 }
 
-public class CustomRecord
+public class CustomRecord : IWorkspaceOwned
 {
     public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
     public int ModuleId { get; set; }
     public string DataJson { get; set; } = "{}";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
-public class Workflow
+public class Workflow : IWorkspaceOwned
 {
     public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
     public string Name { get; set; } = "";
     public bool Active { get; set; }
     public string GraphJson { get; set; } = "{\"nodes\":[],\"edges\":[]}";
@@ -174,9 +215,10 @@ public class Workflow
     public DateTime? LastScheduledAt { get; set; }
 }
 
-public class Activity
+public class Activity : IWorkspaceOwned
 {
     public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
     public string Kind { get; set; } = "";
     public string Text { get; set; } = "";
     public DateTime At { get; set; } = DateTime.UtcNow;
@@ -189,9 +231,10 @@ public static class Roles
     public static readonly string[] All = [Admin, Employee];
 }
 
-public class User
+public class User : IWorkspaceOwned
 {
     public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
     public string Name { get; set; } = "";
     public string Email { get; set; } = "";
     public string PasswordHash { get; set; } = "";
@@ -201,9 +244,10 @@ public class User
     public DateTime? LastLoginAt { get; set; }
 }
 
-public class WorkflowRun
+public class WorkflowRun : IWorkspaceOwned
 {
     public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
     public int WorkflowId { get; set; }
     public string Trigger { get; set; } = "";
     // bezig, wachtend, klaar, fout

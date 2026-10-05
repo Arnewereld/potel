@@ -1,0 +1,25 @@
+# Starten op een server:  docker compose up -d
+# Zet er een reverse proxy met https voor (bijvoorbeeld Caddy) en vul hieronder je eigen gegevens in.
+services:
+  potel:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - potel-data:/data
+    environment:
+      BehindProxy: "true"
+      # Jij als eigenaar: met dit e-mailadres zie je de pagina Platform met alle klanten.
+      PlatformAdmins__0: "jij@jouwdomein.nl"
+      # Optioneel: een eerste account voor jezelf. Kies een sterk wachtwoord of maak je account via /aanmelden.
+      # Admin__Name: "Jouw naam"
+      # Admin__Email: "jij@jouwdomein.nl"
+      # Admin__Password: "..."
+      # Mail voor werkstromen (optioneel)
+      # Smtp__Host: "smtp.jouwprovider.nl"
+      # Smtp__User: "..."
+      # Smtp__Password: "..."
+      # Smtp__From: "noreply@jouwdomein.nl"
+volumes:
+  potel-data:

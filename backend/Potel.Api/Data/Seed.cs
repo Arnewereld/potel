@@ -1,29 +1,11 @@
+using Microsoft.EntityFrameworkCore;
+
 namespace Potel.Api.Data;
 
 public static class Seed
 {
-    // Zorgt dat er altijd een beheerder is om mee in te loggen.
-    public static void EnsureAdmin(AppDb db, IConfiguration config, ILogger logger)
+    static void SampleCompany(Settings settings)
     {
-        if (db.Users.Any()) return;
-        var admin = new User
-        {
-            Name = config["Admin:Name"] ?? "Beheerder",
-            Email = (config["Admin:Email"] ?? "admin@potel.nl").ToLower(),
-            Role = Roles.Admin,
-        };
-        var password = config["Admin:Password"] ?? "welkom123";
-        admin.PasswordHash = Endpoints.AuthEndpoints.Hash(admin, password);
-        db.Users.Add(admin);
-        db.SaveChanges();
-        logger.LogWarning("Beheerder aangemaakt: {Email}. Wijzig het wachtwoord na de eerste keer inloggen.", admin.Email);
-    }
-
-    public static void Run(AppDb db)
-    {
-        if (db.Customers.Any()) return;
-
-        var settings = db.Settings.OrderBy(x => x.Id).FirstOrDefault() ?? db.Settings.Add(new Settings()).Entity;
         settings.CompanyName = "Pixelwerk Development";
         settings.OwnerName = "Jouw naam";
         settings.Address = "Keizersgracht 100";
@@ -33,6 +15,39 @@ public static class Seed
         settings.Kvk = "12345678";
         settings.Btw = "NL001234567B01";
         settings.Iban = "NL00 BANK 0123 4567 89";
+    }
+
+    // Eerste start: maakt een werkruimte met een beheerder om mee in te loggen, plus voorbeelddata als dat aan staat.
+    public static void Bootstrap(AppDb db, IConfiguration config, ILogger logger)
+    {
+        // Zonder ingestelde beheerder (zoals in productie) maken klanten zelf hun account aan.
+        if (db.Users.IgnoreQueryFilters().Any() || string.IsNullOrWhiteSpace(config["Admin:Email"]) || string.IsNullOrWhiteSpace(config["Admin:Password"])) return;
+        var ws = new Workspace { Name = "Pixelwerk Development", Plan = Plans.Team, OnboardedAt = DateTime.UtcNow };
+        db.Workspaces.Add(ws);
+        db.SaveChanges();
+        db.Tenant.WorkspaceId = ws.Id;
+
+        var admin = new User
+        {
+            Name = config["Admin:Name"] ?? "Beheerder",
+            Email = config["Admin:Email"]!.Trim().ToLower(),
+            Role = Roles.Admin,
+        };
+        var password = config["Admin:Password"]!;
+        admin.PasswordHash = Endpoints.AuthEndpoints.Hash(admin, password);
+        db.Users.Add(admin);
+        db.SaveChanges();
+        logger.LogWarning("Beheerder aangemaakt: {Email}. Wijzig het wachtwoord na de eerste keer inloggen.", admin.Email);
+        if (config.GetValue("SeedDemoData", true)) Run(db, sampleCompany: true);
+    }
+
+    // Vult de huidige werkruimte met voorbeelddata. Met sampleCompany ook voorbeeld-bedrijfsgegevens.
+    public static void Run(AppDb db, bool sampleCompany)
+    {
+        if (db.Customers.Any()) return;
+
+        var settings = db.Settings.OrderBy(x => x.Id).FirstOrDefault() ?? db.Settings.Add(new Settings()).Entity;
+        if (sampleCompany) SampleCompany(settings);
 
         var customers = new List<Customer>
         {

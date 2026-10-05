@@ -33,7 +33,7 @@ public class WorkflowTests(PortalFactory factory) : IClassFixture<PortalFactory>
         Assert.True(run.ResumeAt > DateTime.UtcNow.AddDays(2.9));
 
         // Doe alsof de drie dagen voorbij zijn.
-        using (var scope = factory.Services.CreateScope())
+        using (var scope = factory.DefaultWorkspaceScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AppDb>();
             var r = db.WorkflowRuns.Find(run.Id)!;

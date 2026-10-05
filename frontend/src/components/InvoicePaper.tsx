@@ -17,10 +17,12 @@ export function InvoicePaper({ invoice, customer, company }: { invoice: Draft; c
   }, {})
 
   return (
-    <div className="invoice-paper">
+    <div className="invoice-paper" style={{ '--accent': company.brandColor || '#ff6d5a' } as React.CSSProperties}>
       <header className="paper-head">
         <div className="paper-brand">
-          <div className="paper-logo">{company.companyName.slice(0, 1)}</div>
+          {company.logoDataUrl
+            ? <img className="paper-logo-img" src={company.logoDataUrl} alt="" />
+            : <div className="paper-logo">{company.companyName.slice(0, 1)}</div>}
           <div>
             <strong>{company.companyName}</strong>
             {company.website && <div className="paper-muted">{company.website}</div>}

@@ -191,6 +191,19 @@ export interface Settings {
   paymentTermDays: number
   weeklyHoursTarget: number
   yearlyHoursTarget: number
+  logoDataUrl?: string | null
+  brandColor?: string
+}
+
+export interface Workspace {
+  id: number
+  name: string
+  plan: 'proef' | 'zzp' | 'team'
+  trialEndsAt?: string | null
+  createdAt: string
+  onboarded: boolean
+  trialDaysLeft?: number | null
+  platformAdmin: boolean
 }
 
 export interface Dashboard {

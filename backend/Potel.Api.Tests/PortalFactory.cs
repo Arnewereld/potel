@@ -15,6 +15,7 @@ public class PortalFactory : WebApplicationFactory<Program>
         builder.UseSetting("DatabasePath", dbPath);
         builder.UseSetting("Workflows:Scheduler", "false");
         builder.UseSetting("Smtp:Host", "");
+        builder.UseSetting("RateLimit:AuthPerMinute", "10000");
     }
 
     public async Task<HttpClient> LoginAsync(string email = "admin@potel.nl", string password = "welkom123")
@@ -25,9 +26,18 @@ public class PortalFactory : WebApplicationFactory<Program>
         return client;
     }
 
+    // Een databasecontext binnen de eerste werkruimte, die van admin@potel.nl.
+    public IServiceScope DefaultWorkspaceScope()
+    {
+        var scope = Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDb>();
+        db.Tenant.WorkspaceId = db.Workspaces.OrderBy(w => w.Id).First().Id;
+        return scope;
+    }
+
     public T WithDb<T>(Func<AppDb, T> action)
     {
-        using var scope = Services.CreateScope();
+        using var scope = DefaultWorkspaceScope();
         return action(scope.ServiceProvider.GetRequiredService<AppDb>());
     }
 

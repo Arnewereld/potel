@@ -22,14 +22,20 @@ public static class AuthEndpoints
 
     public static string Hash(User u, string password) => Hasher.HashPassword(u, password);
 
+    public const string WorkspaceClaim = "potel:ws";
+
     public static int? UserId(this ClaimsPrincipal p) =>
         int.TryParse(p.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : null;
 
-    static async Task SignIn(HttpContext http, User u)
+    public static int? WorkspaceId(this ClaimsPrincipal p) =>
+        int.TryParse(p.FindFirstValue(WorkspaceClaim), out var id) ? id : null;
+
+    public static async Task SignIn(HttpContext http, User u)
     {
         var identity = new ClaimsIdentity(
         [
             new Claim(ClaimTypes.NameIdentifier, u.Id.ToString()),
+            new Claim(WorkspaceClaim, u.WorkspaceId.ToString()),
             new Claim(ClaimTypes.Name, u.Name),
             new Claim(ClaimTypes.Email, u.Email),
             new Claim(ClaimTypes.Role, u.Role),
@@ -45,15 +51,17 @@ public static class AuthEndpoints
         g.MapPost("/login", async (AppDb db, HttpContext http, LoginRequest req) =>
         {
             var email = (req.Email ?? "").Trim().ToLower();
-            var u = await db.Users.FirstOrDefaultAsync(x => x.Email == email);
+            // Inloggen gebeurt voordat de werkruimte bekend is; het e-mailadres is uniek over alle werkruimtes.
+            var u = await db.Users.IgnoreQueryFilters().FirstOrDefaultAsync(x => x.Email == email);
             var ok = u is not null && u.Active &&
                      Hasher.VerifyHashedPassword(u, u.PasswordHash, req.Password ?? "") != PasswordVerificationResult.Failed;
             if (!ok) return Results.Json(new { error = "E-mailadres of wachtwoord klopt niet" }, statusCode: 401);
-            u!.LastLoginAt = DateTime.UtcNow;
+            db.Tenant.WorkspaceId = u!.WorkspaceId;
+            u.LastLoginAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
             await SignIn(http, u);
             return Results.Ok(UserDto.From(u));
-        }).AllowAnonymous();
+        }).AllowAnonymous().RequireRateLimiting("auth");
 
         g.MapPost("/logout", async (HttpContext http) =>
         {
@@ -91,7 +99,7 @@ public static class AuthEndpoints
             if (string.IsNullOrWhiteSpace(input.Name) || !email.Contains('@')) return Results.BadRequest(new { error = "Vul een naam en een geldig e-mailadres in" });
             if (!Roles.All.Contains(input.Role)) return Results.BadRequest(new { error = "Onbekende rol" });
             if ((input.Password ?? "").Length < MinPasswordLength) return Results.BadRequest(new { error = $"Kies een wachtwoord van minstens {MinPasswordLength} tekens" });
-            if (await db.Users.AnyAsync(u => u.Email == email)) return Results.Conflict(new { error = "Dit e-mailadres is al in gebruik" });
+            if (await db.Users.IgnoreQueryFilters().AnyAsync(u => u.Email == email)) return Results.Conflict(new { error = "Dit e-mailadres is al in gebruik" });
             var u = new User { Name = input.Name.Trim(), Email = email, Role = input.Role, Active = input.Active };
             u.PasswordHash = Hash(u, input.Password!);
             db.Users.Add(u);
@@ -107,7 +115,7 @@ public static class AuthEndpoints
             var email = (input.Email ?? "").Trim().ToLower();
             if (string.IsNullOrWhiteSpace(input.Name) || !email.Contains('@')) return Results.BadRequest(new { error = "Vul een naam en een geldig e-mailadres in" });
             if (!Roles.All.Contains(input.Role)) return Results.BadRequest(new { error = "Onbekende rol" });
-            if (await db.Users.AnyAsync(x => x.Email == email && x.Id != id)) return Results.Conflict(new { error = "Dit e-mailadres is al in gebruik" });
+            if (await db.Users.IgnoreQueryFilters().AnyAsync(x => x.Email == email && x.Id != id)) return Results.Conflict(new { error = "Dit e-mailadres is al in gebruik" });
             var losesAdmin = u.Role == Roles.Admin && u.Active && (input.Role != Roles.Admin || !input.Active);
             if (losesAdmin && !await db.Users.AnyAsync(x => x.Id != id && x.Role == Roles.Admin && x.Active))
                 return Results.BadRequest(new { error = "Er moet minstens één actieve beheerder overblijven" });

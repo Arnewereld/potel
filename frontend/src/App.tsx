@@ -6,8 +6,9 @@ import { ToastProvider } from './lib/toast'
 import { ModulesProvider } from './lib/modules'
 import { AuthProvider } from './lib/auth'
 import { TimerProvider } from './lib/timer'
+import { WorkspaceProvider } from './lib/workspace'
 import { Loading } from './components/ui'
-import { LoginPage } from './pages/Login'
+import { PublicSite } from './pages/public/PublicSite'
 import { UsersPage } from './pages/Users'
 import { DashboardPage } from './pages/Dashboard'
 import { CustomersPage } from './pages/Customers'
@@ -24,11 +25,13 @@ import { TimePage } from './pages/Time'
 import { ProjectsPage } from './pages/Projects'
 import { ProjectDetailPage } from './pages/ProjectDetail'
 import { SettingsPage } from './pages/Settings'
+import { PlatformPage } from './pages/Platform'
 
 export default function App() {
   return (
     <ToastProvider>
-      <AuthProvider fallback={<Loading />} loginPage={login => <LoginPage onLogin={login} />}>
+      <AuthProvider fallback={<Loading />} publicSite={auth => <PublicSite auth={auth} />}>
+      <WorkspaceProvider>
       <ModulesProvider>
       <TimerProvider>
         <TabsProvider>
@@ -40,6 +43,7 @@ export default function App() {
         </TabsProvider>
       </TimerProvider>
       </ModulesProvider>
+      </WorkspaceProvider>
       </AuthProvider>
     </ToastProvider>
   )
@@ -54,6 +58,7 @@ function AppRoutes({ location }: { location: string }) {
       <Route path="/projecten" element={<ProjectsPage />} />
       <Route path="/projecten/:id" element={<ProjectDetailPage />} />
       <Route path="/instellingen" element={<SettingsPage />} />
+      <Route path="/platform" element={<PlatformPage />} />
       <Route path="/planning" element={<PlanningPage />} />
       <Route path="/klanten" element={<CustomersPage />} />
       <Route path="/klanten/:id" element={<CustomerDetailPage />} />

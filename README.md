@@ -1,6 +1,8 @@
 # Potel · Portaal voor freelance developers
 
-Een portaal voor een zzp'er in softwareontwikkeling: uren schrijven met een timer, projecten per klant, open uren met één klik factureren, en daarnaast planning, klanten, leads, eigen modules en werkstromen in de stijl van n8n.
+Een portaal voor zzp'ers in softwareontwikkeling: uren schrijven met een timer, projecten per klant, open uren met één klik factureren, en daarnaast planning, klanten, leads, eigen modules en werkstromen in de stijl van n8n.
+
+Potel is gebouwd om te verkopen: elke klant maakt zelf een account aan en krijgt een eigen, volledig afgeschermde werkruimte met 30 dagen proefperiode. Jij beheert als eigenaar alle werkruimtes en abonnementen op de pagina *Platform*.
 
 ![stack](https://img.shields.io/badge/frontend-Vite%20%2B%20React%20%2B%20TypeScript-ff6d5a) ![stack](https://img.shields.io/badge/backend-C%23%20ASP.NET%20Core%20%2B%20SQLite-4ea5ff)
 
@@ -19,6 +21,12 @@ Een portaal voor een zzp'er in softwareontwikkeling: uren schrijven met een time
 | **Werkstromen** | Een canvas zoals in n8n: zet blokken neer, stel ze in en verbind ze door te slepen. Staat een werkstroom aan, dan start hij vanzelf bij zijn trigger en voert hij de acties echt uit. Zie hieronder. |
 | **Gebruikers** | Iedereen logt in met e-mail en wachtwoord. Beheerders voegen gebruikers toe, kiezen hun rol en kunnen ze uitschakelen. |
 | **Eigen modules** | Maak zelf een lijst met je eigen velden (tekst, getal, datum, ja/nee). Standaard staan er *Servers & domeinen* en *Licenties* in. Een nieuwe module verschijnt direct in het menu. |
+| **Verkooppagina** | Op `/` voor bezoekers: uitleg, functies, prijzen en veelgestelde vragen. Prijzen en je contactadres pas je aan in `frontend/src/lib/plans.ts`. |
+| **Aanmelden** | Op `/aanmelden` maakt een klant zelf een werkruimte aan, eventueel met voorbeelddata, en doorloopt een welkomstwizard (bedrijf, tarief, huisstijl, eerste klant). |
+| **Huisstijl** | Elke klant uploadt een logo en kiest een accentkleur; die komen op de facturen. |
+| **Abonnement** | Proef (30 dagen), ZZP of Team. Na de proef is de werkruimte alleen-lezen tot er een abonnement is gekozen. Overstappen gaat nu via een mail naar jou; jij zet het om op *Platform*. |
+| **Account** | Beheerders exporteren alle gegevens als JSON of verwijderen hun hele werkruimte. |
+| **Platform** | Alleen voor jou (de e-mailadressen in `PlatformAdmins`): alle werkruimtes, gebruik, proefperiodes, omzet per maand, en abonnementen omzetten. |
 
 Verder: alles opent als **tabblad** bovenin (dubbelklik op een tabblad sluit de andere), **Ctrl K** om overal te zoeken, en een licht (standaard) en donker thema.
 
@@ -50,14 +58,41 @@ cd ../backend/Potel.Api && dotnet run          # portaal + API op http://localho
 
 ### Inloggen
 
-Bij de eerste start wordt een beheerder aangemaakt:
+Lokaal (ontwikkelmodus) wordt bij de eerste start een werkruimte met voorbeelddata en een beheerder aangemaakt:
 
 - E-mail: `admin@potel.nl`
 - Wachtwoord: `welkom123`
 
-**Wijzig dit wachtwoord meteen** (klik linksonder op je naam). Je kunt de eerste beheerder ook vooraf instellen in `backend/Potel.Api/appsettings.json` onder `Admin`. Medewerkers kunnen alles behalve gebruikers beheren.
+Dit account is ook platformeigenaar. **Wijzig het wachtwoord meteen** (klik linksonder op je naam). Deze instellingen staan in `backend/Potel.Api/appsettings.Development.json`. In productie wordt er geen standaardaccount gemaakt: klanten melden zich aan via `/aanmelden`.
 
 Wil je opnieuw beginnen met de voorbeelddata? Stop de backend en verwijder `backend/Potel.Api/potel.db`.
+
+## Verkopen en hosten
+
+Met Docker draait alles in één container. De database en de sleutels van de inlogcookies staan in het volume `/data`.
+
+```bash
+docker compose up -d
+```
+
+Vul eerst in `docker-compose.yml` je eigen e-mailadres in bij `PlatformAdmins__0`. Zet er een reverse proxy met https voor (bijvoorbeeld Caddy of het https van je hostingplatform); inlogcookies werken in productie alleen via https.
+
+Belangrijke instellingen (als omgevingsvariabele, met `__` voor een punt):
+
+| Instelling | Betekenis |
+| --- | --- |
+| `PlatformAdmins__0` | E-mailadres van de eigenaar die de pagina Platform ziet. Meer adressen: `__1`, `__2`. |
+| `BehindProxy` | `true` als er een reverse proxy voor staat, zodat https en het echte IP-adres herkend worden. |
+| `DatabasePath`, `KeysPath` | Waar de SQLite-database en de cookiesleutels staan (standaard in `/data`). |
+| `RateLimit__AuthPerMinute` | Hoe vaak per minuut één IP-adres mag inloggen of aanmelden (standaard 10). |
+| `Smtp__*` | Mailserver voor de werkstroomblokken die e-mail sturen. |
+
+Voordat je echt verkoopt, regel je nog:
+
+- **Betalen**: online betalen (bijvoorbeeld Stripe of Mollie) zit er nog niet in. Klanten mailen nu om over te stappen en jij zet het abonnement om op *Platform*.
+- **Juridisch**: algemene voorwaarden, een privacyverklaring en een verwerkersovereenkomst; je verwerkt immers gegevens van de klanten van je klanten.
+- **Wachtwoord vergeten**: werkt nog niet via e-mail; een beheerder van de werkruimte kan een nieuw wachtwoord zetten bij *Gebruikers*.
+- **Back-ups** van het volume `/data`.
 
 ## Werkstromen
 
@@ -95,7 +130,7 @@ backend/Potel.Api/
   Data/          modellen, database (EF Core + SQLite, met migraties) en voorbeelddata
   Endpoints/     API per onderdeel: inloggen, gebruikers, klanten, projecten, uren, leads, facturen, planning, instellingen, modules, werkstromen
   Workflows/     de motor die werkstromen uitvoert, plus de planner op de achtergrond
-backend/Potel.Api.Tests/   tests voor inloggen, werkstromen en uren factureren
+backend/Potel.Api.Tests/   tests voor inloggen, werkruimtes (afscherming, proef, platform), werkstromen, uren en facturen
 frontend/src/
   components/    menu, tabbladen, zoekvenster en losse UI-onderdelen
   pages/         één bestand per scherm
@@ -104,8 +139,5 @@ frontend/src/
 
 De API-documentatie (Swagger) staat op http://localhost:5080/swagger zolang de backend in ontwikkelmodus draait.
 
-## Nog niet ingebouwd
-
-- Wachtwoord vergeten via e-mail: een beheerder zet een nieuw wachtwoord bij *Gebruikers*.
 
 Een database uit de allereerste versie wordt bij het starten bewaard als `potel.db.<datum>.bak` en vervangen door een nieuwe met het juiste schema.

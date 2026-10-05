@@ -22,6 +22,7 @@ public static class AppointmentEndpoints
             if (string.IsNullOrWhiteSpace(input.Title)) return Results.BadRequest(new { error = "Titel is verplicht" });
             if (input.End < input.Start) return Results.BadRequest(new { error = "Einde ligt voor het begin" });
             input.Id = 0;
+            if (input.CustomerId is { } cid && !await db.Customers.AnyAsync(c => c.Id == cid)) input.CustomerId = null;
             db.Appointments.Add(input);
             db.Log("planning", $"{input.Title} ingepland op {input.Start:dd-MM HH:mm}");
             await db.SaveChangesAsync();

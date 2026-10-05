@@ -2,9 +2,11 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, CalendarDays, Users, Target, Receipt, Workflow, Blocks, X, Search,
-  ChevronsLeft, ChevronsRight, Moon, Sun, Plus, ShieldCheck, LogOut, KeyRound, Timer, FolderKanban, Settings, Square,
+  ChevronsLeft, ChevronsRight, Moon, Sun, Plus, ShieldCheck, LogOut, KeyRound, Timer, FolderKanban, Settings, Square, Crown,
 } from 'lucide-react'
 import { clock, useTimer } from '../lib/timer'
+import { useWorkspace } from '../lib/workspace'
+import { OnboardingWizard } from './OnboardingWizard'
 import { useAuth } from '../lib/auth'
 import { initials } from '../lib/format'
 import { colorFor } from '../lib/status'
@@ -53,6 +55,7 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
   const [userMenu, setUserMenu] = useState(false)
   const [changingPassword, setChangingPassword] = useState(false)
   const { user, logout } = useAuth()
+  const { workspace, reload: reloadWorkspace } = useWorkspace()
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -98,6 +101,12 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
           <div className="nav-label">Systeem</div>
           {navLinks(nav.slice(7))}
 
+          {workspace?.platformAdmin && (
+            <NavLink to="/platform" className="nav-item" title="Platform">
+              <Crown size={18} />
+              <span>Platform</span>
+            </NavLink>
+          )}
           {user.role === 'beheerder' && (
             <NavLink to="/gebruikers" className="nav-item" title="Gebruikers">
               <ShieldCheck size={18} />
@@ -122,6 +131,12 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
         </nav>
 
         <div className="sidebar-foot">
+          {workspace?.plan === 'proef' && (
+            <button className={`trial-chip ${(workspace.trialDaysLeft ?? 0) <= 5 ? 'urgent' : ''}`} onClick={() => navigate('/instellingen?tab=abonnement')} title="Abonnement kiezen">
+              <span className="trial-days">{workspace.trialDaysLeft}</span>
+              <span>{workspace.trialDaysLeft === 1 ? 'dag' : 'dagen'} proef over<small>Kies een abonnement</small></span>
+            </button>
+          )}
           <button className="nav-item" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title="Thema wisselen">
             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
             <span>{theme === 'dark' ? 'Licht thema' : 'Donker thema'}</span>
@@ -132,7 +147,7 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
           </button>
           <button className="user-chip" onClick={() => setUserMenu(o => !o)} title={user.name}>
             <div className="avatar" style={{ background: colorFor(user.name) }}>{initials(user.name)}</div>
-            <div className="user-chip-text"><strong className="truncate">{user.name}</strong><span>{user.role}</span></div>
+            <div className="user-chip-text"><strong className="truncate">{user.name}</strong><span className="truncate">{workspace?.name ?? user.role}</span></div>
           </button>
           {userMenu && (
             <div className="user-menu" onMouseLeave={() => setUserMenu(false)}>
@@ -178,6 +193,7 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
 
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
       {changingPassword && <PasswordModal onClose={() => setChangingPassword(false)} />}
+      {workspace && !workspace.onboarded && user.role === 'beheerder' && <OnboardingWizard onDone={reloadWorkspace} />}
     </div>
   )
 }
