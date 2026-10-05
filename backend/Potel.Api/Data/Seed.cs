@@ -2,6 +2,23 @@ namespace Potel.Api.Data;
 
 public static class Seed
 {
+    // Zorgt dat er altijd een beheerder is om mee in te loggen.
+    public static void EnsureAdmin(AppDb db, IConfiguration config, ILogger logger)
+    {
+        if (db.Users.Any()) return;
+        var admin = new User
+        {
+            Name = config["Admin:Name"] ?? "Beheerder",
+            Email = (config["Admin:Email"] ?? "admin@potel.nl").ToLower(),
+            Role = Roles.Admin,
+        };
+        var password = config["Admin:Password"] ?? "welkom123";
+        admin.PasswordHash = Endpoints.AuthEndpoints.Hash(admin, password);
+        db.Users.Add(admin);
+        db.SaveChanges();
+        logger.LogWarning("Beheerder aangemaakt: {Email}. Wijzig het wachtwoord na de eerste keer inloggen.", admin.Email);
+    }
+
     public static void Run(AppDb db)
     {
         if (db.Customers.Any()) return;
@@ -66,7 +83,7 @@ public static class Seed
             FieldsJson = """[{"key":"kenteken","label":"Kenteken","type":"text"},{"key":"merk","label":"Merk","type":"text"},{"key":"apk","label":"APK tot","type":"date"},{"key":"km","label":"Kilometerstand","type":"number"}]"""
         });
         db.SaveChanges();
-        var module = db.CustomModules.First();
+        var module = db.CustomModules.OrderBy(m => m.Id).First();
         db.CustomRecords.AddRange(
             new CustomRecord { ModuleId = module.Id, DataJson = """{"kenteken":"VX-123-B","merk":"Volkswagen Transporter","apk":"2027-03-01","km":84210}""" },
             new CustomRecord { ModuleId = module.Id, DataJson = """{"kenteken":"GH-882-K","merk":"Ford Transit","apk":"2026-12-15","km":120455}""" }
@@ -76,7 +93,7 @@ public static class Seed
         {
             Name = "Nieuwe lead opvolgen",
             Active = true,
-            GraphJson = """{"nodes":[{"id":"n1","type":"trigger.lead","label":"Nieuwe lead","x":80,"y":160},{"id":"n2","type":"action.task","label":"Taak: bel lead","x":380,"y":80},{"id":"n3","type":"action.email","label":"Welkomstmail","x":380,"y":260},{"id":"n4","type":"logic.wait","label":"Wacht 3 dagen","x":680,"y":80},{"id":"n5","type":"action.status","label":"Status: contact","x":960,"y":80}],"edges":[{"from":"n1","to":"n2"},{"from":"n1","to":"n3"},{"from":"n2","to":"n4"},{"from":"n4","to":"n5"}]}"""
+            GraphJson = """{"nodes":[{"id":"n1","type":"trigger.lead","label":"Nieuwe lead","x":80,"y":180},{"id":"n2","type":"logic.if","label":"Waarde boven 5.000?","x":340,"y":180,"config":{"field":"lead.value","operator":">","value":"5000"}},{"id":"n3","type":"action.task","label":"Taak: bel lead","x":620,"y":80,"config":{"title":"Bel {{lead.name}} ({{lead.company}})","days":"0","kind":"taak"}},{"id":"n4","type":"action.status","label":"Status: contact","x":880,"y":80,"config":{"target":"lead","status":"contact"}},{"id":"n5","type":"action.email","label":"Welkomstmail","x":620,"y":300,"config":{"to":"{{lead.email}}","subject":"Bedankt voor je interesse","body":"Beste {{lead.name}},\n\nBedankt voor je aanvraag. We nemen snel contact met je op."}},{"id":"n6","type":"logic.wait","label":"Wacht 3 dagen","x":880,"y":300,"config":{"amount":"3","unit":"dagen"}},{"id":"n7","type":"action.task","label":"Taak: nabellen","x":1140,"y":300,"config":{"title":"Nabellen: {{lead.name}}","days":"0","kind":"taak"}}],"edges":[{"from":"n1","to":"n2"},{"from":"n2","to":"n3","branch":"ja"},{"from":"n3","to":"n4"},{"from":"n2","to":"n5","branch":"nee"},{"from":"n5","to":"n6"},{"from":"n6","to":"n7"}]}"""
         });
 
         db.Log("systeem", "Portaal ingericht met voorbeelddata");

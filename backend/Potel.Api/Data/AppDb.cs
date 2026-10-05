@@ -13,10 +13,14 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
     public DbSet<CustomRecord> CustomRecords => Set<CustomRecord>();
     public DbSet<Workflow> Workflows => Set<Workflow>();
     public DbSet<Activity> Activities => Set<Activity>();
+    public DbSet<User> Users => Set<User>();
+    public DbSet<WorkflowRun> WorkflowRuns => Set<WorkflowRun>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
         b.Entity<Invoice>().HasIndex(i => i.Number).IsUnique();
+        b.Entity<User>().HasIndex(u => u.Email).IsUnique();
+        b.Entity<WorkflowRun>().HasIndex(r => new { r.Status, r.ResumeAt });
         b.Entity<Invoice>().HasMany(i => i.Lines).WithOne().HasForeignKey(l => l.InvoiceId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<Invoice>().HasOne(i => i.Customer).WithMany().HasForeignKey(i => i.CustomerId).OnDelete(DeleteBehavior.Restrict);
     }

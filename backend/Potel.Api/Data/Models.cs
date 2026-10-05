@@ -99,6 +99,7 @@ public class Workflow
     public bool Active { get; set; }
     public string GraphJson { get; set; } = "{\"nodes\":[],\"edges\":[]}";
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? LastScheduledAt { get; set; }
 }
 
 public class Activity
@@ -107,4 +108,39 @@ public class Activity
     public string Kind { get; set; } = "";
     public string Text { get; set; } = "";
     public DateTime At { get; set; } = DateTime.UtcNow;
+}
+
+public static class Roles
+{
+    public const string Admin = "beheerder";
+    public const string Employee = "medewerker";
+    public static readonly string[] All = [Admin, Employee];
+}
+
+public class User
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = "";
+    public string Email { get; set; } = "";
+    public string PasswordHash { get; set; } = "";
+    public string Role { get; set; } = Roles.Employee;
+    public bool Active { get; set; } = true;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? LastLoginAt { get; set; }
+}
+
+public class WorkflowRun
+{
+    public int Id { get; set; }
+    public int WorkflowId { get; set; }
+    public string Trigger { get; set; } = "";
+    // bezig, wachtend, klaar, fout
+    public string Status { get; set; } = "bezig";
+    public DateTime StartedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? FinishedAt { get; set; }
+    // Vroegste moment waarop een wachtend blok verder mag.
+    public DateTime? ResumeAt { get; set; }
+    public string ContextJson { get; set; } = "{}";
+    public string PendingJson { get; set; } = "[]";
+    public string LogJson { get; set; } = "[]";
 }

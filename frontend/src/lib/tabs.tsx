@@ -31,6 +31,7 @@ export function defaultTitle(fullPath: string) {
   if (path.startsWith('/werkstromen/')) return 'Werkstroom'
   if (path === '/modules') return 'Eigen modules'
   if (path.startsWith('/modules/')) return 'Module'
+  if (path === '/gebruikers') return 'Gebruikers'
   return 'Pagina'
 }
 

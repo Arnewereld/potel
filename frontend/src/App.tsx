@@ -4,6 +4,10 @@ import { Layout } from './components/Layout'
 import { TabsProvider } from './lib/tabs'
 import { ToastProvider } from './lib/toast'
 import { ModulesProvider } from './lib/modules'
+import { AuthProvider } from './lib/auth'
+import { Loading } from './components/ui'
+import { LoginPage } from './pages/Login'
+import { UsersPage } from './pages/Users'
 import { DashboardPage } from './pages/Dashboard'
 import { CustomersPage } from './pages/Customers'
 import { CustomerDetailPage } from './pages/CustomerDetail'
@@ -19,6 +23,7 @@ import { ModuleRecordsPage } from './pages/ModuleRecords'
 export default function App() {
   return (
     <ToastProvider>
+      <AuthProvider fallback={<Loading />} loginPage={login => <LoginPage onLogin={login} />}>
       <ModulesProvider>
         <TabsProvider>
           <Layout renderTab={(path, active) => (
@@ -28,6 +33,7 @@ export default function App() {
           )} />
         </TabsProvider>
       </ModulesProvider>
+      </AuthProvider>
     </ToastProvider>
   )
 }
@@ -47,6 +53,7 @@ function AppRoutes({ location }: { location: string }) {
       <Route path="/werkstromen/:id" element={<WorkflowEditorPage />} />
       <Route path="/modules" element={<ModulesPage />} />
       <Route path="/modules/:id" element={<ModuleRecordsPage />} />
+      <Route path="/gebruikers" element={<UsersPage />} />
       <Route path="*" element={<DashboardPage />} />
     </Routes>
   )

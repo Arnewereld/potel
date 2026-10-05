@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Potel.Api.Data;
+using Potel.Api.Workflows;
 
 namespace Potel.Api.Endpoints;
 
@@ -14,7 +15,7 @@ public static class CustomerEndpoints
         g.MapGet("/{id:int}", async (AppDb db, int id) =>
             await db.Customers.FindAsync(id) is { } c ? Results.Ok(c) : Results.NotFound());
 
-        g.MapPost("/", async (AppDb db, Customer input) =>
+        g.MapPost("/", async (AppDb db, WorkflowEngine engine, Customer input) =>
         {
             if (string.IsNullOrWhiteSpace(input.Name)) return Results.BadRequest(new { error = "Naam is verplicht" });
             input.Id = 0;
@@ -22,6 +23,9 @@ public static class CustomerEndpoints
             db.Customers.Add(input);
             db.Log("klant", $"Klant {input.Name} toegevoegd");
             await db.SaveChangesAsync();
+            var ctx = new Dictionary<string, string>();
+            WorkflowContext.AddCustomer(ctx, input);
+            await engine.TriggerAsync("trigger.customer", ctx, $"Nieuwe klant: {input.Name}");
             return Results.Created($"/api/customers/{input.Id}", input);
         });
 

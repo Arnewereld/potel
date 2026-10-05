@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Potel.Api.Data;
+using Potel.Api.Workflows;
 
 namespace Potel.Api.Endpoints;
 
@@ -16,7 +17,7 @@ public static class InvoiceEndpoints
         await db.SaveChangesAsync();
     }
 
-    static async Task<string> NextNumber(AppDb db)
+    public static async Task<string> NextNumber(AppDb db)
     {
         var prefix = $"{DateTime.UtcNow.Year}-";
         var numbers = await db.Invoices.Where(i => i.Number.StartsWith(prefix)).Select(i => i.Number).ToListAsync();
@@ -36,6 +37,15 @@ public static class InvoiceEndpoints
     static List<InvoiceLine> CopyLines(IEnumerable<InvoiceLine> lines) =>
         lines.Select(l => new InvoiceLine { Description = l.Description, Quantity = l.Quantity, UnitPrice = l.UnitPrice, VatRate = l.VatRate }).ToList();
 
+    // Start werkstromen met de trigger "Factuur betaald".
+    static async Task TriggerPaid(AppDb db, WorkflowEngine engine, Invoice inv)
+    {
+        var full = await db.Invoices.Include(i => i.Lines).Include(i => i.Customer).FirstAsync(i => i.Id == inv.Id);
+        var ctx = new Dictionary<string, string>();
+        WorkflowContext.AddInvoice(ctx, full);
+        await engine.TriggerAsync("trigger.paid", ctx, $"Factuur {full.Number} betaald");
+    }
+
     public static void MapInvoices(this RouteGroupBuilder api)
     {
         var g = api.MapGroup("/invoices");
@@ -52,7 +62,7 @@ public static class InvoiceEndpoints
             await db.Invoices.Include(i => i.Lines).Include(i => i.Customer).FirstOrDefaultAsync(i => i.Id == id) is { } inv
                 ? Results.Ok(inv) : Results.NotFound());
 
-        g.MapPost("/", async (AppDb db, Invoice input) =>
+        g.MapPost("/", async (AppDb db, WorkflowEngine engine, Invoice input) =>
         {
             if (Validate(db, input) is { } error) return Results.BadRequest(new { error });
             var inv = new Invoice
@@ -65,22 +75,25 @@ public static class InvoiceEndpoints
             db.Invoices.Add(inv);
             db.Log("factuur", $"Factuur {inv.Number} aangemaakt");
             await db.SaveChangesAsync();
+            if (inv.Status == "betaald") await TriggerPaid(db, engine, inv);
             return Results.Created($"/api/invoices/{inv.Id}", inv);
         });
 
-        g.MapPut("/{id:int}", async (AppDb db, int id, Invoice input) =>
+        g.MapPut("/{id:int}", async (AppDb db, WorkflowEngine engine, int id, Invoice input) =>
         {
             var inv = await db.Invoices.Include(i => i.Lines).FirstOrDefaultAsync(i => i.Id == id);
             if (inv is null) return Results.NotFound();
             if (Validate(db, input) is { } error) return Results.BadRequest(new { error });
             var number = string.IsNullOrWhiteSpace(input.Number) ? inv.Number : input.Number.Trim();
             if (await db.Invoices.AnyAsync(i => i.Number == number && i.Id != id)) return Results.Conflict(new { error = "Dit factuurnummer bestaat al" });
+            var becamePaid = inv.Status != "betaald" && input.Status == "betaald";
             if (inv.Status != input.Status) db.Log("factuur", $"Factuur {inv.Number}: {inv.Status} → {input.Status}");
             inv.Number = number; inv.CustomerId = input.CustomerId; inv.IssueDate = input.IssueDate; inv.DueDate = input.DueDate;
             inv.Status = input.Status; inv.Notes = input.Notes;
             db.InvoiceLines.RemoveRange(inv.Lines);
             inv.Lines = CopyLines(input.Lines);
             await db.SaveChangesAsync();
+            if (becamePaid) await TriggerPaid(db, engine, inv);
             return Results.Ok(inv);
         });
 

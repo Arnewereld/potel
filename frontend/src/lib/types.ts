@@ -89,11 +89,33 @@ export interface WorkflowNode {
   label: string
   x: number
   y: number
+  config?: Record<string, string>
 }
 
 export interface WorkflowEdge {
   from: string
   to: string
+  branch?: 'ja' | 'nee'
+}
+
+export interface WorkflowRunLog {
+  nodeId: string
+  label: string
+  type: string
+  status: 'ok' | 'fout' | 'wacht' | 'let op'
+  message: string
+  at: string
+}
+
+export interface WorkflowRun {
+  id: number
+  workflowId: number
+  trigger: string
+  status: 'bezig' | 'wachtend' | 'klaar' | 'fout'
+  startedAt: string
+  finishedAt?: string | null
+  resumeAt?: string | null
+  logJson: string
 }
 
 export interface Workflow {

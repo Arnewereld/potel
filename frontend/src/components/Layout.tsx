@@ -2,8 +2,12 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, CalendarDays, Users, Target, Receipt, Workflow, Blocks, X, Search,
-  ChevronsLeft, ChevronsRight, Moon, Sun, Plus,
+  ChevronsLeft, ChevronsRight, Moon, Sun, Plus, ShieldCheck, LogOut, KeyRound,
 } from 'lucide-react'
+import { useAuth } from '../lib/auth'
+import { initials } from '../lib/format'
+import { colorFor } from '../lib/status'
+import { PasswordModal } from './PasswordModal'
 import { useTabs } from '../lib/tabs'
 import { useModules } from '../lib/modules'
 import { ModuleIcon } from './Icon'
@@ -35,6 +39,9 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('potel.collapsed') === '1')
   const [theme, setTheme] = useState(() => localStorage.getItem('potel.theme') ?? 'dark')
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [userMenu, setUserMenu] = useState(false)
+  const [changingPassword, setChangingPassword] = useState(false)
+  const { user, logout } = useAuth()
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -81,6 +88,13 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
             </NavLink>
           ))}
 
+          {user.role === 'beheerder' && (
+            <NavLink to="/gebruikers" className="nav-item" title="Gebruikers">
+              <ShieldCheck size={18} />
+              <span>Gebruikers</span>
+            </NavLink>
+          )}
+
           <div className="nav-label nav-label-row">
             <span>Eigen modules</span>
             <button className="icon-btn tiny" title="Module beheren" onClick={() => navigate('/modules')}><Plus size={14} /></button>
@@ -106,6 +120,17 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
             {collapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}
             <span>Inklappen</span>
           </button>
+          <button className="user-chip" onClick={() => setUserMenu(o => !o)} title={user.name}>
+            <div className="avatar" style={{ background: colorFor(user.name) }}>{initials(user.name)}</div>
+            <div className="user-chip-text"><strong className="truncate">{user.name}</strong><span>{user.role}</span></div>
+          </button>
+          {userMenu && (
+            <div className="user-menu" onMouseLeave={() => setUserMenu(false)}>
+              <div className="cell-sub" style={{ padding: '6px 10px' }}>{user.email}</div>
+              <button className="nav-item" onClick={() => { setUserMenu(false); setChangingPassword(true) }}><KeyRound size={16} /><span>Wachtwoord wijzigen</span></button>
+              <button className="nav-item" onClick={() => logout()}><LogOut size={16} /><span>Uitloggen</span></button>
+            </div>
+          )}
         </div>
       </aside>
 
@@ -141,6 +166,7 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
       </div>
 
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
+      {changingPassword && <PasswordModal onClose={() => setChangingPassword(false)} />}
     </div>
   )
 }

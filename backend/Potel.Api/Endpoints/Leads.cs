@@ -1,17 +1,32 @@
 using Microsoft.EntityFrameworkCore;
 using Potel.Api.Data;
+using Potel.Api.Workflows;
 
 namespace Potel.Api.Endpoints;
 
 public static class LeadEndpoints
 {
+    // Zet een lead om naar een klant en markeer hem als gewonnen.
+    public static async Task<Customer> ConvertAsync(AppDb db, Lead l)
+    {
+        if (l.CustomerId is { } existing && await db.Customers.FindAsync(existing) is { } found) return found;
+        var c = new Customer { Name = l.Name, Company = l.Company, Email = l.Email, Phone = l.Phone, Notes = l.Notes };
+        db.Customers.Add(c);
+        await db.SaveChangesAsync();
+        l.CustomerId = c.Id;
+        l.Status = "gewonnen";
+        db.Log("lead", $"Lead {l.Name} omgezet naar klant");
+        await db.SaveChangesAsync();
+        return c;
+    }
+
     public static void MapLeads(this RouteGroupBuilder api)
     {
         var g = api.MapGroup("/leads");
 
         g.MapGet("/", async (AppDb db) => await db.Leads.OrderByDescending(l => l.CreatedAt).ToListAsync());
 
-        g.MapPost("/", async (AppDb db, Lead input) =>
+        g.MapPost("/", async (AppDb db, WorkflowEngine engine, Lead input) =>
         {
             if (string.IsNullOrWhiteSpace(input.Name)) return Results.BadRequest(new { error = "Naam is verplicht" });
             if (!LeadStatus.All.Contains(input.Status)) input.Status = "nieuw";
@@ -20,6 +35,10 @@ public static class LeadEndpoints
             db.Leads.Add(input);
             db.Log("lead", $"Lead {input.Name} toegevoegd");
             await db.SaveChangesAsync();
+            var ctx = new Dictionary<string, string>();
+            WorkflowContext.AddLead(ctx, input);
+            await engine.TriggerAsync("trigger.lead", ctx, $"Nieuwe lead: {input.Name}");
+            await db.Entry(input).ReloadAsync();
             return Results.Created($"/api/leads/{input.Id}", input);
         });
 
@@ -36,21 +55,8 @@ public static class LeadEndpoints
             return Results.Ok(l);
         });
 
-        // Zet een lead om naar een klant en markeer hem als gewonnen.
         g.MapPost("/{id:int}/convert", async (AppDb db, int id) =>
-        {
-            var l = await db.Leads.FindAsync(id);
-            if (l is null) return Results.NotFound();
-            if (l.CustomerId is { } existing) return Results.Ok(await db.Customers.FindAsync(existing));
-            var c = new Customer { Name = l.Name, Company = l.Company, Email = l.Email, Phone = l.Phone, Notes = l.Notes };
-            db.Customers.Add(c);
-            await db.SaveChangesAsync();
-            l.CustomerId = c.Id;
-            l.Status = "gewonnen";
-            db.Log("lead", $"Lead {l.Name} omgezet naar klant");
-            await db.SaveChangesAsync();
-            return Results.Ok(c);
-        });
+            await db.Leads.FindAsync(id) is { } l ? Results.Ok(await ConvertAsync(db, l)) : Results.NotFound());
 
         g.MapDelete("/{id:int}", async (AppDb db, int id) =>
         {
