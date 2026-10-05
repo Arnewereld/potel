@@ -31,8 +31,8 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
           <span className="login-line" />
           <span className="login-node" style={{ '--c': '#3ecf8e' } as React.CSSProperties}><Workflow size={26} /></span>
         </div>
-        <h2>Je hele bedrijf op één plek</h2>
-        <p>Planning, klanten, leads, facturen en je eigen werkstromen.</p>
+        <h2>Je freelancepraktijk op één plek</h2>
+        <p>Uren, projecten, facturen, klanten en leads, plus je eigen werkstromen.</p>
       </div>
 
       <form className="login-card" onSubmit={submit}>

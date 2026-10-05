@@ -133,6 +133,61 @@ export interface ActivityItem {
   at: string
 }
 
+export type ProjectStatus = 'actief' | 'gepauzeerd' | 'afgerond'
+export type BillingType = 'uur' | 'vast'
+
+export interface Project {
+  id: number
+  name: string
+  customerId: number
+  customerName?: string | null
+  status: ProjectStatus
+  billing: BillingType
+  hourlyRate: number
+  fixedPrice: number
+  budgetHours?: number | null
+  color: string
+  repoUrl?: string | null
+  description?: string | null
+  deadline?: string | null
+  createdAt?: string
+  minutesTotal: number
+  minutesUnbilled: number
+  unbilledValue: number
+  lastEntry?: string | null
+}
+
+export interface TimeEntry {
+  id: number
+  projectId: number
+  projectName: string
+  projectColor: string
+  customerName?: string | null
+  date: string
+  minutes: number
+  description: string
+  billable: boolean
+  invoiceId?: number | null
+  invoiceNumber?: string | null
+}
+
+export interface Settings {
+  companyName: string
+  ownerName?: string | null
+  address?: string | null
+  city?: string | null
+  email?: string | null
+  phone?: string | null
+  website?: string | null
+  kvk?: string | null
+  btw?: string | null
+  iban?: string | null
+  defaultHourlyRate: number
+  paymentTermDays: number
+  weeklyHoursTarget: number
+  yearlyHoursTarget: number
+}
+
 export interface Dashboard {
   customers: number
   openLeads: number
@@ -144,4 +199,16 @@ export interface Dashboard {
   leadsByStatus: { status: LeadStatus; count: number; value: number }[]
   upcoming: Appointment[]
   activity: ActivityItem[]
+  hours: {
+    week: number
+    weekBillable: number
+    weekTarget: number
+    year: number
+    yearTarget: number
+    weeksLeft: number
+    byDay: { date: string; minutes: number }[]
+  }
+  unbilled: { minutes: number; value: number }
+  vat: { label: string; amount: number; revenue: number; dueDate: string }
+  projects: Project[]
 }

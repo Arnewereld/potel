@@ -15,6 +15,9 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
     public DbSet<Activity> Activities => Set<Activity>();
     public DbSet<User> Users => Set<User>();
     public DbSet<WorkflowRun> WorkflowRuns => Set<WorkflowRun>();
+    public DbSet<Project> Projects => Set<Project>();
+    public DbSet<TimeEntry> TimeEntries => Set<TimeEntry>();
+    public DbSet<Settings> Settings => Set<Settings>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -23,6 +26,11 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
         b.Entity<WorkflowRun>().HasIndex(r => new { r.Status, r.ResumeAt });
         b.Entity<Invoice>().HasMany(i => i.Lines).WithOne().HasForeignKey(l => l.InvoiceId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<Invoice>().HasOne(i => i.Customer).WithMany().HasForeignKey(i => i.CustomerId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<Project>().HasOne(p => p.Customer).WithMany().HasForeignKey(p => p.CustomerId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<TimeEntry>().HasOne<Project>().WithMany().HasForeignKey(t => t.ProjectId).OnDelete(DeleteBehavior.Cascade);
+        // Wordt een factuur verwijderd, dan komen de uren weer vrij om te factureren.
+        b.Entity<TimeEntry>().HasOne<Invoice>().WithMany().HasForeignKey(t => t.InvoiceId).OnDelete(DeleteBehavior.SetNull);
+        b.Entity<TimeEntry>().HasIndex(t => t.Date);
     }
 
     public void Log(string kind, string text) => Activities.Add(new Activity { Kind = kind, Text = text });

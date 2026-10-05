@@ -1,6 +1,6 @@
-# Potel · Bedrijvenportaal
+# Potel · Portaal voor freelance developers
 
-Een portaal waarin een bedrijf zijn planning, facturen, klanten en leads bijhoudt, met eigen modules en werkstromen in de stijl van n8n.
+Een portaal voor een zzp'er in softwareontwikkeling: uren schrijven met een timer, projecten per klant, open uren met één klik factureren, en daarnaast planning, klanten, leads, eigen modules en werkstromen in de stijl van n8n.
 
 ![stack](https://img.shields.io/badge/frontend-Vite%20%2B%20React%20%2B%20TypeScript-ff6d5a) ![stack](https://img.shields.io/badge/backend-C%23%20ASP.NET%20Core%20%2B%20SQLite-4ea5ff)
 
@@ -8,16 +8,19 @@ Een portaal waarin een bedrijf zijn planning, facturen, klanten en leads bijhoud
 
 | Onderdeel | Wat je ermee doet |
 | --- | --- |
-| **Dashboard** | Omzet per maand, openstaande facturen, pipeline-waarde, wat er binnenkort gepland staat en recente activiteit. |
+| **Dashboard** | Omzet, open uren klaar om te factureren, openstaande facturen, btw van dit kwartaal (met de aangiftedatum), uren deze week, je voortgang naar het urencriterium (1.225 uur), lopende projecten, leads en wat er gepland staat. |
+| **Uren** | Start/stop-timer (loopt door als je de pagina ververst en staat altijd rechts in de tabbalk), weekoverzicht per project en dag, en uren handmatig boeken als `1:30` of `1,5`. Gefactureerde uren liggen vast. |
+| **Projecten** | Per klant, per uur of met een vaste prijs, met budget in uren, deadline en repository. Je ziet de budgetbalk, open uren en bij vaste prijs je effectieve uurtarief. Met *Factureer* zet je de open uren op een conceptfactuur: één regel of één regel per boeking. |
 | **Planning** | Weekkalender (klik op een leeg vak om iets in te plannen) en een takenlijst om af te vinken. |
-| **Klanten** | Klantenlijst met zoeken. Elke klant opent in een eigen tabblad met de tabjes Overzicht, Facturen, Planning en Notities. |
+| **Klanten** | Klantenlijst met zoeken. Elke klant opent in een eigen tabblad met de tabjes Overzicht, Projecten, Facturen, Planning en Notities. |
 | **Leads** | Kanbanbord: sleep leads van Nieuw naar Contact, Offerte, Gewonnen of Verloren. Met één klik maak je van een lead een klant. |
-| **Facturen** | Facturen met regels, btw (21%, 9% of 0%), automatische nummering, een live voorbeeld en afdrukken/opslaan als PDF. Verzonden facturen voorbij de vervaldatum worden vanzelf "verlopen". |
+| **Facturen** | Facturen met regels, btw (21%, 9% of 0%), automatische nummering, een live voorbeeld met je KvK, btw-nummer en IBAN, en afdrukken/opslaan als PDF. Verzonden facturen voorbij de vervaldatum worden vanzelf "verlopen". Verwijder je een factuur die van uren gemaakt is, dan komen die uren weer vrij. |
+| **Instellingen** | Je bedrijfsgegevens voor op de factuur, je standaard uurtarief, betaaltermijn en je doelen in uren per week en per jaar. |
 | **Werkstromen** | Een canvas zoals in n8n: zet blokken neer, stel ze in en verbind ze door te slepen. Staat een werkstroom aan, dan start hij vanzelf bij zijn trigger en voert hij de acties echt uit. Zie hieronder. |
 | **Gebruikers** | Iedereen logt in met e-mail en wachtwoord. Beheerders voegen gebruikers toe, kiezen hun rol en kunnen ze uitschakelen. |
-| **Eigen modules** | Maak zelf een lijst met je eigen velden (tekst, getal, datum, ja/nee), bijvoorbeeld voertuigen, voorraad of contracten. Hij verschijnt direct in het menu. |
+| **Eigen modules** | Maak zelf een lijst met je eigen velden (tekst, getal, datum, ja/nee). Standaard staan er *Servers & domeinen* en *Licenties* in. Een nieuwe module verschijnt direct in het menu. |
 
-Verder: alles opent als **tabblad** bovenin (dubbelklik op een tabblad sluit de andere), **Ctrl K** om overal te zoeken, en een licht en donker thema.
+Verder: alles opent als **tabblad** bovenin (dubbelklik op een tabblad sluit de andere), **Ctrl K** om overal te zoeken, en een licht (standaard) en donker thema.
 
 ## Starten
 
@@ -90,9 +93,9 @@ dotnet test
 ```
 backend/Potel.Api/
   Data/          modellen, database (EF Core + SQLite, met migraties) en voorbeelddata
-  Endpoints/     API per onderdeel: inloggen, gebruikers, klanten, leads, facturen, planning, modules, werkstromen
+  Endpoints/     API per onderdeel: inloggen, gebruikers, klanten, projecten, uren, leads, facturen, planning, instellingen, modules, werkstromen
   Workflows/     de motor die werkstromen uitvoert, plus de planner op de achtergrond
-backend/Potel.Api.Tests/   tests voor inloggen en werkstromen
+backend/Potel.Api.Tests/   tests voor inloggen, werkstromen en uren factureren
 frontend/src/
   components/    menu, tabbladen, zoekvenster en losse UI-onderdelen
   pages/         één bestand per scherm
@@ -103,7 +106,6 @@ De API-documentatie (Swagger) staat op http://localhost:5080/swagger zolang de b
 
 ## Nog niet ingebouwd
 
-- Je bedrijfsgegevens op de factuur (via *Mijn gegevens*) worden in de browser bewaard, niet in de database.
 - Wachtwoord vergeten via e-mail: een beheerder zet een nieuw wachtwoord bij *Gebruikers*.
 
 Een database uit de allereerste versie wordt bij het starten bewaard als `potel.db.<datum>.bak` en vervangen door een nieuwe met het juiste schema.

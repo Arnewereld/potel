@@ -47,6 +47,8 @@ public static class CustomerEndpoints
             if (c is null) return Results.NotFound();
             if (await db.Invoices.AnyAsync(i => i.CustomerId == id))
                 return Results.Conflict(new { error = "Deze klant heeft facturen en kan niet verwijderd worden" });
+            if (await db.Projects.AnyAsync(p => p.CustomerId == id))
+                return Results.Conflict(new { error = "Deze klant heeft projecten. Verwijder die eerst." });
             db.Customers.Remove(c);
             db.Log("klant", $"Klant {c.Name} verwijderd");
             await db.SaveChangesAsync();

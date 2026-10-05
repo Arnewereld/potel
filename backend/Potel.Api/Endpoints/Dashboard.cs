@@ -15,6 +15,22 @@ public static class DashboardEndpoints
             var leads = await db.Leads.AsNoTracking().ToListAsync();
 
             var monthStart = new DateTime(today.Year, today.Month, 1);
+
+            // Uren: deze week (maandag t/m zondag) en dit jaar, voor het urencriterium.
+            var settings = await SettingsEndpoints.GetAsync(db);
+            var localToday = DateTime.Today;
+            var weekStart = localToday.AddDays(-(((int)localToday.DayOfWeek + 6) % 7));
+            var yearStart = new DateTime(localToday.Year, 1, 1);
+            var entries = await db.TimeEntries.Where(t => t.Date >= yearStart).AsNoTracking().ToListAsync();
+            var week = entries.Where(t => t.Date >= weekStart && t.Date < weekStart.AddDays(7)).ToList();
+            var projects = await ProjectEndpoints.ListAsync(db);
+            var unbilledMinutes = projects.Sum(p => p.MinutesUnbilled);
+
+            // Btw over de facturen van dit kwartaal; de aangifte moet uiterlijk een maand na het kwartaal binnen zijn.
+            var quarter = (today.Month - 1) / 3;
+            var quarterStart = new DateTime(today.Year, quarter * 3 + 1, 1);
+            var quarterInvoices = invoices.Where(i => i.Status != "concept" && i.IssueDate >= quarterStart && i.IssueDate < quarterStart.AddMonths(3)).ToList();
+            decimal Net(Invoice i) => i.Lines.Sum(l => Math.Round(l.Quantity * l.UnitPrice, 2));
             var months = Enumerable.Range(0, 6).Select(i => monthStart.AddMonths(i - 5)).ToList();
 
             return new
@@ -31,6 +47,26 @@ public static class DashboardEndpoints
                     total = invoices.Where(i => i.Status == "betaald" && i.IssueDate.Year == m.Year && i.IssueDate.Month == m.Month).Sum(InvoiceEndpoints.Total)
                 }),
                 leadsByStatus = LeadStatus.All.Select(s => new { status = s, count = leads.Count(l => l.Status == s), value = leads.Where(l => l.Status == s).Sum(l => l.Value) }),
+                hours = new
+                {
+                    week = week.Sum(t => t.Minutes),
+                    weekBillable = week.Where(t => t.Billable).Sum(t => t.Minutes),
+                    weekTarget = settings.WeeklyHoursTarget,
+                    year = entries.Sum(t => t.Minutes),
+                    yearTarget = settings.YearlyHoursTarget,
+                    // Wat je per week moet halen om het jaardoel nog te halen.
+                    weeksLeft = Math.Max(1, (int)Math.Ceiling((new DateTime(localToday.Year, 12, 31) - localToday).TotalDays / 7)),
+                    byDay = Enumerable.Range(0, 7).Select(d => weekStart.AddDays(d)).Select(d => new { date = d.ToString("yyyy-MM-dd"), minutes = week.Where(t => t.Date == d).Sum(t => t.Minutes) }),
+                },
+                unbilled = new { minutes = unbilledMinutes, value = projects.Sum(p => p.UnbilledValue) },
+                vat = new
+                {
+                    label = $"Q{quarter + 1} {today.Year}",
+                    amount = quarterInvoices.Sum(i => InvoiceEndpoints.Total(i) - Net(i)),
+                    revenue = quarterInvoices.Sum(Net),
+                    dueDate = quarterStart.AddMonths(4).AddDays(-1).ToString("yyyy-MM-dd"),
+                },
+                projects = projects.Where(p => p.Status == "actief").OrderByDescending(p => p.LastEntry).Take(6),
                 upcoming = await db.Appointments.Where(a => a.End >= DateTime.Now && !a.Done).OrderBy(a => a.Start).Take(5).ToListAsync(),
                 activity = await db.Activities.OrderByDescending(a => a.Id).Take(12).ToListAsync(),
             };
@@ -49,7 +85,10 @@ public static class DashboardEndpoints
             var invoices = await db.Invoices.Include(i => i.Customer)
                 .Where(i => i.Number.ToLower().Contains(q) || i.Customer!.Name.ToLower().Contains(q))
                 .Take(5).Select(i => new { type = "factuur", id = i.Id, title = i.Number, subtitle = (string?)i.Customer!.Name }).ToListAsync();
-            return Results.Ok(customers.Concat(leads).Concat(invoices));
+            var projects = await db.Projects.Include(p => p.Customer)
+                .Where(p => p.Name.ToLower().Contains(q) || (p.Customer!.Company ?? p.Customer!.Name).ToLower().Contains(q))
+                .Take(5).Select(p => new { type = "project", id = p.Id, title = p.Name, subtitle = (string?)(p.Customer!.Company ?? p.Customer!.Name) }).ToListAsync();
+            return Results.Ok(projects.Concat(customers).Concat(leads).Concat(invoices));
         });
     }
 }

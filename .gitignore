@@ -10,3 +10,4 @@ backend/Potel.Api/wwwroot/
 .vscode/
 *.user
 .DS_Store
+*.bak

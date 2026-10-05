@@ -20,6 +20,10 @@ const STORAGE_KEY = 'potel.tabs'
 export function defaultTitle(fullPath: string) {
   const path = fullPath.split('?')[0]!
   if (path === '/') return 'Dashboard'
+  if (path === '/uren') return 'Uren'
+  if (path === '/projecten') return 'Projecten'
+  if (path.startsWith('/projecten/')) return 'Project'
+  if (path === '/instellingen') return 'Instellingen'
   if (path.startsWith('/planning')) return 'Planning'
   if (path === '/klanten') return 'Klanten'
   if (path.startsWith('/klanten/')) return 'Klant'

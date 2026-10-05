@@ -5,11 +5,10 @@ import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useTabs, useTabTitle } from '../lib/tabs'
 import { useToast } from '../lib/toast'
-import type { Customer, Invoice, InvoiceLine } from '../lib/types'
+import type { Customer, Invoice, InvoiceLine, Settings } from '../lib/types'
 import { date, euro, invoiceTotals, toDateInput } from '../lib/format'
 import { invoiceStatuses } from '../lib/status'
-import { loadCompany, saveCompany, type Company } from '../lib/company'
-import { ErrorBox, Field, Loading, Modal, PageHeader } from '../components/ui'
+import { ErrorBox, Field, Loading, PageHeader } from '../components/ui'
 
 type Draft = Omit<Invoice, 'id'> & { id?: number }
 
@@ -24,8 +23,7 @@ export function InvoiceEditorPage() {
   const [draft, setDraft] = useState<Draft | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
-  const [company, setCompany] = useState<Company>(loadCompany)
-  const [editCompany, setEditCompany] = useState(false)
+  const { data: settings } = useApi<Settings>('/settings')
   const { retarget, close } = useTabs()
   const navigate = useNavigate()
   const toast = useToast()
@@ -34,11 +32,13 @@ export function InvoiceEditorPage() {
   useEffect(() => {
     if (isNew) {
       const today = new Date()
-      const due = new Date(); due.setDate(due.getDate() + 14)
-      api.get<{ number: string }>('/invoices/next-number').then(r => setDraft({
-        number: r.number, customerId: Number(params.get('klant')) || 0, issueDate: toDateInput(today), dueDate: toDateInput(due),
-        status: 'concept', notes: 'Graag binnen 14 dagen betalen onder vermelding van het factuurnummer.', lines: [newLine()],
-      })).catch(e => setError(e.message))
+      Promise.all([api.get<{ number: string }>('/invoices/next-number'), api.get<Settings>('/settings')]).then(([r, s]) => {
+        const due = new Date(); due.setDate(due.getDate() + s.paymentTermDays)
+        setDraft({
+          number: r.number, customerId: Number(params.get('klant')) || 0, issueDate: toDateInput(today), dueDate: toDateInput(due),
+          status: 'concept', notes: paymentNote(s), lines: [newLine()],
+        })
+      }).catch(e => setError(e.message))
     } else {
       api.get<Invoice>(`/invoices/${id}`).then(inv => setDraft({ ...inv, issueDate: inv.issueDate.slice(0, 10), dueDate: inv.dueDate.slice(0, 10) }))
         .catch(e => setError(e.message))
@@ -53,6 +53,7 @@ export function InvoiceEditorPage() {
     update({ lines: draft.lines.map((l, i) => (i === idx ? { ...l, ...patch } : l)) })
   const totals = invoiceTotals(draft.lines)
   const customer = customers?.find(c => c.id === draft.customerId)
+  const company: Settings = settings ?? { companyName: '…', defaultHourlyRate: 0, paymentTermDays: 14, weeklyHoursTarget: 0, yearlyHoursTarget: 0 }
 
   const save = async () => {
     try {
@@ -95,7 +96,7 @@ export function InvoiceEditorPage() {
           subtitle={dirty ? 'Niet opgeslagen wijzigingen' : 'Alles opgeslagen'}
           actions={<>
             {!isNew && <button className="btn btn-danger" onClick={remove}><Trash2 size={15} /></button>}
-            <button className="btn" onClick={() => setEditCompany(true)}><Building size={15} /> Mijn gegevens</button>
+            <button className="btn" onClick={() => navigate('/instellingen')}><Building size={15} /> Mijn gegevens</button>
             <button className="btn" onClick={() => window.print()}><Printer size={15} /> Afdrukken / PDF</button>
             <button className="btn btn-primary" onClick={save}><Save size={15} /> Opslaan</button>
           </>}
@@ -151,11 +152,12 @@ export function InvoiceEditorPage() {
         <div className="invoice-paper">
           <div className="paper-head">
             <div>
-              <div className="paper-logo">{company.name.slice(0, 1)}</div>
-              <strong>{company.name}</strong>
+              <div className="paper-logo">{company.companyName.slice(0, 1)}</div>
+              <strong>{company.companyName}</strong>
+              {company.ownerName && <div>{company.ownerName}</div>}
               <div>{company.address}</div>
               <div>{company.city}</div>
-              <div>{company.email}</div>
+              <div>{[company.email, company.website].filter(Boolean).join(' · ')}</div>
             </div>
             <div className="paper-title">
               <h2>FACTUUR</h2>
@@ -199,28 +201,10 @@ export function InvoiceEditorPage() {
         </div>
       </div>
 
-      {editCompany && <CompanyModal company={company} onClose={() => setEditCompany(false)} onSave={c => { saveCompany(c); setCompany(c); setEditCompany(false); toast('Bedrijfsgegevens opgeslagen') }} />}
     </>
   )
 }
 
-function CompanyModal({ company, onClose, onSave }: { company: Company; onClose: () => void; onSave: (c: Company) => void }) {
-  const [form, setForm] = useState(company)
-  const set = (k: keyof Company) => (e: React.ChangeEvent<HTMLInputElement>) => setForm(f => ({ ...f, [k]: e.target.value }))
-  return (
-    <Modal title="Mijn bedrijfsgegevens" onClose={onClose} footer={<>
-      <button className="btn" onClick={onClose}>Annuleren</button>
-      <button className="btn btn-primary" onClick={() => onSave(form)}>Opslaan</button>
-    </>}>
-      <div className="form-grid">
-        <Field label="Bedrijfsnaam" full><input value={form.name} onChange={set('name')} /></Field>
-        <Field label="Adres"><input value={form.address} onChange={set('address')} /></Field>
-        <Field label="Postcode en plaats"><input value={form.city} onChange={set('city')} /></Field>
-        <Field label="E-mail"><input value={form.email} onChange={set('email')} /></Field>
-        <Field label="KvK-nummer"><input value={form.kvk} onChange={set('kvk')} /></Field>
-        <Field label="Btw-nummer"><input value={form.btw} onChange={set('btw')} /></Field>
-        <Field label="IBAN"><input value={form.iban} onChange={set('iban')} /></Field>
-      </div>
-    </Modal>
-  )
-}
+// Zelfde tekst als de server zet bij facturen die van uren gemaakt worden.
+const paymentNote = (s: Settings) =>
+  `Graag binnen ${s.paymentTermDays} dagen overmaken${s.iban ? ` op ${s.iban} t.n.v. ${s.companyName}` : ''} onder vermelding van het factuurnummer.`

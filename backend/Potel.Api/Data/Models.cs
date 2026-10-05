@@ -61,6 +61,71 @@ public class InvoiceLine
     public decimal VatRate { get; set; } = 21;
 }
 
+public static class ProjectStatus
+{
+    public static readonly string[] All = ["actief", "gepauzeerd", "afgerond"];
+}
+
+public static class Billing
+{
+    // Per uur: uren worden gefactureerd tegen het uurtarief. Vast: één afgesproken prijs voor het hele project.
+    public const string Hourly = "uur";
+    public const string Fixed = "vast";
+    public static readonly string[] All = [Hourly, Fixed];
+}
+
+public class Project
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = "";
+    public int CustomerId { get; set; }
+    public Customer? Customer { get; set; }
+    public string Status { get; set; } = "actief";
+    public string Billing { get; set; } = Data.Billing.Hourly;
+    public decimal HourlyRate { get; set; }
+    public decimal FixedPrice { get; set; }
+    public decimal? BudgetHours { get; set; }
+    public string Color { get; set; } = "#ff6d5a";
+    public string? RepoUrl { get; set; }
+    public string? Description { get; set; }
+    public DateTime? Deadline { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class TimeEntry
+{
+    public int Id { get; set; }
+    public int ProjectId { get; set; }
+    public DateTime Date { get; set; } = DateTime.UtcNow.Date;
+    public int Minutes { get; set; }
+    public string Description { get; set; } = "";
+    public bool Billable { get; set; } = true;
+    // Gevuld zodra de uren op een factuur staan; daarna liggen ze vast.
+    public int? InvoiceId { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+// Eén rij met de gegevens van de freelancer zelf: voor op de factuur en voor de doelen op het dashboard.
+public class Settings
+{
+    public int Id { get; set; }
+    public string CompanyName { get; set; } = "Jouw Naam Development";
+    public string? OwnerName { get; set; }
+    public string? Address { get; set; }
+    public string? City { get; set; }
+    public string? Email { get; set; }
+    public string? Phone { get; set; }
+    public string? Website { get; set; }
+    public string? Kvk { get; set; }
+    public string? Btw { get; set; }
+    public string? Iban { get; set; }
+    public decimal DefaultHourlyRate { get; set; } = 95;
+    public int PaymentTermDays { get; set; } = 14;
+    public int WeeklyHoursTarget { get; set; } = 32;
+    // Het urencriterium voor de zelfstandigenaftrek.
+    public int YearlyHoursTarget { get; set; } = 1225;
+}
+
 public class Appointment
 {
     public int Id { get; set; }

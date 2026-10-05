@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Users, Target, Receipt, CornerDownLeft, Plus, LayoutDashboard, CalendarDays, Workflow } from 'lucide-react'
+import { Search, Users, Target, Receipt, CornerDownLeft, Plus, LayoutDashboard, CalendarDays, Workflow, Timer, FolderKanban, Settings } from 'lucide-react'
 import { api } from '../lib/api'
 
 interface Hit { type: string; id: number; title: string; subtitle?: string | null }
@@ -8,14 +8,18 @@ interface Item { key: string; label: string; hint?: string; icon: React.ReactNod
 
 const quick: Item[] = [
   { key: 'q-dash', label: 'Dashboard', icon: <LayoutDashboard size={16} />, to: '/' },
+  { key: 'q-uren', label: 'Uren', icon: <Timer size={16} />, to: '/uren' },
+  { key: 'q-proj', label: 'Projecten', icon: <FolderKanban size={16} />, to: '/projecten' },
   { key: 'q-plan', label: 'Planning', icon: <CalendarDays size={16} />, to: '/planning' },
   { key: 'q-inv', label: 'Nieuwe factuur', icon: <Plus size={16} />, to: '/facturen/nieuw' },
   { key: 'q-cus', label: 'Klanten', icon: <Users size={16} />, to: '/klanten' },
   { key: 'q-lead', label: 'Leads', icon: <Target size={16} />, to: '/leads' },
   { key: 'q-wf', label: 'Werkstromen', icon: <Workflow size={16} />, to: '/werkstromen' },
+  { key: 'q-set', label: 'Instellingen', icon: <Settings size={16} />, to: '/instellingen' },
 ]
 
 const typeInfo: Record<string, { icon: React.ReactNode; path: (id: number) => string }> = {
+  project: { icon: <FolderKanban size={16} />, path: id => `/projecten/${id}` },
   klant: { icon: <Users size={16} />, path: id => `/klanten/${id}` },
   lead: { icon: <Target size={16} />, path: () => '/leads' },
   factuur: { icon: <Receipt size={16} />, path: id => `/facturen/${id}` },
@@ -59,7 +63,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
           <Search size={18} />
           <input
             autoFocus
-            placeholder="Zoek klanten, leads, facturen of ga naar…"
+            placeholder="Zoek projecten, klanten, leads, facturen of ga naar…"
             value={q}
             onChange={e => setQ(e.target.value)}
             onKeyDown={e => {

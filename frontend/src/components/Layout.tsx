@@ -2,8 +2,9 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, CalendarDays, Users, Target, Receipt, Workflow, Blocks, X, Search,
-  ChevronsLeft, ChevronsRight, Moon, Sun, Plus, ShieldCheck, LogOut, KeyRound,
+  ChevronsLeft, ChevronsRight, Moon, Sun, Plus, ShieldCheck, LogOut, KeyRound, Timer, FolderKanban, Settings, Square,
 } from 'lucide-react'
+import { clock, useTimer } from '../lib/timer'
 import { useAuth } from '../lib/auth'
 import { initials } from '../lib/format'
 import { colorFor } from '../lib/status'
@@ -15,12 +16,22 @@ import { CommandPalette } from './CommandPalette'
 
 const nav = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: '/uren', label: 'Uren', icon: Timer },
+  { to: '/projecten', label: 'Projecten', icon: FolderKanban },
+  { to: '/facturen', label: 'Facturen', icon: Receipt },
   { to: '/planning', label: 'Planning', icon: CalendarDays },
   { to: '/klanten', label: 'Klanten', icon: Users },
   { to: '/leads', label: 'Leads', icon: Target },
-  { to: '/facturen', label: 'Facturen', icon: Receipt },
   { to: '/werkstromen', label: 'Werkstromen', icon: Workflow },
+  { to: '/instellingen', label: 'Instellingen', icon: Settings },
 ]
+
+const navLinks = (items: typeof nav) => items.map(item => (
+  <NavLink key={item.to} to={item.to} end={item.end} className="nav-item" title={item.label}>
+    <item.icon size={18} />
+    <span>{item.label}</span>
+  </NavLink>
+))
 
 function tabIcon(path: string) {
   path = path.split('?')[0]!
@@ -37,7 +48,7 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
   const navigate = useNavigate()
   const current = location.pathname + location.search
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('potel.collapsed') === '1')
-  const [theme, setTheme] = useState(() => localStorage.getItem('potel.theme') ?? 'dark')
+  const [theme, setTheme] = useState(() => localStorage.getItem('potel.theme') ?? 'light')
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [userMenu, setUserMenu] = useState(false)
   const [changingPassword, setChangingPassword] = useState(false)
@@ -70,7 +81,7 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
           <div className="brand-logo">
             <svg viewBox="0 0 32 32" width="22" height="22"><circle cx="9" cy="16" r="3.4" fill="currentColor" /><circle cx="23" cy="9" r="3.4" fill="currentColor" /><circle cx="23" cy="23" r="3.4" fill="currentColor" /><path d="M12 16h3c3 0 3-7 5-7M12 16h3c3 0 3 7 5 7" stroke="currentColor" strokeWidth="2.2" fill="none" /></svg>
           </div>
-          <span className="brand-name">Potel</span>
+          <span className="brand-name">Potel<small>freelance dev</small></span>
         </div>
 
         <button className="search-trigger" onClick={() => setPaletteOpen(true)}>
@@ -80,13 +91,12 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
         </button>
 
         <nav className="nav">
-          <div className="nav-label">Overzicht</div>
-          {nav.map(item => (
-            <NavLink key={item.to} to={item.to} end={item.end} className="nav-item" title={item.label}>
-              <item.icon size={18} />
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
+          <div className="nav-label">Werk</div>
+          {navLinks(nav.slice(0, 5))}
+          <div className="nav-label">Klanten en sales</div>
+          {navLinks(nav.slice(5, 7))}
+          <div className="nav-label">Systeem</div>
+          {navLinks(nav.slice(7))}
 
           {user.role === 'beheerder' && (
             <NavLink to="/gebruikers" className="nav-item" title="Gebruikers">
@@ -157,6 +167,7 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
               </div>
             )
           })}
+          <TimerChip />
         </div>
         {(tabs.some(t => t.path === current) ? tabs : [...tabs, { path: current, title: '' }]).map(t => (
           <main key={t.path} className="content" hidden={t.path !== current}>
@@ -167,6 +178,23 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
 
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
       {changingPassword && <PasswordModal onClose={() => setChangingPassword(false)} />}
+    </div>
+  )
+}
+
+// De lopende timer, altijd zichtbaar rechts in de tabbalk.
+function TimerChip() {
+  const { running, elapsed, stop } = useTimer()
+  const navigate = useNavigate()
+  if (!running) return null
+  return (
+    <div className="timer-chip" style={{ '--accent': running.projectColor } as React.CSSProperties}>
+      <button className="timer-chip-main" onClick={() => navigate('/uren')} title={running.description || running.projectName}>
+        <span className="timer-pulse" />
+        <span className="truncate">{running.projectName}</span>
+        <strong>{clock(elapsed)}</strong>
+      </button>
+      <button className="timer-chip-stop" onClick={stop} title="Stoppen en boeken"><Square size={11} fill="currentColor" /></button>
     </div>
   )
 }

@@ -39,3 +39,33 @@ export function invoiceTotals(lines: InvoiceLine[]) {
 
 export const initials = (name: string) =>
   name.split(/\s+/).filter(Boolean).slice(0, 2).map(p => p[0]!.toUpperCase()).join('')
+
+// Minuten als "7:30" of, met unit, als "7,5 u".
+export const hm = (minutes: number) => `${Math.floor(minutes / 60)}:${pad(Math.round(minutes % 60))}`
+export const hours = (minutes: number, digits = 1) =>
+  `${(minutes / 60).toLocaleString('nl-NL', { maximumFractionDigits: digits })} u`
+
+// Leest "1:30", "1,5", "1.5" of "90m" als minuten.
+export function parseDuration(s: string): number | null {
+  s = s.trim().toLowerCase()
+  if (!s) return null
+  let m = s.match(/^(\d+):(\d{1,2})$/)
+  if (m) return Number(m[1]) * 60 + Number(m[2])
+  m = s.match(/^(\d+)\s*m(in)?$/)
+  if (m) return Number(m[1])
+  const n = Number(s.replace(/\s*u(ur)?$/, '').replace(',', '.'))
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 60) : null
+}
+
+// Maandag van de week waarin de datum valt.
+export function weekStart(d: Date) {
+  const r = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  r.setDate(r.getDate() - ((r.getDay() + 6) % 7))
+  return r
+}
+
+export function weekNumber(d: Date) {
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
+  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7))
+  return Math.ceil(((t.getTime() - Date.UTC(t.getUTCFullYear(), 0, 1)) / 86400000 + 1) / 7)
+}

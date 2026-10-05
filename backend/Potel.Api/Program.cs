@@ -73,6 +73,9 @@ api.MapInvoices();
 api.MapAppointments();
 api.MapModules();
 api.MapWorkflows();
+api.MapProjects();
+api.MapTime();
+api.MapSettings();
 api.MapFallback(() => Results.NotFound());
 
 app.MapFallbackToFile("index.html");

@@ -18,7 +18,7 @@ public class WorkflowTests(PortalFactory factory) : IClassFixture<PortalFactory>
         var lead = await res.Content.ReadFromJsonAsync<Lead>();
 
         Assert.Equal("contact", lead!.Status);
-        Assert.True(factory.WithDb(db => db.Appointments.Any(a => a.Title == "Bel Grote Klant (Groot BV)")));
+        Assert.True(factory.WithDb(db => db.Appointments.Any(a => a.Title == "Intakegesprek plannen met Grote Klant (Groot BV)")));
     }
 
     [Fact]
@@ -65,7 +65,7 @@ public class WorkflowTests(PortalFactory factory) : IClassFixture<PortalFactory>
         wf!.Active = true;
         await client.PutAsJsonAsync($"/api/workflows/{wf.Id}", wf);
 
-        var invoice = factory.WithDb(db => db.Invoices.First(i => i.Status == "concept"));
+        var invoice = factory.WithDb(db => db.Invoices.First(i => i.Status != "betaald"));
         var full = await client.GetFromJsonAsync<Invoice>($"/api/invoices/{invoice.Id}");
         full!.Status = "betaald";
         (await client.PutAsJsonAsync($"/api/invoices/{invoice.Id}", full)).EnsureSuccessStatusCode();
