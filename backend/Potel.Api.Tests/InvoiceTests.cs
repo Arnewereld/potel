@@ -11,11 +11,14 @@ public class InvoiceTests(PortalFactory factory) : IClassFixture<PortalFactory>
     async Task<(HttpClient Client, int CustomerId, int InvoiceId)> CreateAsync(object? extra = null)
     {
         var client = await factory.LoginAsync();
-        var customer = await Json(await client.PostAsJsonAsync("/api/customers", new { name = "Klant", vatNumber = "DE123456789" }));
+        var customer = await Json(await client.PostAsJsonAsync("/api/customers", new
+        {
+            name = "Klant", company = "Kunde GmbH", address = "Hauptstraße 1", city = "10115 Berlin", country = "Duitsland", vatNumber = "DE123456789",
+        }));
         var customerId = customer.GetProperty("id").GetInt32();
         var res = await client.PostAsJsonAsync("/api/invoices", new
         {
-            customerId, issueDate = "2026-10-01", dueDate = "2026-10-15", status = "concept", reference = "PO-1", reverseCharge = true,
+            customerId, issueDate = "2026-10-01", dueDate = "2026-10-15", status = "concept", reference = "PO-1", vatRegime = "verlegd",
             lines = new[] { new { description = "Bouwen", quantity = 10, unit = "uur", unitPrice = 100, vatRate = 21 } },
         });
         Assert.Equal(HttpStatusCode.Created, res.StatusCode);
@@ -46,7 +49,8 @@ public class InvoiceTests(PortalFactory factory) : IClassFixture<PortalFactory>
         Assert.Equal(-10m, credit.GetProperty("lines")[0].GetProperty("quantity").GetDecimal());
 
         var copy = await Json(await client.PostAsync($"/api/invoices/{id}/duplicate", null));
-        Assert.NotEqual(paid.GetProperty("number").GetString(), copy.GetProperty("number").GetString());
+        // Een kopie is een concept en krijgt pas een nummer als hij verstuurd wordt.
+        Assert.Equal(JsonValueKind.Null, copy.GetProperty("number").ValueKind);
         Assert.Equal(10m, copy.GetProperty("lines")[0].GetProperty("quantity").GetDecimal());
     }
 

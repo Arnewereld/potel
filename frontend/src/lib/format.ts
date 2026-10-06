@@ -1,4 +1,4 @@
-import type { InvoiceLine } from './types'
+import type { InvoiceLine, InvoiceTotals } from './types'
 
 const euroFmt = new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' })
 export const euro = (n: number) => euroFmt.format(n || 0)
@@ -26,15 +26,34 @@ const pad = (n: number) => String(n).padStart(2, '0')
 export const toDateInput = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 export const toDateTimeInput = (d: Date) => `${toDateInput(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 
-export function invoiceTotals(lines: InvoiceLine[]) {
-  let subtotal = 0
-  let vat = 0
+// Eén afrondingsregel, dezelfde als de server (Money in backend/Potel.Api/Data/Models.cs):
+// elke regel afgerond op centen, btw per tarief over het totaal van dat tarief, een halve cent van nul af.
+// We rekenen in hele centen; toPrecision(15) haalt de ruis van kommagetallen weg (1,005 blijft 1,005 en niet 1,00499...).
+const toCents = (euros: number) => {
+  const c = Number(Math.abs(euros * 100).toPrecision(15))
+  return Math.sign(euros) * Math.round(c) || 0
+}
+
+type Amounts = Pick<InvoiceLine, 'quantity' | 'unitPrice'>
+type Line = Amounts & Pick<InvoiceLine, 'vatRate'>
+const lineCents = (l: Amounts) => toCents((Number(l.quantity) || 0) * (Number(l.unitPrice) || 0))
+
+export const lineAmount = (l: Amounts) => lineCents(l) / 100
+
+export function invoiceTotals(lines: Line[]): InvoiceTotals {
+  const bases = new Map<number, number>()
   for (const l of lines) {
-    const net = (Number(l.quantity) || 0) * (Number(l.unitPrice) || 0)
-    subtotal += net
-    vat += Math.round(net * (Number(l.vatRate) || 0)) / 100
+    const rate = Number(l.vatRate) || 0
+    bases.set(rate, (bases.get(rate) ?? 0) + lineCents(l))
   }
-  return { subtotal, vat, total: subtotal + vat }
+  const groups = [...bases.entries()].sort(([a], [b]) => b - a)
+    .map(([rate, base]) => ({ rate, base, vat: toCents(base * rate / 10000) }))
+  const subtotal = groups.reduce((a, g) => a + g.base, 0)
+  const vat = groups.reduce((a, g) => a + g.vat, 0)
+  return {
+    subtotal: subtotal / 100, vat: vat / 100, total: (subtotal + vat) / 100,
+    vatGroups: groups.map(g => ({ rate: g.rate, base: g.base / 100, vat: g.vat / 100 })),
+  }
 }
 
 const numFmt = new Intl.NumberFormat('nl-NL', { maximumFractionDigits: 2 })

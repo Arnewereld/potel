@@ -144,7 +144,7 @@ export function TimePage() {
                         <span className="cell-sub">{e.projectName} · {e.customerName}</span>
                       </span>
                       {!e.billable && <span className="badge badge-gray">niet factureerbaar</span>}
-                      {e.invoiceNumber && <span className="badge badge-green"><Lock size={10} /> {e.invoiceNumber}</span>}
+                      {e.invoiceId && <span className={`badge ${e.invoiceNumber ? 'badge-green' : 'badge-gray'}`}><Lock size={10} /> {e.invoiceNumber ?? 'Concept'}</span>}
                       <strong className="entry-time">{hm(e.minutes)}</strong>
                     </button>
                   ))}

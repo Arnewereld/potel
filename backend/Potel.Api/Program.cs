@@ -15,6 +15,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 var dbPath = builder.Configuration.GetValue<string>("DatabasePath") ?? "potel.db";
 builder.Services.AddScoped<Tenant>();
+builder.Services.AddSingleton<BusinessClock>();
 builder.Services.AddDbContext<AppDb>(o => o.UseSqlite($"Data Source={dbPath}"));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();

@@ -32,10 +32,18 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         b.Entity<WorkflowRun>().HasIndex(r => new { r.Status, r.ResumeAt });
         b.Entity<Invoice>().HasMany(i => i.Lines).WithOne().HasForeignKey(l => l.InvoiceId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<Invoice>().HasOne(i => i.Customer).WithMany().HasForeignKey(i => i.CustomerId).OnDelete(DeleteBehavior.Restrict);
+        // Een creditnota wijst naar de factuur die hij corrigeert; die verstuurde factuur kan toch al niet weg.
+        b.Entity<Invoice>().HasOne(i => i.CreditFor).WithMany().HasForeignKey(i => i.CreditForInvoiceId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<Invoice>().OwnsOne(i => i.Seller);
+        b.Entity<Invoice>().OwnsOne(i => i.Buyer);
+        b.Entity<Invoice>().Property(i => i.VatRegime).HasDefaultValue(VatRegimes.Normal);
+        b.Entity<Customer>().Property(c => c.Country).HasDefaultValue(Countries.Netherlands);
+        b.Entity<Settings>().Property(s => s.VatRegime).HasDefaultValue(VatRegimes.Normal);
         b.Entity<Project>().HasOne(p => p.Customer).WithMany().HasForeignKey(p => p.CustomerId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<TimeEntry>().HasOne<Project>().WithMany().HasForeignKey(t => t.ProjectId).OnDelete(DeleteBehavior.Cascade);
         // Wordt een factuur verwijderd, dan komen de uren weer vrij om te factureren.
         b.Entity<TimeEntry>().HasOne<Invoice>().WithMany().HasForeignKey(t => t.InvoiceId).OnDelete(DeleteBehavior.SetNull);
+        b.Entity<TimeEntry>().HasOne<InvoiceLine>().WithMany().HasForeignKey(t => t.InvoiceLineId).OnDelete(DeleteBehavior.SetNull);
         b.Entity<TimeEntry>().HasIndex(t => t.Date);
         b.Entity<TimeEntry>().HasIndex(t => new { t.WorkspaceId, t.ClientId }).IsUnique();
         FilterByWorkspace(b);

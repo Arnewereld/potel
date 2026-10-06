@@ -21,7 +21,8 @@ export interface NodeType {
 }
 
 const leadStatusOptions = ['nieuw', 'contact', 'offerte', 'gewonnen', 'verloren'].map(v => ({ value: v, label: v }))
-const invoiceStatusOptions = ['concept', 'verzonden', 'betaald', 'verlopen'].map(v => ({ value: v, label: v }))
+// Een factuur kan niet terug naar concept; een werkstroom kan hem alleen versturen, betaald of verlopen maken.
+const invoiceStatusOptions = ['verzonden', 'betaald', 'verlopen'].map(v => ({ value: v, label: v }))
 
 // De bouwblokken die je op het werkstroom-canvas kunt zetten. De backend voert ze echt uit.
 export const nodeTypes: NodeType[] = [

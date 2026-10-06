@@ -7,7 +7,7 @@ import { useToast } from '../lib/toast'
 import type { Invoice, InvoiceStatus, Settings } from '../lib/types'
 import { date, euro, invoiceTotals, toDateInput } from '../lib/format'
 import { invoiceStatuses } from '../lib/status'
-import { daysUntil, isCredit, reminderMail } from '../lib/invoice'
+import { daysUntil, invoiceTitle, isCredit, reminderMail } from '../lib/invoice'
 import { Badge, Empty, ErrorBox, Loading, PageHeader, SubTabs } from '../components/ui'
 import { MiniStat } from './Time'
 
@@ -37,7 +37,7 @@ export function InvoicesPage() {
   const markPaid = async (inv: Invoice) => {
     try {
       await api.post(`/invoices/${inv.id}/status`, { status: 'betaald', paidAt: toDateInput(new Date()) })
-      toast(`Factuur ${inv.number} is betaald`)
+      toast(`${invoiceTitle(inv)} is betaald`)
       reload(true)
     } catch (e) {
       toast((e as Error).message, 'error')
@@ -47,7 +47,7 @@ export function InvoicesPage() {
   const duplicate = async (inv: Invoice) => {
     try {
       const copy = await api.post<Invoice>(`/invoices/${inv.id}/duplicate`)
-      toast(`Kopie ${copy.number} aangemaakt`)
+      toast('Kopie aangemaakt als concept')
       navigate(`/facturen/${copy.id}`)
     } catch (e) {
       toast((e as Error).message, 'error')
@@ -104,7 +104,7 @@ export function InvoicesPage() {
                     return (
                       <tr key={i.id} className="clickable" onClick={() => navigate(`/facturen/${i.id}`)}>
                         <td>
-                          <strong>{i.number}</strong>
+                          {i.number ? <strong>{i.number}</strong> : <span className="muted">Concept</span>}
                           {isCredit(i) && <span className="badge badge-purple" style={{ marginLeft: 8 }}>credit</span>}
                           {i.reference && <div className="cell-sub">{i.reference}</div>}
                         </td>
@@ -122,7 +122,7 @@ export function InvoicesPage() {
                         <td className="row-actions" onClick={e => e.stopPropagation()}>
                           {open && <button className="icon-btn" title="Markeer als betaald" onClick={() => markPaid(i)}><CheckCircle2 size={16} /></button>}
                           {i.status === 'verlopen' && settings && <a className="icon-btn" title="Herinnering mailen" href={reminderMail(i, i.customer, settings)}><BellRing size={16} /></a>}
-                          <button className="icon-btn" title="Dupliceren" onClick={() => duplicate(i)}><Copy size={16} /></button>
+                          {!isCredit(i) && <button className="icon-btn" title="Kopie maken als nieuw concept" onClick={() => duplicate(i)}><Copy size={16} /></button>}
                         </td>
                       </tr>
                     )

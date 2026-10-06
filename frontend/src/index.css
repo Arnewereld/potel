@@ -405,6 +405,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .line-head { font-size: 12px; color: var(--muted); }
 .line .num { text-align: right; font-variant-numeric: tabular-nums; }
 .invoice-form .field-full { margin-top: 16px; }
+.plain-fieldset { border: 0; margin: 0; min-width: 0; }
 
 
 /* ---------- Planning ---------- */
@@ -714,6 +715,7 @@ a.btn { text-decoration: none; color: inherit; display: inline-flex; align-items
 .paper-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); background: #f6f6fa; border-radius: 10px; padding: 12px 16px; gap: 12px; margin-bottom: 22px; }
 .paper-meta span { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--soft); }
 .paper-meta strong { font-size: 13px; }
+.paper-credit-ref { margin: -10px 0 18px; font-weight: 600; }
 .paper-table { width: 100%; border-collapse: collapse; }
 .paper-table th { color: var(--soft); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; border-bottom: 1.5px solid var(--ink); padding: 8px 6px; text-align: left; }
 .paper-table td { border-bottom: 1px solid var(--line); padding: 10px 6px; vertical-align: top; }

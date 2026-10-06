@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json.Serialization;
 
 namespace Potel.Api.Data;
@@ -51,9 +52,54 @@ public class Customer : IWorkspaceOwned
     public string? Phone { get; set; }
     public string? Address { get; set; }
     public string? City { get; set; }
+    // Bepaalt welke btw-regeling mag: btw verlegd alleen voor een ander EU-land, "buiten de EU" alleen daarbuiten.
+    public string Country { get; set; } = Countries.Netherlands;
     public string? VatNumber { get; set; }
     public string? Notes { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+// Landen zoals we ze op de factuur zetten, met de EU-landen apart om de btw-regeling te kunnen controleren.
+public static class Countries
+{
+    public const string Netherlands = "Nederland";
+
+    public static readonly string[] Eu =
+    [
+        "België", "Bulgarije", "Cyprus", "Denemarken", "Duitsland", "Estland", "Finland", "Frankrijk", "Griekenland", "Hongarije",
+        "Ierland", "Italië", "Kroatië", "Letland", "Litouwen", "Luxemburg", "Malta", "Nederland", "Oostenrijk", "Polen",
+        "Portugal", "Roemenië", "Slovenië", "Slowakije", "Spanje", "Tsjechië", "Zweden",
+    ];
+
+    // Andere schrijfwijzen (Engels, zonder trema of als landcode) van de EU-landen, zodat "Germany" of "DE" ook als EU telt.
+    static readonly Dictionary<string, string> Aliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["NL"] = "Nederland", ["Netherlands"] = "Nederland", ["The Netherlands"] = "Nederland", ["Holland"] = "Nederland",
+        ["BE"] = "België", ["Belgie"] = "België", ["Belgium"] = "België", ["BG"] = "Bulgarije", ["Bulgaria"] = "Bulgarije",
+        ["CY"] = "Cyprus", ["DK"] = "Denemarken", ["Denmark"] = "Denemarken", ["DE"] = "Duitsland", ["Germany"] = "Duitsland",
+        ["Deutschland"] = "Duitsland", ["EE"] = "Estland", ["Estonia"] = "Estland", ["FI"] = "Finland", ["FR"] = "Frankrijk",
+        ["France"] = "Frankrijk", ["GR"] = "Griekenland", ["EL"] = "Griekenland", ["Greece"] = "Griekenland", ["HU"] = "Hongarije",
+        ["Hungary"] = "Hongarije", ["IE"] = "Ierland", ["Ireland"] = "Ierland", ["IT"] = "Italië", ["Italie"] = "Italië",
+        ["Italy"] = "Italië", ["HR"] = "Kroatië", ["Kroatie"] = "Kroatië", ["Croatia"] = "Kroatië", ["LV"] = "Letland",
+        ["Latvia"] = "Letland", ["LT"] = "Litouwen", ["Lithuania"] = "Litouwen", ["LU"] = "Luxemburg", ["Luxembourg"] = "Luxemburg",
+        ["MT"] = "Malta", ["AT"] = "Oostenrijk", ["Austria"] = "Oostenrijk", ["PL"] = "Polen", ["Poland"] = "Polen",
+        ["PT"] = "Portugal", ["RO"] = "Roemenië", ["Roemenie"] = "Roemenië", ["Romania"] = "Roemenië", ["SI"] = "Slovenië",
+        ["Slovenie"] = "Slovenië", ["Slovenia"] = "Slovenië", ["SK"] = "Slowakije", ["Slovakia"] = "Slowakije", ["ES"] = "Spanje",
+        ["Spain"] = "Spanje", ["CZ"] = "Tsjechië", ["Tsjechie"] = "Tsjechië", ["Czechia"] = "Tsjechië", ["Czech Republic"] = "Tsjechië",
+        ["SE"] = "Zweden", ["Sweden"] = "Zweden",
+    };
+
+    // Leeg wordt Nederland; een bekende andere schrijfwijze wordt de Nederlandse naam.
+    public static string Normalize(string? country)
+    {
+        var c = (country ?? "").Trim();
+        if (c == "") return Netherlands;
+        if (Aliases.TryGetValue(c, out var name)) return name;
+        return Eu.FirstOrDefault(e => string.Equals(e, c, StringComparison.OrdinalIgnoreCase)) ?? c;
+    }
+
+    public static bool IsNetherlands(string? country) => Normalize(country) == Netherlands;
+    public static bool InEu(string? country) => Eu.Contains(Normalize(country));
 }
 
 public static class LeadStatus
@@ -79,26 +125,134 @@ public class Lead : IWorkspaceOwned
 
 public static class InvoiceStatus
 {
-    public static readonly string[] All = ["concept", "verzonden", "betaald", "verlopen"];
+    public const string Draft = "concept";
+    public const string Sent = "verzonden";
+    public const string Paid = "betaald";
+    public const string Overdue = "verlopen";
+    public static readonly string[] All = [Draft, Sent, Paid, Overdue];
+
+    // Een verstuurde factuur ligt vast: de status mag daarna alleen nog vooruit (verzonden, verlopen, betaald).
+    public static bool CanMove(string from, string to) => from == to || (from, to) switch
+    {
+        (Draft, Sent or Paid) => true,
+        (Sent, Overdue or Paid) => true,
+        (Overdue, Paid) => true,
+        _ => false,
+    };
+}
+
+// De btw-regeling van een factuur. Normaal: gewoon btw. Verlegd: de klant in een ander EU-land draagt de btw af.
+// KOR: de kleineondernemersregeling, zonder btw. Buiten de EU: geen Nederlandse btw voor een klant buiten de EU.
+public static class VatRegimes
+{
+    public const string Normal = "normaal";
+    public const string ReverseCharge = "verlegd";
+    public const string Kor = "kor";
+    public const string OutsideEu = "buiten-eu";
+    public static readonly string[] All = [Normal, ReverseCharge, Kor, OutsideEu];
+    // Wat een werkruimte standaard gebruikt; verleggen en buiten de EU hangen van de klant af.
+    public static readonly string[] WorkspaceDefaults = [Normal, Kor];
+
+    // Alleen bij normaal staat er btw op de regels.
+    public static bool ZeroVat(string regime) => regime != Normal;
+
+    // De regeling voor een nieuwe factuur: verlegd voor een zakelijke klant in een ander EU-land, buiten de EU daarbuiten,
+    // en anders wat de werkruimte standaard gebruikt (normaal of KOR).
+    public static string DefaultFor(Settings settings, Customer? customer)
+    {
+        if (customer is not null && !Countries.IsNetherlands(customer.Country))
+        {
+            if (!Countries.InEu(customer.Country)) return OutsideEu;
+            if (!string.IsNullOrWhiteSpace(customer.VatNumber)) return ReverseCharge;
+        }
+        return settings.VatRegime == Kor ? Kor : Normal;
+    }
 }
 
 public class Invoice : IWorkspaceOwned
 {
     public int Id { get; set; }
     [JsonIgnore] public int WorkspaceId { get; set; }
-    public string Number { get; set; } = "";
+    // Het doorlopende nummer komt pas bij versturen; een concept heeft nog geen nummer.
+    public string? Number { get; set; }
     public int CustomerId { get; set; }
     public Customer? Customer { get; set; }
     public DateTime IssueDate { get; set; } = DateTime.UtcNow.Date;
     public DateTime DueDate { get; set; } = DateTime.UtcNow.Date.AddDays(14);
-    public string Status { get; set; } = "concept";
+    public string Status { get; set; } = InvoiceStatus.Draft;
     // Referentie of inkoopnummer van de klant.
     public string? Reference { get; set; }
-    // Btw verlegd naar de afnemer, bijvoorbeeld bij een zakelijke klant in een ander EU-land.
-    public bool ReverseCharge { get; set; }
+    public string VatRegime { get; set; } = VatRegimes.Normal;
+    // Leverdatum, of de periode waarin het werk is gedaan als DeliveryTo later ligt.
+    public DateTime? DeliveryFrom { get; set; }
+    public DateTime? DeliveryTo { get; set; }
+    public DateTime? SentAt { get; set; }
     public DateTime? PaidAt { get; set; }
     public string? Notes { get; set; }
+    // Bij een creditnota: de factuur die hij corrigeert.
+    public int? CreditForInvoiceId { get; set; }
+    [JsonIgnore] public Invoice? CreditFor { get; set; }
+    // De gegevens van jou en je klant zoals ze bij versturen waren. Een verstuurde factuur toont deze, niet de huidige.
+    public InvoiceParty? Seller { get; set; }
+    public InvoiceParty? Buyer { get; set; }
     public List<InvoiceLine> Lines { get; set; } = [];
+
+    [NotMapped] public string? CreditForNumber => CreditFor?.Number;
+    [NotMapped] public DateTime? CreditForIssueDate => CreditFor?.IssueDate;
+    [NotMapped] public bool IsCredit => CreditForInvoiceId != null || Totals.Total < 0;
+    [NotMapped] public InvoiceTotals Totals => Money.Totals(Lines);
+}
+
+// Naam, adres en nummers van een partij op de factuur, vastgelegd bij versturen.
+public class InvoiceParty
+{
+    public string Name { get; set; } = "";
+    // De eigenaar bij jou, of "t.a.v." bij je klant.
+    public string? Contact { get; set; }
+    public string? Address { get; set; }
+    public string? City { get; set; }
+    public string? Country { get; set; }
+    public string? Email { get; set; }
+    public string? Phone { get; set; }
+    public string? Website { get; set; }
+    public string? Kvk { get; set; }
+    public string? VatNumber { get; set; }
+    public string? Iban { get; set; }
+
+    static string? Clean(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+    public static InvoiceParty Seller(Settings s) => new()
+    {
+        Name = s.CompanyName.Trim(), Contact = Clean(s.OwnerName), Address = Clean(s.Address), City = Clean(s.City), Country = Countries.Netherlands,
+        Email = Clean(s.Email), Phone = Clean(s.Phone), Website = Clean(s.Website), Kvk = Clean(s.Kvk), VatNumber = Clean(s.Btw), Iban = Clean(s.Iban),
+    };
+
+    public static InvoiceParty Buyer(Customer c) => new()
+    {
+        Name = Clean(c.Company) ?? c.Name.Trim(), Contact = Clean(c.Company) is null ? null : Clean(c.Name), Address = Clean(c.Address),
+        City = Clean(c.City), Country = Countries.Normalize(c.Country), Email = Clean(c.Email), Phone = Clean(c.Phone), VatNumber = Clean(c.VatNumber),
+    };
+}
+
+public record VatGroup(decimal Rate, decimal Base, decimal Vat);
+public record InvoiceTotals(decimal Subtotal, decimal Vat, decimal Total, List<VatGroup> VatGroups);
+
+// Eén manier van afronden voor de hele app, op de server en in de frontend (frontend/src/lib/format.ts):
+// elk regelbedrag op centen, de btw per tarief over het totaal van dat tarief, en altijd half van nul af (2,345 → 2,35 en -2,345 → -2,35).
+public static class Money
+{
+    public static decimal Round(decimal amount) => Math.Round(amount, 2, MidpointRounding.AwayFromZero);
+
+    public static decimal LineAmount(InvoiceLine l) => Round(l.Quantity * l.UnitPrice);
+
+    public static InvoiceTotals Totals(IEnumerable<InvoiceLine> lines)
+    {
+        var groups = lines.GroupBy(l => l.VatRate).OrderByDescending(g => g.Key)
+            .Select(g => { var b = g.Sum(LineAmount); return new VatGroup(g.Key, b, Round(b * g.Key / 100)); }).ToList();
+        var subtotal = groups.Sum(g => g.Base);
+        var vat = groups.Sum(g => g.Vat);
+        return new InvoiceTotals(subtotal, vat, subtotal + vat, groups);
+    }
 }
 
 public class InvoiceLine
@@ -155,6 +309,8 @@ public class TimeEntry : IWorkspaceOwned
     public bool Billable { get; set; } = true;
     // Gevuld zodra de uren op een factuur staan; daarna liggen ze vast.
     public int? InvoiceId { get; set; }
+    // De factuurregel met deze uren. Gaat die regel van een concept af, dan komen de uren weer vrij.
+    public int? InvoiceLineId { get; set; }
     // Kenmerk dat de timer meestuurt, zodat dubbel stoppen maar één boeking oplevert.
     public string? ClientId { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -177,6 +333,8 @@ public class Settings : IWorkspaceOwned
     public string? Iban { get; set; }
     public decimal DefaultHourlyRate { get; set; } = 95;
     public int PaymentTermDays { get; set; } = 14;
+    // Standaard btw-regeling voor nieuwe facturen: normaal of KOR (kleineondernemersregeling).
+    public string VatRegime { get; set; } = VatRegimes.Normal;
     public int WeeklyHoursTarget { get; set; } = 32;
     // Het urencriterium voor de zelfstandigenaftrek.
     public int YearlyHoursTarget { get; set; } = 1225;

@@ -35,7 +35,7 @@ public static partial class WorkflowContext
     public static void AddInvoice(Dictionary<string, string> ctx, Invoice i)
     {
         ctx["invoice.id"] = i.Id.ToString();
-        ctx["invoice.number"] = i.Number;
+        ctx["invoice.number"] = i.Number ?? "";
         ctx["invoice.status"] = i.Status;
         ctx["invoice.total"] = Money(Endpoints.InvoiceEndpoints.Total(i));
         ctx["invoice.dueDate"] = i.DueDate.ToString("yyyy-MM-dd");

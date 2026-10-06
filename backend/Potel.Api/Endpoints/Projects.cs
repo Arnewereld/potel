@@ -7,22 +7,27 @@ public record InvoiceHoursRequest(int[]? EntryIds, bool Detailed);
 
 public static class ProjectEndpoints
 {
-    public static decimal Hours(int minutes) => Math.Round(minutes / 60m, 2);
+    public static decimal Hours(int minutes) => Math.Round(minutes / 60m, 2, MidpointRounding.AwayFromZero);
 
-    // Een project met de optelsommen van zijn uren erbij.
+    // Een project met de optelsommen van zijn uren erbij. InvoicedValue is wat er van dit project op facturen staat (excl. btw).
     public record ProjectDto(
         int Id, string Name, int CustomerId, string? CustomerName, string Status, string Billing, decimal HourlyRate, decimal FixedPrice,
         decimal? BudgetHours, string Color, string? RepoUrl, string? Description, DateTime? Deadline, DateTime CreatedAt,
-        int MinutesTotal, int MinutesUnbilled, decimal UnbilledValue, DateTime? LastEntry);
+        int MinutesTotal, int MinutesUnbilled, decimal UnbilledValue, decimal InvoicedValue, DateTime? LastEntry);
 
-    public static ProjectDto ToDto(Project p, IEnumerable<TimeEntry> entries)
+    public static ProjectDto ToDto(Project p, IEnumerable<TimeEntry> entries, IReadOnlyDictionary<int, InvoiceLine> lines)
     {
         var mine = entries.Where(e => e.ProjectId == p.Id).ToList();
         var unbilled = p.Billing == Billing.Hourly ? mine.Where(e => e.Billable && e.InvoiceId == null).Sum(e => e.Minutes) : 0;
+        // Alleen de eigen urenregels tellen, niet de hele factuur waar ze op staan. Uren van voor de koppeling per regel
+        // tellen tegen het uurtarief.
+        var invoiced = mine.Where(e => e.InvoiceId != null && e.InvoiceLineId is { } l && lines.ContainsKey(l))
+                .Select(e => e.InvoiceLineId!.Value).Distinct().Sum(l => Money.LineAmount(lines[l]))
+            + Money.Round(Hours(mine.Where(e => e.InvoiceId != null && (e.InvoiceLineId is not { } l || !lines.ContainsKey(l))).Sum(e => e.Minutes)) * p.HourlyRate);
         return new ProjectDto(
             p.Id, p.Name, p.CustomerId, p.Customer?.Company ?? p.Customer?.Name, p.Status, p.Billing, p.HourlyRate, p.FixedPrice,
             p.BudgetHours, p.Color, p.RepoUrl, p.Description, p.Deadline, p.CreatedAt,
-            mine.Sum(e => e.Minutes), unbilled, Math.Round(Hours(unbilled) * p.HourlyRate, 2),
+            mine.Sum(e => e.Minutes), unbilled, Money.Round(Hours(unbilled) * p.HourlyRate), invoiced,
             mine.Count == 0 ? null : mine.Max(e => e.Date));
     }
 
@@ -32,26 +37,63 @@ public static class ProjectEndpoints
         var projects = await (filter is null ? q : filter(q)).ToListAsync();
         var ids = projects.Select(p => p.Id).ToList();
         var entries = await db.TimeEntries.Where(e => ids.Contains(e.ProjectId)).AsNoTracking().ToListAsync();
-        return projects.Select(p => ToDto(p, entries)).ToList();
+        // Factuurregels hebben zelf geen werkruimte; de ids komen van uren uit deze werkruimte.
+        var lineIds = entries.Where(e => e.InvoiceLineId != null).Select(e => e.InvoiceLineId!.Value).Distinct().ToList();
+        var lines = await db.InvoiceLines.Where(l => lineIds.Contains(l.Id)).AsNoTracking().ToDictionaryAsync(l => l.Id);
+        return projects.Select(p => ToDto(p, entries, lines)).ToList();
     }
 
-    // Factuurregels voor uren: één regel met het totaal of één regel per boeking.
-    public static List<InvoiceLine> HourLines(Project p, List<TimeEntry> entries, bool detailed) => detailed
-        ? entries.Select(e => new InvoiceLine
+    // Factuurregels voor uren, elk met de boekingen die erbij horen: één regel met het totaal of één regel per boeking.
+    // Per boeking ronden we zo af dat de regels samen precies even veel uren zijn als de totaalregel. Scheelt het afronden
+    // per regel dan toch een cent (bij een uurtarief met centen), dan staat dat verschil er apart op.
+    public static List<(InvoiceLine Line, List<TimeEntry> Entries)> HourLines(Project p, List<TimeEntry> entries, bool detailed)
+    {
+        var total = Hours(entries.Sum(e => e.Minutes));
+        if (!detailed)
+            return [(new InvoiceLine
+            {
+                Description = $"{p.Name}: werkzaamheden {entries[0].Date:dd-MM} t/m {entries[^1].Date:dd-MM-yyyy}",
+                Quantity = total, Unit = "uur", UnitPrice = p.HourlyRate,
+            }, entries)];
+
+        var parts = new List<(InvoiceLine Line, List<TimeEntry> Entries)>();
+        var minutes = 0;
+        var done = 0m;
+        foreach (var e in entries)
         {
-            Description = $"{e.Date:dd-MM-yyyy} {(string.IsNullOrWhiteSpace(e.Description) ? p.Name : e.Description)}",
-            Quantity = Hours(e.Minutes), Unit = "uur", UnitPrice = p.HourlyRate,
-        }).ToList()
-        : [new InvoiceLine
+            minutes += e.Minutes;
+            var upTo = Hours(minutes);
+            parts.Add((new InvoiceLine
+            {
+                Description = $"{e.Date:dd-MM-yyyy} {(string.IsNullOrWhiteSpace(e.Description) ? p.Name : e.Description)}",
+                Quantity = upTo - done, Unit = "uur", UnitPrice = p.HourlyRate,
+            }, [e]));
+            done = upTo;
+        }
+        var difference = Money.Round(total * p.HourlyRate) - parts.Sum(x => Money.LineAmount(x.Line));
+        if (difference != 0) parts.Add((new InvoiceLine { Description = "Afrondingsverschil", Quantity = 1, Unit = "stuk", UnitPrice = difference }, []));
+        return parts;
+    }
+
+    // Koppelt de uren aan hun factuurregel, maar alleen als ze nog vrij zijn. Lukt dat niet voor allemaal (een ander verzoek
+    // was net eerder), dan false: draai dan alles terug. Hoort binnen een WriteLock, na het opslaan van de regels.
+    public static async Task<bool> ClaimAsync(AppDb db, int invoiceId, List<(InvoiceLine Line, List<TimeEntry> Entries)> parts)
+    {
+        foreach (var (line, entries) in parts.Where(x => x.Entries.Count > 0))
         {
-            Description = $"{p.Name}: werkzaamheden {entries[0].Date:dd-MM} t/m {entries[^1].Date:dd-MM-yyyy}",
-            Quantity = Hours(entries.Sum(e => e.Minutes)), Unit = "uur", UnitPrice = p.HourlyRate,
-        }];
+            var ids = entries.Select(e => e.Id).ToList();
+            var lineId = line.Id;
+            var claimed = await db.TimeEntries.Where(t => ids.Contains(t.Id) && t.InvoiceId == null)
+                .ExecuteUpdateAsync(x => x.SetProperty(t => t.InvoiceId, invoiceId).SetProperty(t => t.InvoiceLineId, lineId));
+            if (claimed != ids.Count) return false;
+        }
+        return true;
+    }
 
     // Open, factureerbare uren van een project; optioneel alleen de gekozen boekingen.
     public static Task<List<TimeEntry>> OpenEntries(AppDb db, int projectId, int[]? ids = null)
     {
-        var q = db.TimeEntries.Where(t => t.ProjectId == projectId && t.Billable && t.InvoiceId == null);
+        var q = db.TimeEntries.AsNoTracking().Where(t => t.ProjectId == projectId && t.Billable && t.InvoiceId == null);
         if (ids is { Length: > 0 }) q = q.Where(t => ids.Contains(t.Id));
         return q.OrderBy(t => t.Date).ThenBy(t => t.Id).ToListAsync();
     }
@@ -117,10 +159,11 @@ public static class ProjectEndpoints
             return Results.NoContent();
         });
 
-        // Zet de open uren van een project op een nieuwe conceptfactuur.
-        g.MapPost("/{id:int}/invoice", async (AppDb db, int id, InvoiceHoursRequest? req) =>
+        // Zet de open uren van een project op een nieuwe conceptfactuur. Het nummer komt pas bij versturen.
+        g.MapPost("/{id:int}/invoice", async (AppDb db, BusinessClock clock, int id, InvoiceHoursRequest? req) =>
         {
-            var p = await db.Projects.FindAsync(id);
+            await using var tx = await WriteLock.BeginAsync(db);
+            var p = await db.Projects.Include(x => x.Customer).FirstOrDefaultAsync(x => x.Id == id);
             if (p is null) return Results.NotFound();
             if (p.Billing != Billing.Hourly)
                 return Results.BadRequest(new { error = "Dit project heeft een vaste prijs; maak de factuur zelf aan." });
@@ -129,19 +172,23 @@ public static class ProjectEndpoints
             if (entries.Count == 0) return Results.BadRequest(new { error = "Er zijn geen open uren om te factureren" });
 
             var settings = await SettingsEndpoints.GetAsync(db);
-            var today = DateTime.Today;
-            var lines = HourLines(p, entries, req?.Detailed == true);
+            var today = clock.Today;
+            var regime = VatRegimes.DefaultFor(settings, p.Customer);
+            var parts = HourLines(p, entries, req?.Detailed == true);
+            if (VatRegimes.ZeroVat(regime)) foreach (var (line, _) in parts) line.VatRate = 0;
 
             var inv = new Invoice
             {
-                Number = await InvoiceEndpoints.NextNumber(db), CustomerId = p.CustomerId, IssueDate = today,
-                DueDate = today.AddDays(settings.PaymentTermDays), Status = "concept", Notes = SettingsEndpoints.DefaultNote, Lines = lines,
+                CustomerId = p.CustomerId, IssueDate = today, DueDate = today.AddDays(settings.PaymentTermDays), Status = InvoiceStatus.Draft,
+                VatRegime = regime, DeliveryFrom = entries.Min(e => e.Date).Date, DeliveryTo = entries.Max(e => e.Date).Date,
+                Notes = SettingsEndpoints.DefaultNote, Lines = parts.Select(x => x.Line).ToList(),
             };
             db.Invoices.Add(inv);
             await db.SaveChangesAsync();
-            foreach (var e in entries) e.InvoiceId = inv.Id;
-            db.Log("factuur", $"Factuur {inv.Number} gemaakt van {Hours(entries.Sum(e => e.Minutes)):0.##} uur op {p.Name}");
+            if (!await ClaimAsync(db, inv.Id, parts)) return Results.Conflict(new { error = InvoiceEndpoints.HoursTaken });
+            db.Log("factuur", $"Conceptfactuur gemaakt van {Hours(entries.Sum(e => e.Minutes)):0.##} uur op {p.Name}");
             await db.SaveChangesAsync();
+            await tx.CommitAsync();
             return Results.Created($"/api/invoices/{inv.Id}", new { id = inv.Id, number = inv.Number });
         });
     }

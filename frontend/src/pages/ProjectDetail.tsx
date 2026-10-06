@@ -39,7 +39,6 @@ export function ProjectDetailPage() {
   const mine = (invoices ?? []).filter(i => invoiceIds.has(i.id))
   const st = projectStatuses.find(s => s.id === project.status)!
   const pct = project.budgetHours ? project.minutesTotal / 60 / project.budgetHours : null
-  const invoiced = mine.reduce((a, i) => a + invoiceTotals(i.lines).subtotal, 0)
 
   const remove = async () => {
     if (!confirm(`Project ${project.name} en alle uren erop verwijderen?`)) return
@@ -86,7 +85,7 @@ export function ProjectDetailPage() {
         {project.billing === 'uur'
           ? <MiniStat icon={<Euro size={18} />} accent="var(--green)" label="Open om te factureren" value={euro(project.unbilledValue)} sub={`${hours(project.minutesUnbilled)} nog niet gefactureerd`} />
           : <MiniStat icon={<Gauge size={18} />} accent="var(--green)" label="Effectief uurtarief" value={euro(project.minutesTotal ? project.fixedPrice / (project.minutesTotal / 60) : 0)} sub={`${euro(project.fixedPrice)} gedeeld door je uren`} />}
-        <MiniStat icon={<Receipt size={18} />} accent="var(--blue)" label="Gefactureerd" value={euro(invoiced)} sub={`${mine.length} facturen, excl. btw`} />
+        <MiniStat icon={<Receipt size={18} />} accent="var(--blue)" label="Gefactureerd" value={euro(project.invoicedValue)} sub={`${mine.length} facturen, excl. btw`} />
       </div>
 
       <SubTabs<TabId>
@@ -112,7 +111,7 @@ export function ProjectDetailPage() {
                       <td className="muted" style={{ whiteSpace: 'nowrap' }}>{date(e.date)}</td>
                       <td>{e.description || <span className="muted">—</span>}</td>
                       <td>
-                        {e.invoiceNumber ? <Badge tone="green"><Lock size={10} /> {e.invoiceNumber}</Badge>
+                        {e.invoiceId ? <Badge tone={e.invoiceNumber ? 'green' : 'gray'}><Lock size={10} /> {e.invoiceNumber ?? 'Concept'}</Badge>
                           : !e.billable ? <Badge tone="gray">Niet factureerbaar</Badge> : <Badge tone="yellow">Open</Badge>}
                       </td>
                       <td className="num"><strong>{hm(e.minutes)}</strong></td>
@@ -137,7 +136,7 @@ export function ProjectDetailPage() {
                     const s = invoiceStatuses.find(x => x.id === i.status)!
                     return (
                       <tr key={i.id} className="clickable" onClick={() => navigate(`/facturen/${i.id}`)}>
-                        <td>{i.number}</td><td className="muted">{date(i.issueDate)}</td>
+                        <td>{i.number ?? <span className="muted">Concept</span>}</td><td className="muted">{date(i.issueDate)}</td>
                         <td><Badge tone={s.tone}>{s.label}</Badge></td>
                         <td className="num">{euro(invoiceTotals(i.lines).total)}</td>
                       </tr>
@@ -174,8 +173,8 @@ function InvoiceHoursModal({ project, onClose }: { project: Project; onClose: ()
   const create = async () => {
     setBusy(true)
     try {
-      const inv = await api.post<{ id: number; number: string }>(`/projects/${project.id}/invoice`, { detailed })
-      toast(`Conceptfactuur ${inv.number} aangemaakt`)
+      const inv = await api.post<{ id: number }>(`/projects/${project.id}/invoice`, { detailed })
+      toast('Conceptfactuur aangemaakt')
       onClose()
       navigate(`/facturen/${inv.id}`)
     } catch (e) {

@@ -6,6 +6,8 @@ export interface Customer {
   phone?: string | null
   address?: string | null
   city?: string | null
+  // Land van vestiging; leeg of Nederland is een Nederlandse klant.
+  country?: string | null
   vatNumber?: string | null
   notes?: string | null
   createdAt?: string
@@ -38,18 +40,50 @@ export interface InvoiceLine {
   vatRate: number
 }
 
+// normaal: btw op de regels. verlegd: zakelijke klant in een ander EU-land. kor: kleineondernemersregeling. buiten-eu: klant buiten de EU.
+export type VatRegime = 'normaal' | 'verlegd' | 'kor' | 'buiten-eu'
+
+// Jij of je klant zoals ze bij versturen op de factuur kwamen.
+export interface InvoiceParty {
+  name: string
+  contact?: string | null
+  address?: string | null
+  city?: string | null
+  country?: string | null
+  email?: string | null
+  phone?: string | null
+  website?: string | null
+  kvk?: string | null
+  vatNumber?: string | null
+  iban?: string | null
+}
+
+export interface VatGroup { rate: number; base: number; vat: number }
+export interface InvoiceTotals { subtotal: number; vat: number; total: number; vatGroups: VatGroup[] }
+
 export interface Invoice {
   id: number
-  number: string
+  // Een concept heeft nog geen nummer; dat komt bij versturen.
+  number: string | null
   customerId: number
   customer?: Customer | null
   issueDate: string
   dueDate: string
   status: InvoiceStatus
   reference?: string | null
-  reverseCharge: boolean
+  vatRegime: VatRegime
+  deliveryFrom?: string | null
+  deliveryTo?: string | null
+  sentAt?: string | null
   paidAt?: string | null
   notes?: string | null
+  creditForInvoiceId?: number | null
+  creditForNumber?: string | null
+  creditForIssueDate?: string | null
+  isCredit?: boolean
+  seller?: InvoiceParty | null
+  buyer?: InvoiceParty | null
+  totals?: InvoiceTotals
   lines: InvoiceLine[]
 }
 
@@ -159,6 +193,8 @@ export interface Project {
   minutesTotal: number
   minutesUnbilled: number
   unbilledValue: number
+  // Wat er van dit project op facturen staat (alleen de eigen uren, ook op een factuur met meer projecten).
+  invoicedValue: number
   lastEntry?: string | null
 }
 
@@ -193,6 +229,8 @@ export interface Settings {
   yearlyHoursTarget: number
   logoDataUrl?: string | null
   brandColor?: string
+  // Standaard btw-regeling voor nieuwe facturen: normaal of KOR.
+  vatRegime?: VatRegime
 }
 
 export interface Workspace {

@@ -65,8 +65,8 @@ export function OnboardingWizard({ onDone }: { onDone: () => void }) {
 
   const today = toDateInput(new Date())
   const preview = {
-    number: `${new Date().getFullYear()}-0001`, customerId: 0, issueDate: today, dueDate: today, status: 'concept' as const,
-    reverseCharge: false, reference: '', notes: '', lines: [{ description: 'Ontwikkeling webapplicatie', quantity: 12, unit: 'uur', unitPrice: s.defaultHourlyRate, vatRate: 21 }],
+    number: `${new Date().getFullYear()}-0001`, customerId: 0, issueDate: today, dueDate: today, deliveryFrom: today, status: 'concept' as const,
+    vatRegime: 'normaal' as const, reference: '', notes: '', lines: [{ description: 'Ontwikkeling webapplicatie', quantity: 12, unit: 'uur', unitPrice: s.defaultHourlyRate, vatRate: 21 }],
   }
 
   return (

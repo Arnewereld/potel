@@ -18,7 +18,9 @@ public static class TimeEndpoints
     }
 
     static string Locked(AppDb db, TimeEntry t) =>
-        $"Deze uren staan al op factuur {db.Invoices.Where(i => i.Id == t.InvoiceId).Select(i => i.Number).FirstOrDefault()}. Verwijder die factuur om ze weer vrij te geven.";
+        db.Invoices.Where(i => i.Id == t.InvoiceId).Select(i => i.Number).FirstOrDefault() is { } number
+            ? $"Deze uren staan op factuur {number} en liggen vast."
+            : "Deze uren staan op een conceptfactuur. Haal ze daar van de factuur af om ze weer vrij te geven.";
 
     public static void MapTime(this RouteGroupBuilder api)
     {

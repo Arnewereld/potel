@@ -84,7 +84,7 @@ public static class Seed
         db.Customers.AddRange(customers);
         db.SaveChanges();
 
-        var today = DateTime.Today;
+        var today = new BusinessClock().Today;
         var projects = new List<Project>
         {
             new() { Name = "Exact Online-koppeling", CustomerId = customers[0].Id, Billing = Billing.Hourly, HourlyRate = 95, BudgetHours = 160, Color = "#4ea5ff", RepoUrl = "https://github.com/fietsplein/exact-sync", Description = "Orders, voorraad en klanten synchroniseren tussen de webshop en Exact Online." },
@@ -127,7 +127,8 @@ public static class Seed
         db.TimeEntries.AddRange(entries);
         db.SaveChanges();
 
-        // Uurprojecten worden per maand gefactureerd; de lopende maand staat nog open.
+        // Uurprojecten worden per maand gefactureerd; de lopende maand staat nog open. Verstuurde facturen hebben hun nummer,
+        // de gegevens van beide partijen zoals ze toen waren en een leverperiode; de uren hangen aan hun factuurregel.
         var invoices = new List<(Invoice Invoice, List<TimeEntry> Entries)>();
         var thisMonth = new DateTime(today.Year, today.Month, 1);
         foreach (var month in entries.Where(e => e.Billable && e.Date < thisMonth).GroupBy(e => (e.ProjectId, new DateTime(e.Date.Year, e.Date.Month, 1))))
@@ -138,14 +139,16 @@ public static class Seed
             invoices.Add((new Invoice
             {
                 CustomerId = p.CustomerId, IssueDate = issue, DueDate = issue.AddDays(14),
-                Status = issue < thisMonth ? "betaald" : "verzonden", PaidAt = issue < thisMonth ? issue.AddDays(9) : null, Reference = p.Id == projects[3].Id ? "PO-2026-0412" : null, Notes = Endpoints.SettingsEndpoints.DefaultNote,
-                Lines = [new InvoiceLine { Description = $"{p.Name}: werkzaamheden {issue.AddMonths(-1):MMMM yyyy}", Quantity = Math.Round(minutes / 60m, 2), Unit = "uur", UnitPrice = p.HourlyRate }],
+                Status = issue < thisMonth ? InvoiceStatus.Paid : InvoiceStatus.Sent, PaidAt = issue < thisMonth ? issue.AddDays(9) : null, Reference = p.Id == projects[3].Id ? "PO-2026-0412" : null, Notes = Endpoints.SettingsEndpoints.DefaultNote,
+                DeliveryFrom = month.Min(e => e.Date), DeliveryTo = month.Max(e => e.Date),
+                Lines = [new InvoiceLine { Description = $"{p.Name}: werkzaamheden {issue.AddMonths(-1):MMMM yyyy}", Quantity = Endpoints.ProjectEndpoints.Hours(minutes), Unit = "uur", UnitPrice = p.HourlyRate }],
             }, month.ToList()));
         }
         var start = today.AddMonths(-4);
         invoices.Add((new Invoice
         {
-            CustomerId = customers[1].Id, IssueDate = start, DueDate = start.AddDays(14), Status = "betaald", PaidAt = start.AddDays(6), Notes = Endpoints.SettingsEndpoints.DefaultNote,
+            CustomerId = customers[1].Id, IssueDate = start, DueDate = start.AddDays(14), Status = InvoiceStatus.Paid, PaidAt = start.AddDays(6), Notes = Endpoints.SettingsEndpoints.DefaultNote,
+            DeliveryFrom = start,
             Lines = [new InvoiceLine { Description = "Planningsapp: aanbetaling 50% bij start", Quantity = 1, UnitPrice = 7250 }],
         }, []));
 
@@ -153,9 +156,12 @@ public static class Seed
         foreach (var (inv, linked) in invoices.OrderBy(x => x.Invoice.IssueDate))
         {
             inv.Number = $"{inv.IssueDate.Year}-{++n:0000}";
+            inv.SentAt = inv.IssueDate;
+            inv.Seller = InvoiceParty.Seller(settings);
+            inv.Buyer = InvoiceParty.Buyer(customers.First(c => c.Id == inv.CustomerId));
             db.Invoices.Add(inv);
             db.SaveChanges();
-            foreach (var e in linked) e.InvoiceId = inv.Id;
+            foreach (var e in linked) { e.InvoiceId = inv.Id; e.InvoiceLineId = inv.Lines[0].Id; }
         }
 
         db.Leads.AddRange(

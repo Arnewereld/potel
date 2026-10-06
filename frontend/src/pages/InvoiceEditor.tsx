@@ -1,24 +1,27 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
-  Receipt, Plus, Trash2, Printer, Save, Building, ChevronUp, ChevronDown, Send, CheckCircle2, Copy, Undo2, BellRing, Clock, Mail,
+  Receipt, Plus, Trash2, Printer, Save, Building, ChevronUp, ChevronDown, Send, CheckCircle2, Copy, Undo2, BellRing, Clock, Mail, Lock,
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useTabs, useTabTitle } from '../lib/tabs'
 import { useToast } from '../lib/toast'
-import type { Customer, Invoice, InvoiceLine, Project, Settings } from '../lib/types'
-import { date, euro, hours, invoiceTotals, toDateInput } from '../lib/format'
+import type { Customer, Invoice, InvoiceLine, Project, Settings, VatRegime } from '../lib/types'
+import { date, euro, hours, invoiceTotals, lineAmount, toDateInput } from '../lib/format'
 import { invoiceStatuses } from '../lib/status'
-import { daysUntil, isCredit, reminderMail, sendMail, units } from '../lib/invoice'
+import {
+  daysUntil, defaultRegime, invoiceTitle, isCredit, missingForSending, regimeProblem, reminderMail, sendMail, units, vatRegimes, zeroVat,
+} from '../lib/invoice'
 import { Badge, ErrorBox, Field, Loading, Modal, PageHeader } from '../components/ui'
 import { InvoicePaper } from '../components/InvoicePaper'
 
 type Draft = Omit<Invoice, 'id'> & { id?: number }
 
-const newLine = (unit = 'uur', unitPrice = 0): InvoiceLine => ({ description: '', quantity: 1, unit, unitPrice, vatRate: 21 })
+const newLine = (unit = 'uur', unitPrice = 0, vatRate = 21): InvoiceLine => ({ description: '', quantity: 1, unit, unitPrice, vatRate })
 const emptySettings: Settings = { companyName: '…', defaultHourlyRate: 0, paymentTermDays: 14, weeklyHoursTarget: 0, yearlyHoursTarget: 0 }
 const addDays = (d: string, n: number) => { const x = new Date(`${d}T00:00:00`); x.setDate(x.getDate() + n); return toDateInput(x) }
+const day = (s?: string | null) => (s ? s.slice(0, 10) : null)
 
 export function InvoiceEditorPage() {
   const { id } = useParams()
@@ -30,21 +33,29 @@ export function InvoiceEditorPage() {
   const [draft, setDraft] = useState<Draft | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
+  const [busy, setBusy] = useState(false)
   const [dialog, setDialog] = useState<'send' | 'paid' | null>(null)
   const { data: projects, reload: reloadProjects } = useApi<Project[]>(draft?.customerId ? `/projects?customerId=${draft.customerId}` : null)
+  // Het nummer dat deze factuur bij versturen krijgt; het jaar komt uit de factuurdatum.
+  const { data: next } = useApi<{ number: string }>(
+    draft && draft.status === 'concept' && draft.issueDate?.length === 10 ? `/invoices/next-number?date=${draft.issueDate}` : null)
   const { retarget, close } = useTabs()
   const navigate = useNavigate()
   const toast = useToast()
-  const credit = draft ? isCredit(draft) : false
-  useTabTitle(isNew ? 'Nieuwe factuur' : draft ? `${credit ? 'Creditnota' : 'Factuur'} ${draft.number}` : null)
+  useTabTitle(isNew ? 'Nieuwe factuur' : draft ? invoiceTitle(draft) : null)
 
   useEffect(() => {
     if (isNew) {
       const today = toDateInput(new Date())
-      Promise.all([api.get<{ number: string }>('/invoices/next-number'), api.get<Settings>('/settings')]).then(([r, s]) => setDraft({
-        number: r.number, customerId: Number(params.get('klant')) || 0, issueDate: today, dueDate: addDays(today, s.paymentTermDays),
-        status: 'concept', reference: '', reverseCharge: false, notes: 'Bedankt voor de fijne samenwerking!', lines: [newLine('uur', s.defaultHourlyRate)],
-      })).catch(e => setError(e.message))
+      const customerId = Number(params.get('klant')) || 0
+      Promise.all([api.get<Settings>('/settings'), api.get<Customer[]>('/customers')]).then(([s, list]) => {
+        const regime = defaultRegime(s, list.find(c => c.id === customerId))
+        setDraft({
+          number: null, customerId, issueDate: today, dueDate: addDays(today, s.paymentTermDays), status: 'concept', reference: '',
+          vatRegime: regime, deliveryFrom: today, deliveryTo: null, notes: 'Bedankt voor de fijne samenwerking!',
+          lines: [newLine('uur', s.defaultHourlyRate, zeroVat(regime) ? 0 : 21)],
+        })
+      }).catch(e => setError(e.message))
     } else {
       api.get<Invoice>(`/invoices/${id}`).then(inv => setDraft(fromServer(inv))).catch(e => setError(e.message))
     }
@@ -56,9 +67,15 @@ export function InvoiceEditorPage() {
   const company = settings ?? emptySettings
   const customer = customers?.find(c => c.id === draft.customerId)
   const totals = invoiceTotals(draft.lines)
-  const locked = draft.status !== 'concept'
+  const credit = isCredit(draft)
+  const linked = draft.creditForInvoiceId != null
+  // Alleen een concept kan nog veranderen; een verstuurde factuur ligt vast.
+  const readOnly = draft.status !== 'concept'
+  const noVat = zeroVat(draft.vatRegime)
   const openProjects = (projects ?? []).filter(p => p.billing === 'uur' && p.minutesUnbilled > 0)
   const due = daysUntil(draft.dueDate)
+  const regimeInfo = vatRegimes.find(r => r.id === draft.vatRegime)
+  const regimeError = regimeProblem(draft.vatRegime, customer)
 
   const update = (patch: Partial<Draft>) => { setDraft({ ...draft, ...patch }); setDirty(true) }
   const updateLine = (idx: number, patch: Partial<InvoiceLine>) =>
@@ -68,6 +85,13 @@ export function InvoiceEditorPage() {
     ;[lines[idx], lines[idx + dir]] = [lines[idx + dir]!, lines[idx]!]
     update({ lines })
   }
+  // Andere regeling: zonder btw gaan alle regels op 0%, terug naar normaal weer op 21%.
+  const withRegime = (regime: VatRegime): Partial<Draft> => ({
+    vatRegime: regime,
+    lines: zeroVat(regime) === noVat ? draft.lines : draft.lines.map(l => ({ ...l, vatRate: zeroVat(regime) ? 0 : 21 })),
+  })
+  const chooseCustomer = (customerId: number) =>
+    update({ customerId, ...withRegime(defaultRegime(settings, customers?.find(c => c.id === customerId))) })
 
   // Slaat op en geeft het id terug; een nieuwe factuur krijgt daarbij een eigen tabblad.
   // Met stay blijft een nieuwe factuur nog even op dit tabblad, zodat er eerst iets aan toegevoegd kan worden.
@@ -76,7 +100,7 @@ export function InvoiceEditorPage() {
     try {
       if (isNew) {
         const saved = await api.post<Invoice>('/invoices', body)
-        if (!quiet) toast(`Factuur ${saved.number} aangemaakt`)
+        if (!quiet) toast('Conceptfactuur aangemaakt')
         setDirty(false)
         if (!stay) retarget(pathname + search, `/facturen/${saved.id}`)
         return saved.id
@@ -85,6 +109,8 @@ export function InvoiceEditorPage() {
       setDraft(fromServer(saved))
       if (!quiet) toast('Factuur opgeslagen')
       setDirty(false)
+      // Regels met uren die eraf gingen geven die uren weer vrij.
+      reloadProjects(true)
       return saved.id
     } catch (e) {
       toast((e as Error).message, 'error')
@@ -92,21 +118,23 @@ export function InvoiceEditorPage() {
     }
   }
 
-  const setStatus = async (status: Draft['status'], paidAt?: string) => {
-    if (dirty && !(await save({}, true))) return
+  const setStatus = async (status: Draft['status'], paidAt?: string): Promise<Invoice | null> => {
+    if (dirty && !(await save({}, true))) return null
     try {
       const saved = await api.post<Invoice>(`/invoices/${id}/status`, { status, paidAt })
       setDraft(fromServer(saved))
-      toast(`Factuur ${saved.number} is ${invoiceStatuses.find(s => s.id === saved.status)?.label.toLowerCase()}`)
+      toast(`${invoiceTitle(saved)} is ${invoiceStatuses.find(s => s.id === saved.status)?.label.toLowerCase()}`)
+      return saved
     } catch (e) {
       toast((e as Error).message, 'error')
+      return null
     }
   }
 
   const copy = async (kind: 'duplicate' | 'credit') => {
     try {
       const inv = await api.post<Invoice>(`/invoices/${id}/${kind}`)
-      toast(kind === 'credit' ? `Creditnota ${inv.number} aangemaakt` : `Kopie ${inv.number} aangemaakt`)
+      toast(kind === 'credit' ? 'Conceptcreditnota aangemaakt. Pas de regels aan als je maar een deel crediteert.' : 'Kopie aangemaakt als concept')
       navigate(`/facturen/${inv.id}`)
     } catch (e) {
       toast((e as Error).message, 'error')
@@ -114,27 +142,35 @@ export function InvoiceEditorPage() {
   }
 
   const addHours = async (p: Project) => {
-    // Lege regels mogen weg; blijft er niets over, dan houdt een tijdelijke regel de factuur geldig tot de uren erop staan.
-    const filled = draft.lines.filter(l => l.description.trim())
-    const lines = filled.length ? filled : [{ ...newLine(), description: '-', unitPrice: 0 }]
-    const invoiceId = isNew || dirty ? await save({ lines }, true, true) : Number(id)
-    if (!invoiceId) return
+    if (busy) return
+    setBusy(true)
     try {
-      const saved = await api.post<Invoice>(`/invoices/${invoiceId}/hours`, { projectId: p.id, detailed: false })
-      toast(`${hours(p.minutesUnbilled)} van ${p.name} toegevoegd`)
-      setDraft(fromServer(saved))
+      // Lege regels mogen weg; blijft er niets over, dan houdt een tijdelijke regel de factuur geldig tot de uren erop staan.
+      const filled = draft.lines.filter(l => l.description.trim())
+      const lines = filled.length ? filled : [{ ...newLine(), description: '-', unitPrice: 0 }]
+      const invoiceId = isNew || dirty ? await save({ lines }, true, true) : Number(id)
+      if (!invoiceId) return
+      try {
+        const saved = await api.post<Invoice>(`/invoices/${invoiceId}/hours`, { projectId: p.id, detailed: false })
+        toast(`${hours(p.minutesUnbilled)} van ${p.name} toegevoegd`)
+        setDraft(fromServer(saved))
+        setDirty(false)
+      } catch (e) {
+        toast((e as Error).message, 'error')
+      }
       reloadProjects(true)
-    } catch (e) {
-      toast((e as Error).message, 'error')
+      if (isNew) retarget(pathname + search, `/facturen/${invoiceId}`)
+    } finally {
+      setBusy(false)
     }
-    if (isNew) retarget(pathname + search, `/facturen/${invoiceId}`)
   }
 
   const remove = async () => {
-    if (!confirm(`Factuur ${draft.number} verwijderen?${locked ? ' Hij is al verstuurd; maak liever een creditnota.' : ''}`)) return
+    const freed = draft.lines.some(l => l.unit === 'uur') ? ' Uren op deze factuur komen weer open te staan.' : ''
+    if (!confirm(`${invoiceTitle(draft)} verwijderen?${freed}`)) return
     try {
       await api.del(`/invoices/${id}`)
-      toast('Factuur verwijderd')
+      toast('Concept verwijderd')
       close(pathname)
       navigate('/facturen')
     } catch (e) {
@@ -146,7 +182,7 @@ export function InvoiceEditorPage() {
   const subtitle = dirty ? 'Niet opgeslagen wijzigingen'
     : draft.status === 'betaald' ? `Betaald${draft.paidAt ? ` op ${date(draft.paidAt)}` : ''}`
     : draft.status === 'verlopen' ? `${-due} dagen te laat`
-    : draft.status === 'verzonden' ? (due >= 0 ? `Vervalt over ${due} dagen` : 'Vervallen')
+    : draft.status === 'verzonden' ? (credit ? `Verstuurd${draft.sentAt ? ` op ${date(draft.sentAt)}` : ''}` : due >= 0 ? `Vervalt over ${due} dagen` : 'Vervallen')
     : 'Concept, nog niet verstuurd'
 
   return (
@@ -154,63 +190,78 @@ export function InvoiceEditorPage() {
       <div className="no-print">
         <PageHeader
           icon={<Receipt size={20} />}
-          title={isNew ? 'Nieuwe factuur' : `${credit ? 'Creditnota' : 'Factuur'} ${draft.number}`}
+          title={isNew ? 'Nieuwe factuur' : invoiceTitle(draft)}
           subtitle={subtitle}
           actions={<>
             {!isNew && <Badge tone={statusInfo.tone}>{statusInfo.label}</Badge>}
-            {!isNew && <button className="btn btn-danger" title="Verwijderen" onClick={remove}><Trash2 size={15} /></button>}
-            {!isNew && <button className="btn" title="Dupliceren" onClick={() => copy('duplicate')}><Copy size={15} /></button>}
-            {!isNew && locked && !credit && <button className="btn" title="Creditnota maken" onClick={() => copy('credit')}><Undo2 size={15} /> Credit</button>}
+            {!isNew && !readOnly && <button className="btn btn-danger" title="Concept verwijderen" onClick={remove}><Trash2 size={15} /></button>}
+            {!isNew && !credit && <button className="btn" title="Kopie maken als nieuw concept" onClick={() => copy('duplicate')}><Copy size={15} /></button>}
+            {readOnly && !credit && <button className="btn" onClick={() => copy('credit')}><Undo2 size={15} /> Creditnota maken</button>}
             <button className="btn" onClick={() => window.print()}><Printer size={15} /> PDF</button>
-            <button className="btn" onClick={() => save()} disabled={!dirty && !isNew}><Save size={15} /> Opslaan</button>
-            {draft.status === 'concept' && !isNew && <button className="btn btn-primary" onClick={() => setDialog('send')}><Send size={15} /> Versturen</button>}
+            {!readOnly && <button className="btn" onClick={() => save()} disabled={!dirty && !isNew}><Save size={15} /> Opslaan</button>}
+            {!readOnly && !isNew && <button className="btn btn-primary" onClick={() => setDialog('send')}><Send size={15} /> Versturen</button>}
             {draft.status === 'verlopen' && <a className="btn" href={reminderMail({ ...draft, id: Number(id) }, customer, company)}><BellRing size={15} /> Herinnering</a>}
-            {(draft.status === 'verzonden' || draft.status === 'verlopen') && <button className="btn btn-success" onClick={() => setDialog('paid')}><CheckCircle2 size={15} /> Betaald</button>}
+            {(draft.status === 'verzonden' || draft.status === 'verlopen') && <button className="btn btn-success" onClick={() => setDialog('paid')}><CheckCircle2 size={15} /> {credit ? 'Verrekend' : 'Betaald'}</button>}
           </>}
         />
       </div>
 
       <div className="invoice-layout">
         <div className="no-print">
-          {locked && (
+          {readOnly && (
+            <div className="notice row between wrap" style={{ gap: 10 }}>
+              <span>
+                <Lock size={13} /> Deze {credit ? 'creditnota' : 'factuur'} is verstuurd en ligt vast: je moet hem 7 jaar bewaren zoals hij is.
+                {!credit && ' Klopt er iets niet? Maak dan een creditnota en zo nodig een nieuwe factuur.'}
+              </span>
+              {!credit && <button className="btn btn-sm" onClick={() => copy('credit')}><Undo2 size={14} /> Creditnota maken</button>}
+            </div>
+          )}
+          {!readOnly && linked && (
             <div className="notice">
-              Deze factuur is {statusInfo.label.toLowerCase()}. Pas hem liever niet meer aan; maak bij een fout een creditnota.
+              Creditnota voor factuur {draft.creditForNumber}{draft.creditForIssueDate ? ` van ${date(draft.creditForIssueDate)}` : ''}.
+              Klant en btw-regeling horen bij die factuur. Crediteer je maar een deel? Pas dan de aantallen aan.
             </div>
           )}
 
           <div className="card invoice-form">
-            <div className="card-body">
+            <fieldset className="card-body plain-fieldset" disabled={readOnly}>
               <div className="form-grid">
                 <Field label="Klant *">
-                  <select value={draft.customerId} onChange={e => update({ customerId: Number(e.target.value) })}>
+                  <select value={draft.customerId} disabled={linked} onChange={e => chooseCustomer(Number(e.target.value))}>
                     <option value={0}>Kies een klant…</option>
                     {customers?.map(c => <option key={c.id} value={c.id}>{c.company || c.name}{c.company ? ` (${c.name})` : ''}</option>)}
                   </select>
                 </Field>
-                <Field label="Factuurnummer"><input value={draft.number} onChange={e => update({ number: e.target.value })} /></Field>
+                <Field label={credit ? 'Creditnotanummer' : 'Factuurnummer'}>
+                  <input disabled value={draft.number ?? (next ? `Krijgt bij versturen nummer ${next.number}` : 'Krijgt een nummer bij versturen')} />
+                </Field>
                 <Field label="Factuurdatum"><input type="date" value={draft.issueDate} onChange={e => update({ issueDate: e.target.value })} /></Field>
                 <Field label="Vervaldatum">
                   <div className="input-with-chips">
                     <input type="date" value={draft.dueDate} onChange={e => update({ dueDate: e.target.value })} />
-                    {[14, 30].map(n => (
+                    {!readOnly && [14, 30].map(n => (
                       <button key={n} type="button" className={`chip ${draft.dueDate === addDays(draft.issueDate, n) ? 'active' : ''}`} onClick={() => update({ dueDate: addDays(draft.issueDate, n) })}>{n} d</button>
                     ))}
                   </div>
                 </Field>
-                <Field label="Status">
-                  <select value={draft.status} onChange={e => update({ status: e.target.value as Draft['status'] })}>
-                    {invoiceStatuses.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-                  </select>
+                <Field label="Leverdatum *">
+                  <input type="date" value={draft.deliveryFrom ?? ''} onChange={e => update({ deliveryFrom: e.target.value || null })} />
+                </Field>
+                <Field label="Tot en met (bij een periode)">
+                  <input type="date" value={draft.deliveryTo ?? ''} min={draft.deliveryFrom ?? undefined} onChange={e => update({ deliveryTo: e.target.value || null })} />
                 </Field>
                 <Field label="Referentie van de klant"><input value={draft.reference ?? ''} placeholder="Inkoopnummer of PO" onChange={e => update({ reference: e.target.value })} /></Field>
-                <Field label="Btw" full>
-                  <label className="check-row toggle-row">
-                    <input type="checkbox" checked={draft.reverseCharge}
-                      onChange={e => update({ reverseCharge: e.target.checked, lines: draft.lines.map(l => ({ ...l, vatRate: e.target.checked ? 0 : 21 })) })} />
-                    <span>Btw verlegd</span>
-                    {draft.reverseCharge && !customer?.vatNumber && <span className="text-red" style={{ fontSize: 12 }}>klant heeft geen btw-nummer</span>}
-                  </label>
+                <Field label="Btw">
+                  <select value={draft.vatRegime} disabled={linked} onChange={e => update(withRegime(e.target.value as VatRegime))}>
+                    {vatRegimes.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+                  </select>
                 </Field>
+                {(regimeError || draft.vatRegime !== 'normaal') && (
+                  <p className={regimeError ? 'text-red' : 'muted'} style={{ fontSize: 13, margin: 0, gridColumn: '1 / -1' }}>
+                    {regimeError ?? regimeInfo?.help}
+                  </p>
+                )}
               </div>
 
               <h4 className="section-title">Regels</h4>
@@ -224,28 +275,32 @@ export function InvoiceEditorPage() {
                       {(units.includes(l.unit) ? units : [l.unit, ...units]).map(u => <option key={u}>{u}</option>)}
                     </select>
                     <input type="number" step="0.01" value={l.unitPrice} onChange={e => updateLine(i, { unitPrice: Number(e.target.value) })} />
-                    <select value={l.vatRate} disabled={draft.reverseCharge} onChange={e => updateLine(i, { vatRate: Number(e.target.value) })}>
+                    <select value={l.vatRate} disabled={noVat} onChange={e => updateLine(i, { vatRate: Number(e.target.value) })}>
                       <option value={21}>21%</option><option value={9}>9%</option><option value={0}>0%</option>
                     </select>
-                    <span className="num">{euro(l.quantity * l.unitPrice)}</span>
+                    <span className="num">{euro(lineAmount(l))}</span>
                     <span className="line-actions">
-                      <button className="icon-btn tiny" disabled={i === 0} onClick={() => moveLine(i, -1)} aria-label="Omhoog"><ChevronUp size={14} /></button>
-                      <button className="icon-btn tiny" disabled={i === draft.lines.length - 1} onClick={() => moveLine(i, 1)} aria-label="Omlaag"><ChevronDown size={14} /></button>
-                      <button className="icon-btn tiny danger" disabled={draft.lines.length === 1} onClick={() => update({ lines: draft.lines.filter((_, x) => x !== i) })} aria-label="Regel verwijderen"><Trash2 size={14} /></button>
+                      {!readOnly && <>
+                        <button className="icon-btn tiny" disabled={i === 0} onClick={() => moveLine(i, -1)} aria-label="Omhoog"><ChevronUp size={14} /></button>
+                        <button className="icon-btn tiny" disabled={i === draft.lines.length - 1} onClick={() => moveLine(i, 1)} aria-label="Omlaag"><ChevronDown size={14} /></button>
+                        <button className="icon-btn tiny danger" disabled={draft.lines.length === 1} onClick={() => update({ lines: draft.lines.filter((_, x) => x !== i) })} aria-label="Regel verwijderen"><Trash2 size={14} /></button>
+                      </>}
                     </span>
                   </div>
                 ))}
               </div>
               <div className="row mt between wrap">
-                <button className="btn btn-sm" onClick={() => update({ lines: [...draft.lines, newLine(draft.lines.at(-1)?.unit, draft.lines.at(-1)?.unitPrice)] })}><Plus size={14} /> Regel toevoegen</button>
+                {readOnly ? <span /> : (
+                  <button className="btn btn-sm" onClick={() => update({ lines: [...draft.lines, newLine(draft.lines.at(-1)?.unit, draft.lines.at(-1)?.unitPrice, noVat ? 0 : 21)] })}><Plus size={14} /> Regel toevoegen</button>
+                )}
                 <div className="line-totals">
                   <span>Subtotaal <strong>{euro(totals.subtotal)}</strong></span>
-                  <span>Btw <strong>{euro(totals.vat)}</strong></span>
+                  {!noVat && <span>Btw <strong>{euro(totals.vat)}</strong></span>}
                   <span>Totaal <strong>{euro(totals.total)}</strong></span>
                 </div>
               </div>
 
-              {draft.status === 'concept' && openProjects.length > 0 && (
+              {!readOnly && !linked && openProjects.length > 0 && (
                 <div className="open-hours">
                   <div className="open-hours-head"><Clock size={15} /> Open uren van {customer?.company || customer?.name}</div>
                   {openProjects.map(p => (
@@ -253,19 +308,19 @@ export function InvoiceEditorPage() {
                       <span className="legend-dot" style={{ background: p.color }} />
                       <span className="grow truncate">{p.name}</span>
                       <span className="muted">{hours(p.minutesUnbilled)} · {euro(p.unbilledValue)}</span>
-                      <button className="btn btn-sm" onClick={() => addHours(p)}><Plus size={13} /> Toevoegen</button>
+                      <button className="btn btn-sm" disabled={busy} onClick={() => addHours(p)}><Plus size={13} /> Toevoegen</button>
                     </div>
                   ))}
                 </div>
               )}
 
               <Field label="Opmerking op factuur" full><textarea value={draft.notes ?? ''} onChange={e => update({ notes: e.target.value })} /></Field>
-              {!settings?.iban && (
+              {!readOnly && !settings?.iban && (
                 <p className="muted" style={{ fontSize: 13, marginBottom: 0 }}>
-                  Tip: vul je IBAN, KvK en btw-nummer in bij <a onClick={() => navigate('/instellingen')} style={{ cursor: 'pointer' }}><Building size={12} /> Instellingen</a>, dan staan ze op elke factuur.
+                  Tip: vul je IBAN, KvK en btw-id in bij <a onClick={() => navigate('/instellingen')} style={{ cursor: 'pointer' }}><Building size={12} /> Instellingen</a>, dan staan ze op elke factuur.
                 </p>
               )}
-            </div>
+            </fieldset>
           </div>
         </div>
 
@@ -274,10 +329,16 @@ export function InvoiceEditorPage() {
 
       {dialog === 'send' && (
         <SendDialog
-          mailHref={sendMail({ ...draft, id: Number(id) }, customer, company)}
+          title={credit ? 'Creditnota versturen' : 'Factuur versturen'}
+          missing={missingForSending(draft, customer, company)}
+          problem={regimeError}
+          number={next?.number}
           email={customer?.email}
+          mailHref={inv => sendMail(inv, customer, company)}
+          onSend={() => setStatus('verzonden')}
+          onSettings={() => navigate('/instellingen')}
+          onCustomer={() => customer && navigate(`/klanten/${customer.id}`)}
           onClose={() => setDialog(null)}
-          onSent={() => { setDialog(null); setStatus('verzonden') }}
         />
       )}
       {dialog === 'paid' && (
@@ -287,27 +348,74 @@ export function InvoiceEditorPage() {
   )
 }
 
-const fromServer = (inv: Invoice): Draft => ({ ...inv, issueDate: inv.issueDate.slice(0, 10), dueDate: inv.dueDate.slice(0, 10), reference: inv.reference ?? '' })
+const fromServer = (inv: Invoice): Draft => ({
+  ...inv, issueDate: inv.issueDate.slice(0, 10), dueDate: inv.dueDate.slice(0, 10), reference: inv.reference ?? '',
+  deliveryFrom: day(inv.deliveryFrom), deliveryTo: day(inv.deliveryTo),
+})
 
-function SendDialog({ mailHref, email, onClose, onSent }: { mailHref: string; email?: string | null; onClose: () => void; onSent: () => void }) {
-  return (
-    <Modal title="Factuur versturen" onClose={onClose} footer={<>
-      <button className="btn" onClick={onClose}>Annuleren</button>
-      <button className="btn btn-primary" onClick={onSent}><CheckCircle2 size={15} /> Markeer als verzonden</button>
-    </>}>
+// Eerst versturen (dan krijgt de factuur zijn nummer en ligt hij vast), daarna de PDF maken en mailen.
+function SendDialog({ title, missing, problem, number, email, mailHref, onSend, onSettings, onCustomer, onClose }: {
+  title: string
+  missing: string[]
+  problem: string | null
+  number?: string
+  email?: string | null
+  mailHref: (inv: Invoice) => string
+  onSend: () => Promise<Invoice | null>
+  onSettings: () => void
+  onCustomer: () => void
+  onClose: () => void
+}) {
+  const [sent, setSent] = useState<Invoice | null>(null)
+  const [busy, setBusy] = useState(false)
+  const blocked = missing.length > 0 || problem !== null
+  const mine = missing.filter(m => m.startsWith('je '))
+  const theirs = missing.filter(m => m.includes('klant'))
+
+  const send = async () => {
+    setBusy(true)
+    const inv = await onSend()
+    setBusy(false)
+    if (inv) setSent(inv)
+  }
+
+  if (sent) return (
+    <Modal title={`${invoiceTitle(sent)} is verstuurd`} onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Klaar</button>}>
       <ol className="steps">
         <li>
-          <div><strong>Sla de factuur op als PDF</strong><div className="muted">Kies in het afdrukvenster voor "Opslaan als PDF".</div></div>
+          <div><strong>Sla hem op als PDF</strong><div className="muted">Kies in het afdrukvenster voor "Opslaan als PDF".</div></div>
           <button className="btn btn-sm" onClick={() => window.print()}><Printer size={14} /> PDF</button>
         </li>
         <li>
           <div><strong>Mail hem naar je klant</strong><div className="muted">{email ? `Er staat een mail klaar voor ${email}. Voeg de PDF als bijlage toe.` : 'Deze klant heeft nog geen e-mailadres.'}</div></div>
-          <a className="btn btn-sm" href={mailHref}><Mail size={14} /> Mail openen</a>
-        </li>
-        <li>
-          <div><strong>Markeer als verzonden</strong><div className="muted">Dan houdt het portaal de vervaldatum voor je in de gaten.</div></div>
+          <a className="btn btn-sm" href={mailHref(sent)}><Mail size={14} /> Mail openen</a>
         </li>
       </ol>
+    </Modal>
+  )
+
+  return (
+    <Modal title={title} onClose={onClose} footer={<>
+      <button className="btn" onClick={onClose}>Annuleren</button>
+      <button className="btn btn-primary" disabled={blocked || busy} onClick={send}><Send size={15} /> Versturen{number ? ` als ${number}` : ''}</button>
+    </>}>
+      {blocked ? (<>
+        {missing.length > 0 && (<>
+          <p style={{ marginTop: 0 }}>Een factuur moet aan de regels van de Belastingdienst voldoen. Dit ontbreekt nog:</p>
+          <ul>{missing.map(m => <li key={m}>{m[0]!.toUpperCase()}{m.slice(1)}</li>)}</ul>
+          <div className="row wrap" style={{ gap: 8 }}>
+            {mine.length > 0 && <button className="btn btn-sm" onClick={onSettings}><Building size={14} /> Naar instellingen</button>}
+            {theirs.length > 0 && <button className="btn btn-sm" onClick={onCustomer}>Klant bewerken</button>}
+          </div>
+        </>)}
+        {problem && <p className="text-red">{problem}</p>}
+      </>) : (
+        <p style={{ marginTop: 0 }}>
+          Bij versturen krijgt hij {number ? `nummer ${number}` : 'het volgende nummer'} en leggen we jouw gegevens en die van je klant vast.
+          Daarna kun je hem niet meer aanpassen of verwijderen; een fout herstel je met een creditnota.
+          Daarna maak je de PDF en mail je hem.
+        </p>
+      )}
     </Modal>
   )
 }
@@ -315,11 +423,11 @@ function SendDialog({ mailHref, email, onClose, onSent }: { mailHref: string; em
 function PaidDialog({ total, onClose, onConfirm }: { total: number; onClose: () => void; onConfirm: (paidAt: string) => void }) {
   const [paidAt, setPaidAt] = useState(toDateInput(new Date()))
   return (
-    <Modal title="Betaling ontvangen" onClose={onClose} footer={<>
+    <Modal title={total < 0 ? 'Creditnota verrekend' : 'Betaling ontvangen'} onClose={onClose} footer={<>
       <button className="btn" onClick={onClose}>Annuleren</button>
-      <button className="btn btn-success" onClick={() => onConfirm(paidAt)}><CheckCircle2 size={15} /> {euro(total)} ontvangen</button>
+      <button className="btn btn-success" onClick={() => onConfirm(paidAt)}><CheckCircle2 size={15} /> {euro(Math.abs(total))} {total < 0 ? 'verrekend' : 'ontvangen'}</button>
     </>}>
-      <Field label="Betaald op"><input type="date" value={paidAt} onChange={e => setPaidAt(e.target.value)} /></Field>
+      <Field label={total < 0 ? 'Verrekend op' : 'Betaald op'}><input type="date" value={paidAt} onChange={e => setPaidAt(e.target.value)} /></Field>
     </Modal>
   )
 }

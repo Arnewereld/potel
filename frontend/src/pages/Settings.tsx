@@ -7,7 +7,7 @@ import { useToast } from '../lib/toast'
 import { useAuth } from '../lib/auth'
 import { useWorkspace } from '../lib/workspace'
 import { plans, product } from '../lib/plans'
-import type { Settings } from '../lib/types'
+import type { Settings, VatRegime } from '../lib/types'
 import { date, toDateInput } from '../lib/format'
 import { ErrorBox, Field, Loading, Modal, PageHeader, SubTabs } from '../components/ui'
 import { BrandFields } from '../components/BrandFields'
@@ -49,9 +49,11 @@ export function SettingsPage() {
   }
 
   const today = toDateInput(new Date())
+  const regime: VatRegime = form.vatRegime === 'kor' ? 'kor' : 'normaal'
   const preview = {
-    number: `${new Date().getFullYear()}-0001`, customerId: 0, issueDate: today, dueDate: today, status: 'concept' as const, reverseCharge: false,
-    reference: '', notes: 'Bedankt voor de fijne samenwerking!', lines: [{ description: 'Ontwikkeling webapplicatie', quantity: 12, unit: 'uur', unitPrice: form.defaultHourlyRate, vatRate: 21 }],
+    number: `${new Date().getFullYear()}-0001`, customerId: 0, issueDate: today, dueDate: today, deliveryFrom: today, status: 'concept' as const, vatRegime: regime,
+    reference: '', notes: 'Bedankt voor de fijne samenwerking!',
+    lines: [{ description: 'Ontwikkeling webapplicatie', quantity: 12, unit: 'uur', unitPrice: form.defaultHourlyRate, vatRate: regime === 'kor' ? 0 : 21 }],
   }
 
   return (
@@ -88,6 +90,17 @@ export function SettingsPage() {
               <Field label="KvK-nummer"><input {...text('kvk')} /></Field>
               <Field label="Btw-identificatienummer"><input {...text('btw')} placeholder="NL000000000B01" /></Field>
               <Field label="IBAN" full><input {...text('iban')} /></Field>
+              <Field label="Btw op je facturen" full>
+                <select value={regime} disabled={!admin} onChange={e => setForm({ ...form, vatRegime: e.target.value as VatRegime })}>
+                  <option value="normaal">Normaal: btw op je facturen</option>
+                  <option value="kor">Kleineondernemersregeling (KOR): geen btw</option>
+                </select>
+              </Field>
+              <p className="muted field-full" style={{ margin: 0, fontSize: 13 }}>
+                {regime === 'kor'
+                  ? 'Je facturen krijgen geen btw, wel de vermelding dat je de KOR gebruikt. Dat mag alleen als je bij de Belastingdienst bent aangemeld voor de KOR.'
+                  : 'Voor een zakelijke klant in een ander EU-land wordt de btw vanzelf verlegd, en voor een klant buiten de EU staat er geen btw op. Per factuur kun je het nog aanpassen.'}
+              </p>
             </div>
           </div>
           <div className="card">

@@ -65,10 +65,9 @@ public class WorkflowTests(PortalFactory factory) : IClassFixture<PortalFactory>
         wf!.Active = true;
         await client.PutAsJsonAsync($"/api/workflows/{wf.Id}", wf);
 
-        var invoice = factory.WithDb(db => db.Invoices.First(i => i.Status != "betaald"));
-        var full = await client.GetFromJsonAsync<Invoice>($"/api/invoices/{invoice.Id}");
-        full!.Status = "betaald";
-        (await client.PutAsJsonAsync($"/api/invoices/{invoice.Id}", full)).EnsureSuccessStatusCode();
+        // Een verstuurde factuur ligt vast; alleen de status gaat nog vooruit.
+        var invoice = factory.WithDb(db => db.Invoices.First(i => i.Status == "verzonden" || i.Status == "verlopen"));
+        (await client.PostAsJsonAsync($"/api/invoices/{invoice.Id}/status", new { status = "betaald" })).EnsureSuccessStatusCode();
 
         var customer = factory.WithDb(db => db.Customers.Find(invoice.CustomerId)!);
         Assert.True(factory.WithDb(db => db.Appointments.Any(a => a.Title == $"Bedank {customer.Name} voor {invoice.Number}")));

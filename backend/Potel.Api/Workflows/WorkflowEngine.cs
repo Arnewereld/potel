@@ -10,7 +10,7 @@ namespace Potel.Api.Workflows;
 // Voert werkstromen uit: van trigger, via acties en voorwaarden, tot het einde.
 // Een "Wachten"-blok parkeert de run; de WorkflowScheduler pakt hem later weer op.
 // Werkruimtes met een verlopen proef draaien niets meer, en elke run blijft binnen de grenzen uit WorkflowLimits.
-public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSender email, IOptions<WorkflowLimits> options, ILogger<WorkflowEngine> logger)
+public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSender email, IOptions<WorkflowLimits> options, BusinessClock clock, ILogger<WorkflowEngine> logger)
 {
     readonly WorkflowLimits limits = options.Value;
 
@@ -273,7 +273,7 @@ public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSend
             case "action.task":
             {
                 var days = int.TryParse(node.Get("days", "1"), out var d) ? d : 1;
-                var start = DateTime.Now.Date.AddDays(days).AddHours(9);
+                var start = clock.Today.AddDays(days).AddHours(9);
                 // Alleen een klant uit deze werkruimte koppelen, ook als de context van een oudere run komt.
                 var customerId = Id("customer.id") is { } cid && await db.Customers.AnyAsync(c => c.Id == cid) ? cid : (int?)null;
                 var appt = new Appointment
@@ -330,13 +330,16 @@ public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSend
                 if (target == "invoice")
                 {
                     if (!InvoiceStatus.All.Contains(status)) return Fail($"Onbekende factuurstatus \"{status}\"");
-                    var inv = Id("invoice.id") is { } iid ? await db.Invoices.FindAsync(iid) : null;
+                    // Dezelfde regels als in het portaal: versturen controleert alles en geeft een nummer, daarna alleen vooruit.
+                    await using var tx = await WriteLock.BeginAsync(db);
+                    var inv = Id("invoice.id") is { } iid ? await db.Invoices.Include(i => i.Lines).FirstOrDefaultAsync(i => i.Id == iid) : null;
                     if (inv is null) return Fail("Er is geen factuur in deze run");
-                    inv.Status = status;
-                    ctx["invoice.status"] = status;
-                    db.Log("factuur", $"Factuur {inv.Number} op {status} gezet door werkstroom");
+                    var (problem, _) = await InvoiceEndpoints.ChangeStatusAsync(db, clock, inv, status);
+                    if (problem is not null) return Fail(problem.Error);
                     await db.SaveChangesAsync();
-                    return Ok($"Factuur {inv.Number} staat nu op {status}");
+                    await tx.CommitAsync();
+                    WorkflowContext.AddInvoice(ctx, inv);
+                    return Ok($"{InvoiceEndpoints.Label(inv)} staat nu op {status}");
                 }
                 if (!LeadStatus.All.Contains(status)) return Fail($"Onbekende leadstatus \"{status}\"");
                 var lead = Id("lead.id") is { } lid ? await db.Leads.FindAsync(lid) : null;
@@ -364,16 +367,21 @@ public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSend
                 if (customerId is null || !await db.Customers.AnyAsync(c => c.Id == customerId))
                     return Fail("Er is geen klant in deze run. Zet een lead eerst om met \"Klant maken\".");
                 var amount = WorkflowContext.TryNumber(R("amount", "{{lead.value}}"), out var a) ? a : 0;
+                var settings = await SettingsEndpoints.GetAsync(db);
+                var regime = VatRegimes.DefaultFor(settings, await db.Customers.FindAsync(customerId.Value));
+                var today = clock.Today;
+                // Een concept zonder nummer; het nummer komt pas als je hem verstuurt.
                 var inv = new Invoice
                 {
-                    Number = await InvoiceEndpoints.NextNumber(db), CustomerId = customerId.Value, Status = "concept",
-                    Lines = [new InvoiceLine { Description = R("description", "Diensten"), Quantity = 1, UnitPrice = amount, VatRate = 21 }],
+                    CustomerId = customerId.Value, Status = InvoiceStatus.Draft, IssueDate = today, DueDate = today.AddDays(settings.PaymentTermDays),
+                    DeliveryFrom = today, VatRegime = regime, Notes = SettingsEndpoints.DefaultNote,
+                    Lines = [new InvoiceLine { Description = R("description", "Diensten"), Quantity = 1, UnitPrice = amount, VatRate = VatRegimes.ZeroVat(regime) ? 0 : 21 }],
                 };
                 db.Invoices.Add(inv);
-                db.Log("factuur", $"Conceptfactuur {inv.Number} aangemaakt door werkstroom");
+                db.Log("factuur", "Conceptfactuur aangemaakt door werkstroom");
                 await db.SaveChangesAsync();
                 WorkflowContext.AddInvoice(ctx, inv);
-                return Ok($"Conceptfactuur {inv.Number} aangemaakt");
+                return Ok("Conceptfactuur aangemaakt");
             }
 
             case "action.webhook":

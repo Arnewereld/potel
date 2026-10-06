@@ -20,6 +20,7 @@ public static class CustomerEndpoints
             if (string.IsNullOrWhiteSpace(input.Name)) return Results.BadRequest(new { error = "Naam is verplicht" });
             input.Id = 0;
             input.CreatedAt = DateTime.UtcNow;
+            input.Country = Countries.Normalize(input.Country);
             db.Customers.Add(input);
             db.Log("klant", $"Klant {input.Name} toegevoegd");
             await db.SaveChangesAsync();
@@ -35,7 +36,7 @@ public static class CustomerEndpoints
             if (c is null) return Results.NotFound();
             if (string.IsNullOrWhiteSpace(input.Name)) return Results.BadRequest(new { error = "Naam is verplicht" });
             c.Name = input.Name; c.Company = input.Company; c.Email = input.Email; c.Phone = input.Phone;
-            c.Address = input.Address; c.City = input.City; c.VatNumber = input.VatNumber; c.Notes = input.Notes;
+            c.Address = input.Address; c.City = input.City; c.Country = Countries.Normalize(input.Country); c.VatNumber = input.VatNumber; c.Notes = input.Notes;
             db.Log("klant", $"Klant {c.Name} bijgewerkt");
             await db.SaveChangesAsync();
             return Results.Ok(c);

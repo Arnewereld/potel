@@ -477,7 +477,7 @@ function RunDialog({ nodes, onClose, onRun }: { nodes: WorkflowNode[]; onClose: 
           <Field label="Met factuur" full>
             <select value={invoiceId} onChange={e => setInvoiceId(Number(e.target.value))}>
               <option value={0}>Geen factuur</option>
-              {invoices?.map(i => <option key={i.id} value={i.id}>{i.number} · {i.customer?.name} · {euro(invoiceTotals(i.lines).total)}</option>)}
+              {invoices?.map(i => <option key={i.id} value={i.id}>{i.number ?? 'Concept'} · {i.customer?.name} · {euro(invoiceTotals(i.lines).total)}</option>)}
             </select>
           </Field>
         )}

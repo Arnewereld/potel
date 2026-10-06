@@ -8,6 +8,7 @@ import { useToast } from '../lib/toast'
 import type { Appointment, Customer, Invoice, Project } from '../lib/types'
 import { date, dateTime, euro, initials, invoiceTotals } from '../lib/format'
 import { colorFor, invoiceStatuses, kindColor } from '../lib/status'
+import { isNetherlands } from '../lib/invoice'
 import { Badge, Empty, ErrorBox, Loading, SubTabs } from '../components/ui'
 import { CustomerForm } from '../components/CustomerForm'
 import { ProjectForm } from '../components/ProjectForm'
@@ -102,7 +103,8 @@ export function CustomerDetailPage() {
                 <dt>Bedrijf</dt><dd>{customer.company || '—'}</dd>
                 <dt>E-mail</dt><dd>{customer.email || '—'}</dd>
                 <dt>Telefoon</dt><dd>{customer.phone || '—'}</dd>
-                <dt>Adres</dt><dd>{[customer.address, customer.city].filter(Boolean).join(', ') || '—'}</dd>
+                <dt>Adres</dt><dd>{[customer.address, customer.city, !isNetherlands(customer.country) && customer.country].filter(Boolean).join(', ') || '—'}</dd>
+                <dt>Btw-nummer</dt><dd>{customer.vatNumber || '—'}</dd>
                 <dt>Klant sinds</dt><dd>{date(customer.createdAt)}</dd>
               </dl>
             </div>
@@ -140,7 +142,7 @@ export function CustomerDetailPage() {
                     const st = invoiceStatuses.find(s => s.id === i.status)!
                     return (
                       <tr key={i.id} className="clickable" onClick={() => navigate(`/facturen/${i.id}`)}>
-                        <td>{i.number}</td><td className="muted">{date(i.issueDate)}</td>
+                        <td>{i.number ?? <span className="muted">Concept</span>}</td><td className="muted">{date(i.issueDate)}</td>
                         <td><Badge tone={st.tone}>{st.label}</Badge></td>
                         <td className="num">{euro(invoiceTotals(i.lines).total)}</td>
                       </tr>

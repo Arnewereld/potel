@@ -9,7 +9,7 @@ import { Logo } from './PublicSite'
 const features = [
   { icon: Timer, color: '#ff6d5a', title: 'Uren met één klik', text: 'Start de timer als je begint, stop als je klaar bent. Hij loopt door als je je laptop dichtklapt en staat altijd in beeld.' },
   { icon: FolderKanban, color: '#4ea5ff', title: 'Projecten en budget', text: 'Per uur of voor een vaste prijs. Je ziet direct hoeveel budget er nog is en wat je effectief per uur verdient.' },
-  { icon: Receipt, color: '#3ecf8e', title: 'Factureren in een minuut', text: 'Open uren op een strakke factuur, btw verlegd voor buitenlandse klanten, creditnota\'s en herinneringen als iemand te laat is.' },
+  { icon: Receipt, color: '#3ecf8e', title: 'Factureren in een minuut', text: 'Open uren op een strakke factuur, btw verlegd voor zakelijke klanten in de EU, de KOR, creditnota\'s en herinneringen als iemand te laat is.' },
   { icon: Award, color: '#f5b83d', title: 'Urencriterium en btw', text: 'Haal je de 1.225 uur voor de zelfstandigenaftrek? En hoeveel btw moet je dit kwartaal afdragen? Het staat op je dashboard.' },
   { icon: Workflow, color: '#9b7bff', title: 'Werkstromen zoals n8n', text: 'Sleep blokken op een canvas: nieuwe lead, wacht drie dagen, stuur een mail, maak een taak. Automatisch, zonder code.' },
   { icon: Blocks, color: '#2fc6c6', title: 'Je eigen modules', text: 'Houd servers, domeinen en licenties bij in lijsten met je eigen velden. Zie je wat er binnenkort verloopt.' },
@@ -18,7 +18,7 @@ const features = [
 const faq = [
   { q: 'Moet ik een creditcard opgeven om te proberen?', a: 'Nee. Je maakt een account aan en kunt 30 dagen alles gebruiken. Daarna kies je zelf of je doorgaat.' },
   { q: 'Kan ik mijn gegevens meenemen als ik stop?', a: 'Ja. Onder Instellingen download je met één klik al je klanten, projecten, uren en facturen. En je kunt je werkruimte zelf helemaal verwijderen.' },
-  { q: 'Werkt het ook met buitenlandse klanten?', a: 'Ja. Zet "btw verlegd" aan op de factuur en vul het btw-nummer van je klant in; de juiste vermelding komt er vanzelf op.' },
+  { q: 'Werkt het ook met buitenlandse klanten?', a: 'Ja. Vul het land en het btw-nummer van je klant in. Zit je klant in een ander EU-land, dan wordt de btw verlegd en komen beide btw-nummers en de juiste vermelding vanzelf op de factuur. Voor een klant buiten de EU rekent Potel geen Nederlandse btw.' },
   { q: 'Zien collega\'s of andere klanten mijn gegevens?', a: 'Nee. Elke werkruimte is volledig afgeschermd. In het Team-abonnement nodig je zelf collega\'s uit en bepaal je hun rol.' },
 ]
 
