@@ -20,6 +20,8 @@ public static class Plans
     // De verkooppagina toont dit vanuit frontend/src/lib/plans.ts; PlanTests controleert dat die gelijk blijft.
     static readonly Dictionary<string, int> UserLimits = new() { [Trial] = 5, [Solo] = 1, [Team] = 5 };
     public static int MaxUsers(string plan) => UserLimits.GetValueOrDefault(plan, 1);
+
+    public const string TrialEndedError = "Je proefperiode is afgelopen. Kies een abonnement onder Instellingen om weer te kunnen werken.";
 }
 
 public class Workspace
@@ -31,6 +33,12 @@ public class Workspace
     // Leeg zolang de welkomstwizard nog niet is afgerond.
     public DateTime? OnboardedAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    // Hoeveel e-mails werkstromen op EmailDay (UTC) verstuurden, voor de daglimiet per werkruimte.
+    public DateTime? EmailDay { get; set; }
+    public int EmailsSent { get; set; }
+
+    // Na de proef zonder abonnement is een werkruimte alleen-lezen: niets wijzigen en geen werkstromen meer.
+    public bool TrialExpired(DateTime utcNow) => Plan == Plans.Trial && TrialEndsAt is { } end && end < utcNow;
 }
 
 public class Customer : IWorkspaceOwned
@@ -272,4 +280,8 @@ public class WorkflowRun : IWorkspaceOwned
     public string ContextJson { get; set; } = "{}";
     public string PendingJson { get; set; } = "[]";
     public string LogJson { get; set; } = "[]";
+    // Tellers over het hele leven van de run, ook na wachten: stappen, keren gewacht en verstuurde e-mails of webhooks.
+    public int Steps { get; set; }
+    public int Waits { get; set; }
+    public int Calls { get; set; }
 }

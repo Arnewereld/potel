@@ -107,14 +107,16 @@ Een werkstroom begint met een **trigger** en loopt via de lijnen langs de blokke
 | Status wijzigen | Zet een lead of factuur op een andere status. |
 | Klant maken | Zet de lead om naar een klant. |
 | Factuur maken | Maakt een conceptfactuur voor de klant. |
-| E-mail sturen | Stuurt een e-mail (zie hieronder). |
-| Webhook | Stuurt alle gegevens als JSON naar een andere app. |
-| Wachten | Wacht minuten, uren of dagen en gaat dan verder, ook als de server tussendoor herstart. |
+| E-mail sturen | Stuurt een e-mail naar één adres (zie hieronder). |
+| Webhook | Stuurt alle gegevens als JSON naar een andere app. Alleen naar openbare adressen op poort 80 of 443; doorverwijzingen volgt hij niet. |
+| Wachten | Wacht minstens een minuut, of uren of dagen, en gaat dan verder, ook als de server tussendoor herstart. |
 | Als / dan | Kiest de Ja- of Nee-uitgang op basis van een veld, bijvoorbeeld `lead.value` groter dan 5000. |
 
 In tekstvelden kun je gegevens invoegen met dubbele accolades, zoals `{{lead.name}}` of `{{invoice.number}}`. Onder *Uitvoeringen* zie je per run welke blokken liepen en wat er gebeurde.
 
-**E-mail versturen:** vul in `appsettings.json` de sectie `Smtp` in (server, poort, gebruiker, wachtwoord, afzender). Zolang er geen mailserver is ingesteld, slaat het blok de mail over en staat er een melding in de uitvoering.
+**E-mail versturen:** vul in `appsettings.json` de sectie `Smtp` in (server, poort, gebruiker, wachtwoord, afzender). Zolang er geen mailserver is ingesteld, slaat het blok de mail over en staat er een melding in de uitvoering. Alle mail gaat van jouw afzenderadres (of de gebruiker als `From` leeg is), met de bedrijfsnaam van de werkruimte als naam; antwoorden gaan naar het e-mailadres onder *Instellingen*. Per werkruimte geldt een daglimiet: 20 tijdens de proef, 200 met een abonnement. Is die op, dan slaat het blok de mail over met een melding en loopt de werkstroom gewoon verder.
+
+**Grenzen:** zodat één werkruimte de server niet kan volzetten, stopt een run na 200 blokken, 30 seconden, 10 e-mails en webhooks samen of 20 keer wachten. De planner op de achtergrond doet elke 30 seconden per werkruimte hooguit 10 runs en werkt een paar werkruimtes tegelijk af; werkruimtes met een verlopen proef slaat hij over. Handmatig uitvoeren kan 30 keer per minuut per werkruimte (`RateLimit__WorkflowRunsPerMinute`). De rest pas je aan in `appsettings.json` onder `Workflows` (als omgevingsvariabele bijvoorbeeld `Workflows__EmailsPerDayTrial`). Draai je Potel alleen voor jezelf en wil je webhooks naar je eigen netwerk, zet dan `Workflows__AllowPrivateWebhooks` op `true`.
 
 ## Testen
 

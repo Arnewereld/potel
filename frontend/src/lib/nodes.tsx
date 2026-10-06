@@ -40,7 +40,7 @@ export const nodeTypes: NodeType[] = [
   {
     type: 'action.email', label: 'E-mail sturen', group: 'Acties', color: '#4ea5ff', icon: Mail, description: 'Stuur een e-mail',
     fields: [
-      { key: 'to', label: 'Aan', type: 'text', default: '{{lead.email}}' },
+      { key: 'to', label: 'Aan', type: 'text', default: '{{lead.email}}', help: 'Eén e-mailadres' },
       { key: 'subject', label: 'Onderwerp', type: 'text', default: 'Bedankt voor je interesse' },
       { key: 'body', label: 'Bericht', type: 'textarea', default: 'Beste {{lead.name}},\n\n' },
     ],
@@ -72,12 +72,12 @@ export const nodeTypes: NodeType[] = [
   },
   {
     type: 'action.webhook', label: 'Webhook', group: 'Acties', color: '#ff5ca8', icon: Globe, description: 'Stuur de gegevens naar een andere app',
-    fields: [{ key: 'url', label: 'URL', type: 'text', placeholder: 'https://…', help: 'Krijgt alle gegevens van de run als JSON (POST)' }],
+    fields: [{ key: 'url', label: 'URL', type: 'text', placeholder: 'https://…', help: 'Krijgt alle gegevens van de run als JSON (POST). Alleen openbare adressen op poort 80 of 443.' }],
   },
   {
     type: 'logic.wait', label: 'Wachten', group: 'Logica', color: '#8a8aa0', icon: Clock, description: 'Wacht een tijdje en ga dan verder',
     fields: [
-      { key: 'amount', label: 'Hoe lang', type: 'number', default: '1' },
+      { key: 'amount', label: 'Hoe lang', type: 'number', default: '1', help: 'Minstens 1' },
       { key: 'unit', label: 'Eenheid', type: 'select', default: 'dagen', options: [{ value: 'minuten', label: 'Minuten' }, { value: 'uren', label: 'Uren' }, { value: 'dagen', label: 'Dagen' }] },
     ],
   },

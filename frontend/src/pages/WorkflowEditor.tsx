@@ -389,7 +389,7 @@ function NodeSettings({ node, onChange, onRemove }: { node: WorkflowNode; onChan
           <div className="chips">{variables.map(v => <code key={v} className="chip">{`{{${v}}}`}</code>)}</div>
         </details>
       )}
-      {node.type === 'action.email' && <p className="muted" style={{ fontSize: 12 }}>Mail gaat pas echt de deur uit als er een mailserver is ingesteld in appsettings.json (zie README).</p>}
+      {node.type === 'action.email' && <p className="muted" style={{ fontSize: 12 }}>Mail gaat pas echt de deur uit als er een mailserver is ingesteld in appsettings.json (zie README). Je bedrijfsnaam staat erin als afzender en antwoorden gaan naar het e-mailadres onder Instellingen. Er geldt een daglimiet per werkruimte.</p>}
       <button className="btn btn-danger btn-sm mt" onClick={onRemove}><Trash2 size={14} /> Blok verwijderen</button>
     </>
   )

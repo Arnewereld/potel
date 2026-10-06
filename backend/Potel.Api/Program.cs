@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Potel.Api.Data;
 using Potel.Api.Endpoints;
 using Potel.Api.Workflows;
@@ -53,8 +54,10 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
 builder.Services.AddAuthorization();
 
 // Inloggen en aanmelden zijn per IP-adres begrensd, tegen het raden van wachtwoorden. Mislukte inlogpogingen
-// tellen ook per e-mailadres (LoginThrottle). Gebruikers toevoegen of wijzigen is per werkruimte begrensd.
+// tellen ook per e-mailadres (LoginThrottle). Gebruikers toevoegen of wijzigen en werkstromen handmatig uitvoeren
+// zijn per werkruimte begrensd.
 var authPerMinute = builder.Configuration.GetValue("RateLimit:AuthPerMinute", 10);
+var runsPerMinute = builder.Configuration.GetValue("RateLimit:WorkflowRunsPerMinute", 30);
 builder.Services.AddSingleton<LoginThrottle>();
 builder.Services.AddRateLimiter(o =>
 {
@@ -67,15 +70,26 @@ builder.Services.AddRateLimiter(o =>
     o.AddPolicy("accounts", http => RateLimitPartition.GetFixedWindowLimiter(
         http.User.WorkspaceId() is { } ws ? $"ws:{ws}" : $"ip:{http.Connection.RemoteIpAddress}",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = authPerMinute, Window = TimeSpan.FromMinutes(1) }));
+    o.AddPolicy("workflow-runs", http => RateLimitPartition.GetFixedWindowLimiter(
+        http.User.WorkspaceId() is { } ws ? $"ws:{ws}" : $"ip:{http.Connection.RemoteIpAddress}",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = runsPerMinute, Window = TimeSpan.FromMinutes(1) }));
 });
 
 // Sleutels voor de inlogcookies bewaren, zodat gebruikers ingelogd blijven na een herstart of update.
 if (builder.Configuration["KeysPath"] is { Length: > 0 } keysPath)
     builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(keysPath)).SetApplicationName("Potel");
 
+builder.Services.Configure<WorkflowLimits>(builder.Configuration.GetSection("Workflows"));
 builder.Services.AddScoped<WorkflowEngine>();
 builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
-builder.Services.AddHttpClient("webhooks", c => c.Timeout = TimeSpan.FromSeconds(10));
+// Webhooks alleen naar openbare adressen, zonder doorverwijzingen of gedeelde cookies (zie WebhookGuard).
+builder.Services.AddHttpClient(WebhookGuard.ClientName)
+    .ConfigureHttpClient((sp, c) =>
+    {
+        c.Timeout = TimeSpan.FromSeconds(Math.Max(1, sp.GetRequiredService<IOptions<WorkflowLimits>>().Value.WebhookTimeoutSeconds));
+        c.MaxResponseContentBufferSize = 64 * 1024;
+    })
+    .ConfigurePrimaryHttpMessageHandler(sp => WebhookGuard.CreateHandler(sp.GetRequiredService<IOptions<WorkflowLimits>>().Value.AllowPrivateWebhooks));
 if (builder.Configuration.GetValue("Workflows:Scheduler", true))
     builder.Services.AddHostedService<WorkflowScheduler>();
 
@@ -141,10 +155,10 @@ app.Use(async (http, next) =>
         && !WritableAfterTrial(http.Request) && http.User.Identity?.IsAuthenticated == true)
     {
         var db = http.RequestServices.GetRequiredService<AppDb>();
-        if (await db.Workspaces.FindAsync(db.TenantId) is { Plan: Plans.Trial, TrialEndsAt: { } end } && end < DateTime.UtcNow)
+        if (await db.Workspaces.FindAsync(db.TenantId) is { } w && w.TrialExpired(DateTime.UtcNow))
         {
             http.Response.StatusCode = StatusCodes.Status402PaymentRequired;
-            await http.Response.WriteAsJsonAsync(new { error = "Je proefperiode is afgelopen. Kies een abonnement onder Instellingen om weer te kunnen werken." });
+            await http.Response.WriteAsJsonAsync(new { error = Plans.TrialEndedError });
             return;
         }
     }
