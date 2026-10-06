@@ -40,8 +40,9 @@ export interface InvoiceLine {
   vatRate: number
 }
 
-// normaal: btw op de regels. verlegd: zakelijke klant in een ander EU-land. kor: kleineondernemersregeling. buiten-eu: klant buiten de EU.
-export type VatRegime = 'normaal' | 'verlegd' | 'kor' | 'buiten-eu'
+// normaal: btw op de regels. verlegd: zakelijke klant in een ander EU-land. kor: kleineondernemersregeling.
+// vrijgesteld: diensten die vrijgesteld zijn van btw. buiten-eu: klant buiten de EU.
+export type VatRegime = 'normaal' | 'verlegd' | 'kor' | 'vrijgesteld' | 'buiten-eu'
 
 // Jij of je klant zoals ze bij versturen op de factuur kwamen.
 export interface InvoiceParty {
@@ -60,6 +61,9 @@ export interface InvoiceParty {
 
 export interface VatGroup { rate: number; base: number; vat: number }
 export interface InvoiceTotals { subtotal: number; vat: number; total: number; vatGroups: VatGroup[] }
+
+// Een verstuurde creditnota op een factuur.
+export interface CreditRef { id: number; number?: string | null; issueDate: string; total: number }
 
 export interface Invoice {
   id: number
@@ -81,6 +85,13 @@ export interface Invoice {
   creditForNumber?: string | null
   creditForIssueDate?: string | null
   isCredit?: boolean
+  // Verstuurde creditnota's op deze factuur, wat ze samen aftrekken en wat de klant dus nog moet betalen.
+  creditNotes?: CreditRef[]
+  creditedTotal?: number
+  openAmount?: number
+  fullyCredited?: boolean
+  // Voorbeeldfactuur uit de welkomstwizard: altijd te verwijderen.
+  demo?: boolean
   seller?: InvoiceParty | null
   buyer?: InvoiceParty | null
   totals?: InvoiceTotals
@@ -229,7 +240,7 @@ export interface Settings {
   yearlyHoursTarget: number
   logoDataUrl?: string | null
   brandColor?: string
-  // Standaard btw-regeling voor nieuwe facturen: normaal of KOR.
+  // Standaard btw-regeling voor nieuwe facturen: normaal, KOR of vrijgesteld.
   vatRegime?: VatRegime
 }
 
@@ -244,6 +255,8 @@ export interface Workspace {
   platformAdmin: boolean
   // Hoeveel gebruikers het abonnement toestaat (ook uitgeschakelde tellen mee).
   maxUsers: number
+  // Er staat nog voorbeelddata uit de welkomstwizard in.
+  demoData: boolean
 }
 
 export interface Dashboard {
@@ -267,6 +280,7 @@ export interface Dashboard {
     byDay: { date: string; minutes: number }[]
   }
   unbilled: { minutes: number; value: number }
-  vat: { label: string; amount: number; revenue: number; dueDate: string }
+  // Met de KOR doe je geen btw-aangifte; dan is er geen datum.
+  vat: { label: string; amount: number; revenue: number; dueDate: string | null; kor: boolean }
   projects: Project[]
 }

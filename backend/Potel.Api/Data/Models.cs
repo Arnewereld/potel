@@ -37,15 +37,37 @@ public class Workspace
     // Hoeveel e-mails werkstromen op EmailDay (UTC) verstuurden, voor de daglimiet per werkruimte.
     public DateTime? EmailDay { get; set; }
     public int EmailsSent { get; set; }
+    // Hetzelfde voor webhooks.
+    public DateTime? WebhookDay { get; set; }
+    public int WebhooksSent { get; set; }
+    // Gezet zolang er voorbeelddata in de werkruimte staat, zodat je die in één keer kunt weghalen.
+    public DateTime? DemoDataAt { get; set; }
 
     // Na de proef zonder abonnement is een werkruimte alleen-lezen: niets wijzigen en geen werkstromen meer.
     public bool TrialExpired(DateTime utcNow) => Plan == Plans.Trial && TrialEndsAt is { } end && end < utcNow;
 }
 
-public class Customer : IWorkspaceOwned
+// Tellers over het hele platform, los van werkruimtes. Bijvoorbeeld hoeveel e-mails alle proefwerkruimtes samen vandaag stuurden.
+public class PlatformCounter
+{
+    public const string TrialEmails = "proef-emails";
+
+    public string Key { get; set; } = "";
+    public DateTime? Day { get; set; }
+    public int Count { get; set; }
+}
+
+// Voorbeelddata uit de welkomstwizard. Die staat apart, zodat je hem in één keer kunt weghalen.
+public interface IDemoData
+{
+    bool IsDemo { get; set; }
+}
+
+public class Customer : IWorkspaceOwned, IDemoData
 {
     public int Id { get; set; }
     [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
     public string Name { get; set; } = "";
     public string? Company { get; set; }
     public string? Email { get; set; }
@@ -107,10 +129,11 @@ public static class LeadStatus
     public static readonly string[] All = ["nieuw", "contact", "offerte", "gewonnen", "verloren"];
 }
 
-public class Lead : IWorkspaceOwned
+public class Lead : IWorkspaceOwned, IDemoData
 {
     public int Id { get; set; }
     [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
     public string Name { get; set; } = "";
     public string? Company { get; set; }
     public string? Email { get; set; }
@@ -142,22 +165,24 @@ public static class InvoiceStatus
 }
 
 // De btw-regeling van een factuur. Normaal: gewoon btw. Verlegd: de klant in een ander EU-land draagt de btw af.
-// KOR: de kleineondernemersregeling, zonder btw. Buiten de EU: geen Nederlandse btw voor een klant buiten de EU.
+// KOR: de kleineondernemersregeling, zonder btw. Vrijgesteld: diensten die vrijgesteld zijn van btw (art. 11 Wet OB),
+// zoals CRKBO-onderwijs. Buiten de EU: geen Nederlandse btw voor een klant buiten de EU.
 public static class VatRegimes
 {
     public const string Normal = "normaal";
     public const string ReverseCharge = "verlegd";
     public const string Kor = "kor";
+    public const string Exempt = "vrijgesteld";
     public const string OutsideEu = "buiten-eu";
-    public static readonly string[] All = [Normal, ReverseCharge, Kor, OutsideEu];
+    public static readonly string[] All = [Normal, ReverseCharge, Kor, Exempt, OutsideEu];
     // Wat een werkruimte standaard gebruikt; verleggen en buiten de EU hangen van de klant af.
-    public static readonly string[] WorkspaceDefaults = [Normal, Kor];
+    public static readonly string[] WorkspaceDefaults = [Normal, Kor, Exempt];
 
     // Alleen bij normaal staat er btw op de regels.
     public static bool ZeroVat(string regime) => regime != Normal;
 
     // De regeling voor een nieuwe factuur: verlegd voor een zakelijke klant in een ander EU-land, buiten de EU daarbuiten,
-    // en anders wat de werkruimte standaard gebruikt (normaal of KOR).
+    // en anders wat de werkruimte standaard gebruikt (normaal, KOR of vrijgesteld).
     public static string DefaultFor(Settings settings, Customer? customer)
     {
         if (customer is not null && !Countries.IsNetherlands(customer.Country))
@@ -165,14 +190,15 @@ public static class VatRegimes
             if (!Countries.InEu(customer.Country)) return OutsideEu;
             if (!string.IsNullOrWhiteSpace(customer.VatNumber)) return ReverseCharge;
         }
-        return settings.VatRegime == Kor ? Kor : Normal;
+        return WorkspaceDefaults.Contains(settings.VatRegime) ? settings.VatRegime : Normal;
     }
 }
 
-public class Invoice : IWorkspaceOwned
+public class Invoice : IWorkspaceOwned, IDemoData
 {
     public int Id { get; set; }
     [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
     // Het doorlopende nummer komt pas bij versturen; een concept heeft nog geen nummer.
     public string? Number { get; set; }
     public int CustomerId { get; set; }
@@ -197,11 +223,29 @@ public class Invoice : IWorkspaceOwned
     public InvoiceParty? Buyer { get; set; }
     public List<InvoiceLine> Lines { get; set; } = [];
 
+    // De creditnota's die deze factuur corrigeren (ook concepten).
+    [JsonIgnore] public List<Invoice> Credits { get; set; } = [];
+
     [NotMapped] public string? CreditForNumber => CreditFor?.Number;
     [NotMapped] public DateTime? CreditForIssueDate => CreditFor?.IssueDate;
     [NotMapped] public bool IsCredit => CreditForInvoiceId != null || Totals.Total < 0;
     [NotMapped] public InvoiceTotals Totals => Money.Totals(Lines);
+    // Voorbeeldfactuur uit de welkomstwizard: eigen nummerreeks en altijd te verwijderen.
+    [NotMapped] public bool Demo => IsDemo;
+
+    // Verstuurde creditnota's op deze factuur (alleen bekend als Credits met hun regels geladen zijn).
+    [NotMapped] public List<CreditRef> CreditNotes =>
+        Credits.Where(c => c.Status != InvoiceStatus.Draft).OrderBy(c => c.Id).Select(c => new CreditRef(c.Id, c.Number, c.IssueDate, c.Totals.Total)).ToList();
+    // Wat er met creditnota's van deze factuur af is gegaan (0 of negatief).
+    [NotMapped] public decimal CreditedTotal => CreditNotes.Sum(c => c.Total);
+    // Wat de klant nog moet betalen: het totaal min wat er gecrediteerd is. Alleen voor een verstuurde, onbetaalde factuur.
+    [NotMapped] public decimal OpenAmount =>
+        IsCredit || Status is not (InvoiceStatus.Sent or InvoiceStatus.Overdue) ? 0 : Math.Max(0, Totals.Total + CreditedTotal);
+    // Helemaal tegengeboekt met creditnota's: niemand hoeft nog iets te betalen.
+    [NotMapped] public bool FullyCredited => !IsCredit && CreditNotes.Count > 0 && Totals.Total + CreditedTotal <= 0;
 }
+
+public record CreditRef(int Id, string? Number, DateTime IssueDate, decimal Total);
 
 // Naam, adres en nummers van een partij op de factuur, vastgelegd bij versturen.
 public class InvoiceParty
@@ -221,11 +265,16 @@ public class InvoiceParty
 
     static string? Clean(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
+    // Een btw-id zoals hij op de factuur hoort: hoofdletters, zonder spaties of punten (NL001234567B01).
+    public static string? NormalizeVatId(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Replace(" ", "").Replace(".", "").Trim().ToUpperInvariant();
+
     public static InvoiceParty Seller(Settings s) => new()
     {
         Name = s.CompanyName.Trim(), Contact = Clean(s.OwnerName), Address = Clean(s.Address), City = Clean(s.City), Country = Countries.Netherlands,
-        Email = Clean(s.Email), Phone = Clean(s.Phone), Website = Clean(s.Website), Kvk = Clean(s.Kvk), VatNumber = Clean(s.Btw), Iban = Clean(s.Iban),
+        Email = Clean(s.Email), Phone = Clean(s.Phone), Website = Clean(s.Website), Kvk = Clean(s.Kvk), VatNumber = NormalizeVatId(s.Btw), Iban = Clean(s.Iban),
     };
+
+    public InvoiceParty Copy() => (InvoiceParty)MemberwiseClone();
 
     public static InvoiceParty Buyer(Customer c) => new()
     {
@@ -241,6 +290,13 @@ public record InvoiceTotals(decimal Subtotal, decimal Vat, decimal Total, List<V
 // elk regelbedrag op centen, de btw per tarief over het totaal van dat tarief, en altijd half van nul af (2,345 → 2,35 en -2,345 → -2,35).
 public static class Money
 {
+    // Grenzen voor één regel, zodat aantal × prijs en de btw daarover altijd in een decimal passen.
+    public const decimal MaxQuantity = 1_000_000;
+    public const decimal MaxAmount = 1_000_000_000;
+    public const string TooLargeError = "Een regel heeft een te groot aantal of bedrag. Een aantal kan tot 1.000.000 en een prijs tot 1.000.000.000.";
+
+    public static bool TooLarge(InvoiceLine l) => Math.Abs(l.Quantity) > MaxQuantity || Math.Abs(l.UnitPrice) > MaxAmount;
+
     public static decimal Round(decimal amount) => Math.Round(amount, 2, MidpointRounding.AwayFromZero);
 
     public static decimal LineAmount(InvoiceLine l) => Round(l.Quantity * l.UnitPrice);
@@ -259,6 +315,8 @@ public class InvoiceLine
 {
     public int Id { get; set; }
     public int InvoiceId { get; set; }
+    // De volgorde op de factuur; bij gelijke positie telt het id.
+    [JsonIgnore] public int Position { get; set; }
     public string Description { get; set; } = "";
     public decimal Quantity { get; set; } = 1;
     public string Unit { get; set; } = "stuk";
@@ -279,10 +337,11 @@ public static class Billing
     public static readonly string[] All = [Hourly, Fixed];
 }
 
-public class Project : IWorkspaceOwned
+public class Project : IWorkspaceOwned, IDemoData
 {
     public int Id { get; set; }
     [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
     public string Name { get; set; } = "";
     public int CustomerId { get; set; }
     public Customer? Customer { get; set; }
@@ -298,10 +357,11 @@ public class Project : IWorkspaceOwned
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
-public class TimeEntry : IWorkspaceOwned
+public class TimeEntry : IWorkspaceOwned, IDemoData
 {
     public int Id { get; set; }
     [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
     public int ProjectId { get; set; }
     public DateTime Date { get; set; } = DateTime.UtcNow.Date;
     public int Minutes { get; set; }
@@ -333,7 +393,7 @@ public class Settings : IWorkspaceOwned
     public string? Iban { get; set; }
     public decimal DefaultHourlyRate { get; set; } = 95;
     public int PaymentTermDays { get; set; } = 14;
-    // Standaard btw-regeling voor nieuwe facturen: normaal of KOR (kleineondernemersregeling).
+    // Standaard btw-regeling voor nieuwe facturen: normaal, KOR (kleineondernemersregeling) of vrijgesteld.
     public string VatRegime { get; set; } = VatRegimes.Normal;
     public int WeeklyHoursTarget { get; set; } = 32;
     // Het urencriterium voor de zelfstandigenaftrek.
@@ -343,10 +403,11 @@ public class Settings : IWorkspaceOwned
     public string BrandColor { get; set; } = "#ff6d5a";
 }
 
-public class Appointment : IWorkspaceOwned
+public class Appointment : IWorkspaceOwned, IDemoData
 {
     public int Id { get; set; }
     [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
     public string Title { get; set; } = "";
     public DateTime Start { get; set; }
     public DateTime End { get; set; }
@@ -358,29 +419,32 @@ public class Appointment : IWorkspaceOwned
 }
 
 // Eigen modules: de gebruiker bepaalt zelf de velden, records worden als JSON opgeslagen.
-public class CustomModule : IWorkspaceOwned
+public class CustomModule : IWorkspaceOwned, IDemoData
 {
     public int Id { get; set; }
     [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
     public string Name { get; set; } = "";
     public string Icon { get; set; } = "box";
     public string Color { get; set; } = "#ff6d5a";
     public string FieldsJson { get; set; } = "[]";
 }
 
-public class CustomRecord : IWorkspaceOwned
+public class CustomRecord : IWorkspaceOwned, IDemoData
 {
     public int Id { get; set; }
     [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
     public int ModuleId { get; set; }
     public string DataJson { get; set; } = "{}";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
-public class Workflow : IWorkspaceOwned
+public class Workflow : IWorkspaceOwned, IDemoData
 {
     public int Id { get; set; }
     [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
     public string Name { get; set; } = "";
     public bool Active { get; set; }
     public string GraphJson { get; set; } = "{\"nodes\":[],\"edges\":[]}";

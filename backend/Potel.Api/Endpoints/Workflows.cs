@@ -46,7 +46,8 @@ public static class WorkflowEndpoints
             return Results.Ok(w);
         });
 
-        // Handmatig uitvoeren, eventueel met een lead, klant of factuur als startgegevens. Per werkruimte begrensd.
+        // Handmatig uitvoeren, eventueel met een lead, klant of factuur als startgegevens. Per werkruimte begrensd
+        // (WorkflowRunBudget), samen met runs die een trigger of de planner start.
         g.MapPost("/{id:int}/run", async (AppDb db, WorkflowEngine engine, int id, RunRequest req) =>
         {
             var w = await db.Workflows.FindAsync(id);
@@ -74,9 +75,14 @@ public static class WorkflowEndpoints
             }
 
             // De motor start niets in een werkruimte met een verlopen proef, ook als dit verzoek er toch doorheen komt.
-            var run = await engine.RunAsync(w, starts, ctx, "Handmatig gestart");
-            return run is null ? Results.Json(new { error = Plans.TrialEndedError }, statusCode: StatusCodes.Status402PaymentRequired) : Results.Ok(run);
-        }).RequireRateLimiting("workflow-runs");
+            var (run, refusal) = await engine.RunAsync(w, starts, ctx, "Handmatig gestart");
+            return refusal switch
+            {
+                WorkflowEngine.StartRefusal.TrialEnded => Results.Json(new { error = Plans.TrialEndedError }, statusCode: StatusCodes.Status402PaymentRequired),
+                WorkflowEngine.StartRefusal.TooManyRuns => Results.Json(new { error = engine.TooManyRunsMessage }, statusCode: StatusCodes.Status429TooManyRequests),
+                _ => Results.Ok(run),
+            };
+        });
 
         g.MapGet("/{id:int}/runs", async (AppDb db, int id) =>
             await db.WorkflowRuns.Where(r => r.WorkflowId == id).OrderByDescending(r => r.Id).Take(25).ToListAsync());

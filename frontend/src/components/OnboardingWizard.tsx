@@ -129,7 +129,7 @@ export function OnboardingWizard({ onDone }: { onDone: () => void }) {
                 <UserPlus size={20} /><strong>Met mijn eerste klant</strong><span>Maak meteen een klant en project aan om uren op te schrijven.</span>
               </button>
               <button type="button" className={start === 'demo' ? 'active' : ''} onClick={() => setStart('demo')}>
-                <Sparkles size={20} /><strong>Met voorbeelddata</strong><span>Klanten, projecten, uren en facturen om alles te ontdekken.</span>
+                <Sparkles size={20} /><strong>Met voorbeelddata</strong><span>Klanten, projecten, uren en facturen om alles te ontdekken. Bij Instellingen haal je ze later in één keer weg.</span>
               </button>
               <button type="button" className={start === 'leeg' ? 'active' : ''} onClick={() => setStart('leeg')}>
                 <FileX2 size={20} /><strong>Leeg beginnen</strong><span>Je bouwt alles zelf op.</span>

@@ -71,8 +71,19 @@ public class AmsterdamCalendarTests(NewYearInAmsterdamFactory factory) : IClassF
     public async Task Invoice_due_yesterday_in_the_netherlands_is_overdue()
     {
         var c = await ReadyAsync(factory, "nieuwjaar-verlopen");
+        var wsId = await TestApi.WorkspaceIdAsync(c);
         var customerId = await CustomerAsync(c);
-        var id = await InvoiceAsync(c, customerId, "verzonden", 1, 100, issueDate: "2026-12-17");   // vervalt 31 december
+        // Versturen dateert altijd op vandaag (1 januari); daarna zetten we hem terug alsof hij op 17 december verstuurd is.
+        var id = await InvoiceAsync(c, customerId, "verzonden", 1, 100);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDb>();
+            db.Tenant.WorkspaceId = wsId;
+            var inv = db.Invoices.Single(i => i.Id == id);
+            inv.IssueDate = new DateTime(2026, 12, 17);
+            inv.DueDate = new DateTime(2026, 12, 31);   // vervalt 31 december
+            db.SaveChanges();
+        }
 
         var dash = await c.GetFromJsonAsync<JsonElement>("/api/dashboard");
         Assert.Equal(1, dash.GetProperty("overdue").GetInt32());

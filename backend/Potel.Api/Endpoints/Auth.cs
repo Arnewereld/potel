@@ -16,24 +16,59 @@ public record UserDto(int Id, int WorkspaceId, string Name, string Email, string
     public static UserDto From(User u) => new(u.Id, u.WorkspaceId, u.Name, u.Email, u.Role, u.Active, u.CreatedAt, u.LastLoginAt);
 }
 
-// Begrenst mislukte inlogpogingen per e-mailadres, ook als ze steeds van een ander IP-adres komen.
+// Begrenst mislukte inlogpogingen. Streng per e-mailadres en IP-adres samen: wie het wachtwoord raadt, zit na een paar
+// fouten een minuut vast, maar de eigenaar op een ander adres kan gewoon inloggen. Daarnaast ruimer per e-mailadres over
+// een uur, tegen raden vanaf steeds een ander IP-adres. Die ruime grens houdt alleen adressen tegen waarmee dit account
+// nog nooit is ingelogd, zodat niemand een ander buiten kan sluiten door expres fouten te maken.
 public sealed class LoginThrottle(IConfiguration config) : IDisposable
 {
-    readonly PartitionedRateLimiter<string> limiter = PartitionedRateLimiter.Create<string, string>(email =>
-        RateLimitPartition.GetFixedWindowLimiter(email, _ => new FixedWindowRateLimiterOptions
+    public enum Block { None, ThisAddress, ThisAccount }
+
+    readonly PartitionedRateLimiter<string> perAddress = PartitionedRateLimiter.Create<string, string>(key =>
+        RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = config.GetValue("RateLimit:AuthPerMinute", 10), Window = TimeSpan.FromMinutes(1),
         }));
 
-    public bool Blocked(string email)
+    readonly PartitionedRateLimiter<string> perAccount = PartitionedRateLimiter.Create<string, string>(email =>
+        RateLimitPartition.GetFixedWindowLimiter(email, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = config.GetValue("RateLimit:LoginFailuresPerEmailPerHour", 50), Window = TimeSpan.FromHours(1),
+        }));
+
+    // Per e-mailadres de IP-adressen waarmee het laatst is ingelogd (hooguit een paar).
+    readonly System.Collections.Concurrent.ConcurrentDictionary<string, string[]> known = new();
+    const int KnownPerAccount = 5;
+
+    static string Pair(string email, string ip) => $"{email}|{ip}";
+
+    static bool Exhausted(PartitionedRateLimiter<string> limiter, string key)
     {
-        using var lease = limiter.AttemptAcquire(email, 0);
+        using var lease = limiter.AttemptAcquire(key, 0);
         return !lease.IsAcquired;
     }
 
-    public void Failed(string email) => limiter.AttemptAcquire(email).Dispose();
+    public Block Blocked(string email, string ip)
+    {
+        if (Exhausted(perAddress, Pair(email, ip))) return Block.ThisAddress;
+        if (Exhausted(perAccount, email) && !(known.TryGetValue(email, out var ips) && ips.Contains(ip))) return Block.ThisAccount;
+        return Block.None;
+    }
 
-    public void Dispose() => limiter.Dispose();
+    public void Failed(string email, string ip)
+    {
+        perAddress.AttemptAcquire(Pair(email, ip)).Dispose();
+        perAccount.AttemptAcquire(email).Dispose();
+    }
+
+    public void Succeeded(string email, string ip) =>
+        known.AddOrUpdate(email, [ip], (_, ips) => ips.Contains(ip) ? ips : [ip, .. ips.Take(KnownPerAccount - 1)]);
+
+    public void Dispose()
+    {
+        perAddress.Dispose();
+        perAccount.Dispose();
+    }
 }
 
 public static class AuthEndpoints
@@ -77,17 +112,24 @@ public static class AuthEndpoints
         g.MapPost("/login", async (AppDb db, HttpContext http, LoginThrottle throttle, LoginRequest req) =>
         {
             var email = (req.Email ?? "").Trim().ToLower();
-            if (throttle.Blocked(email))
-                return Results.Json(new { error = "Te veel mislukte pogingen voor dit e-mailadres. Probeer het over een minuut opnieuw." }, statusCode: 429);
+            var ip = http.Connection.RemoteIpAddress?.ToString() ?? "onbekend";
+            switch (throttle.Blocked(email, ip))
+            {
+                case LoginThrottle.Block.ThisAddress:
+                    return Results.Json(new { error = "Te veel mislukte pogingen voor dit e-mailadres. Probeer het over een minuut opnieuw." }, statusCode: 429);
+                case LoginThrottle.Block.ThisAccount:
+                    return Results.Json(new { error = "Er zijn te veel mislukte pogingen voor dit e-mailadres. Probeer het over een uur opnieuw, of log in vanaf een adres waar je eerder inlogde." }, statusCode: 429);
+            }
             // Inloggen gebeurt voordat de werkruimte bekend is; het e-mailadres is uniek over alle werkruimtes.
             var u = await db.Users.IgnoreQueryFilters().FirstOrDefaultAsync(x => x.Email == email);
             var ok = u is not null && u.Active &&
                      Hasher.VerifyHashedPassword(u, u.PasswordHash, req.Password ?? "") != PasswordVerificationResult.Failed;
             if (!ok)
             {
-                throttle.Failed(email);
+                throttle.Failed(email, ip);
                 return Results.Json(new { error = "E-mailadres of wachtwoord klopt niet" }, statusCode: 401);
             }
+            throttle.Succeeded(email, ip);
             db.Tenant.WorkspaceId = u!.WorkspaceId;
             u.LastLoginAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
@@ -159,11 +201,12 @@ public static class AuthEndpoints
                 return Results.BadRequest(new { error = "Er moet minstens één actieve beheerder overblijven" });
             if (!string.IsNullOrEmpty(input.Password) && input.Password.Length < MinPasswordLength)
                 return Results.BadRequest(new { error = $"Kies een wachtwoord van minstens {MinPasswordLength} tekens" });
+            // Andere rol, ander adres, nieuw wachtwoord of uitgeschakeld: de oude sessies van deze gebruiker stoppen meteen.
+            var securityChanged = email != u.Email || input.Role != u.Role || input.Active != u.Active || !string.IsNullOrEmpty(input.Password);
+            if (securityChanged && await ProtectedPlatformAdmin(db, me, u) is { } refused) return refused;
             if (email != u.Email && await db.Users.IgnoreQueryFilters().AnyAsync(x => x.Email == email && x.Id != id))
                 return Results.Conflict(new { error = EmailUnavailable });
 
-            // Andere rol, ander adres, nieuw wachtwoord of uitgeschakeld: de oude sessies van deze gebruiker stoppen meteen.
-            var securityChanged = email != u.Email || input.Role != u.Role || input.Active != u.Active || !string.IsNullOrEmpty(input.Password);
             if (!string.IsNullOrEmpty(input.Password)) u.PasswordHash = Hash(u, input.Password);
             u.Name = input.Name.Trim(); u.Email = email; u.Role = input.Role; u.Active = input.Active;
             if (securityChanged) u.NewSecurityStamp();
@@ -180,12 +223,23 @@ public static class AuthEndpoints
             if (me.UserId() == id) return Results.BadRequest(new { error = "Je kunt jezelf niet verwijderen" });
             if (u.Role == Roles.Admin && !await db.Users.AnyAsync(x => x.Id != id && x.Role == Roles.Admin && x.Active))
                 return Results.BadRequest(new { error = "Er moet minstens één actieve beheerder overblijven" });
+            if (await ProtectedPlatformAdmin(db, me, u) is { } refused) return refused;
             db.Users.Remove(u);
             db.Log("gebruiker", $"Gebruiker {u.Name} verwijderd");
             await db.SaveChangesAsync();
             return Results.NoContent();
         });
     }
+
+    public const string PlatformAdminProtected =
+        "Dit account beheert ook het platform. Daarom kun je het e-mailadres, het wachtwoord en de rol niet wijzigen, en het account niet uitschakelen of verwijderen. Vraag een platformbeheerder eerst die rechten weg te halen.";
+
+    // Een platformbeheerder kan alle werkruimtes zien en abonnementen omzetten. Een beheerder van zijn werkruimte mag dat account
+    // dus niet overnemen (nieuw wachtwoord of e-mailadres), uitschakelen of verwijderen; alleen hijzelf of een andere platformbeheerder.
+    static async Task<IResult?> ProtectedPlatformAdmin(AppDb db, ClaimsPrincipal me, User target) =>
+        target.IsPlatformAdmin && me.UserId() != target.Id && !await PlatformEndpoints.IsPlatformAdmin(db, me)
+            ? Results.Json(new { error = PlatformAdminProtected }, statusCode: StatusCodes.Status403Forbidden)
+            : null;
 
     // Het abonnement bepaalt hoeveel gebruikers er in een werkruimte passen (zie Plans.MaxUsers).
     static async Task<IResult?> UserLimitReached(AppDb db)

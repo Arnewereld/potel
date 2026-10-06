@@ -61,10 +61,10 @@ public static partial class SettingsEndpoints
             if (logo is not null && CheckLogo(logo) is { } logoError) return Results.BadRequest(new { error = logoError });
             var color = string.IsNullOrWhiteSpace(input.BrandColor) ? null : input.BrandColor.Trim();
             if (color is not null && !HexColor().IsMatch(color)) return Results.BadRequest(new { error = "Kies een accentkleur als #rrggbb, bijvoorbeeld #ff6d5a" });
-            if (!VatRegimes.WorkspaceDefaults.Contains(input.VatRegime)) return Results.BadRequest(new { error = "Kies normaal of de kleineondernemersregeling (KOR) als standaard voor de btw" });
+            if (!VatRegimes.WorkspaceDefaults.Contains(input.VatRegime)) return Results.BadRequest(new { error = "Kies normaal, de kleineondernemersregeling (KOR) of vrijgesteld als standaard voor de btw" });
             var s = await GetAsync(db);
             s.CompanyName = input.CompanyName.Trim(); s.OwnerName = input.OwnerName; s.Address = input.Address; s.City = input.City;
-            s.Email = input.Email; s.Phone = input.Phone; s.Website = input.Website; s.Kvk = input.Kvk; s.Btw = input.Btw; s.Iban = input.Iban;
+            s.Email = input.Email; s.Phone = input.Phone; s.Website = input.Website; s.Kvk = input.Kvk; s.Btw = InvoiceParty.NormalizeVatId(input.Btw); s.Iban = input.Iban;
             s.DefaultHourlyRate = input.DefaultHourlyRate; s.PaymentTermDays = input.PaymentTermDays; s.VatRegime = input.VatRegime;
             s.WeeklyHoursTarget = input.WeeklyHoursTarget; s.YearlyHoursTarget = input.YearlyHoursTarget;
             s.LogoDataUrl = logo;

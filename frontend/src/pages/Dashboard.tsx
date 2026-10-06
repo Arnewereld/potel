@@ -52,7 +52,7 @@ export function DashboardPage() {
           sub={data.overdue > 0 ? <span style={{ color: 'var(--red)' }}><AlertTriangle size={11} /> {data.overdue} verlopen</span> : 'Niets verlopen'}
           onClick={() => navigate('/facturen')} />
         <Stat icon={<Landmark size={20} />} accent="var(--purple)" label={`Btw ${data.vat.label}`} value={euro(data.vat.amount)}
-          sub={`Aangifte vóór ${date(data.vat.dueDate)}`} />
+          sub={data.vat.kor || !data.vat.dueDate ? 'KOR: je doet geen btw-aangifte' : `Aangifte vóór ${date(data.vat.dueDate)}`} />
       </div>
 
       <div className="grid grid-2-1 mt">

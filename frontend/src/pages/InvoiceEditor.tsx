@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   Receipt, Plus, Trash2, Printer, Save, Building, ChevronUp, ChevronDown, Send, CheckCircle2, Copy, Undo2, BellRing, Clock, Mail, Lock,
@@ -34,11 +34,15 @@ export function InvoiceEditorPage() {
   const [error, setError] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
+  // Opslaan loopt: niet nog een keer tegelijk, anders gaat er een verouderde versie achteraan.
+  const savingRef = useRef(false)
+  const [saving, setSaving] = useState(false)
+  // Vandaag: bij versturen wordt dat de factuurdatum.
+  const [sendDate] = useState(() => toDateInput(new Date()))
   const [dialog, setDialog] = useState<'send' | 'paid' | null>(null)
   const { data: projects, reload: reloadProjects } = useApi<Project[]>(draft?.customerId ? `/projects?customerId=${draft.customerId}` : null)
-  // Het nummer dat deze factuur bij versturen krijgt; het jaar komt uit de factuurdatum.
-  const { data: next } = useApi<{ number: string }>(
-    draft && draft.status === 'concept' && draft.issueDate?.length === 10 ? `/invoices/next-number?date=${draft.issueDate}` : null)
+  // Het nummer dat deze factuur bij versturen krijgt. Hij krijgt dan de datum van die dag, dus ook het nummer van dit jaar.
+  const { data: next } = useApi<{ number: string }>(draft && draft.status === 'concept' ? '/invoices/next-number' : null)
   const { retarget, close } = useTabs()
   const navigate = useNavigate()
   const toast = useToast()
@@ -75,7 +79,13 @@ export function InvoiceEditorPage() {
   const openProjects = (projects ?? []).filter(p => p.billing === 'uur' && p.minutesUnbilled > 0)
   const due = daysUntil(draft.dueDate)
   const regimeInfo = vatRegimes.find(r => r.id === draft.vatRegime)
-  const regimeError = regimeProblem(draft.vatRegime, customer)
+  // Een creditnota volgt de regeling van de factuur die hij corrigeert, ook als de klant inmiddels veranderd is.
+  const regimeError = linked ? null : regimeProblem(draft.vatRegime, customer)
+  const creditNotes = draft.creditNotes ?? []
+  const fullyCredited = !credit && !!draft.fullyCredited
+  const demo = !!draft.demo
+  // Bij versturen wordt de factuurdatum vandaag en schuift de vervaldatum mee, zodat de betaaltermijn gelijk blijft.
+  const termDays = Math.max(0, Math.round((new Date(`${draft.dueDate}T00:00:00`).getTime() - new Date(`${draft.issueDate}T00:00:00`).getTime()) / 86400000))
 
   const update = (patch: Partial<Draft>) => { setDraft({ ...draft, ...patch }); setDirty(true) }
   const updateLine = (idx: number, patch: Partial<InvoiceLine>) =>
@@ -96,6 +106,9 @@ export function InvoiceEditorPage() {
   // Slaat op en geeft het id terug; een nieuwe factuur krijgt daarbij een eigen tabblad.
   // Met stay blijft een nieuwe factuur nog even op dit tabblad, zodat er eerst iets aan toegevoegd kan worden.
   const save = async (patch: Partial<Draft> = {}, quiet = false, stay = false): Promise<number | null> => {
+    if (savingRef.current) return null
+    savingRef.current = true
+    setSaving(true)
     const body = { ...draft, ...patch }
     try {
       if (isNew) {
@@ -115,10 +128,14 @@ export function InvoiceEditorPage() {
     } catch (e) {
       toast((e as Error).message, 'error')
       return null
+    } finally {
+      savingRef.current = false
+      setSaving(false)
     }
   }
 
   const setStatus = async (status: Draft['status'], paidAt?: string): Promise<Invoice | null> => {
+    if (savingRef.current) return null
     if (dirty && !(await save({}, true))) return null
     try {
       const saved = await api.post<Invoice>(`/invoices/${id}/status`, { status, paidAt })
@@ -167,10 +184,10 @@ export function InvoiceEditorPage() {
 
   const remove = async () => {
     const freed = draft.lines.some(l => l.unit === 'uur') ? ' Uren op deze factuur komen weer open te staan.' : ''
-    if (!confirm(`${invoiceTitle(draft)} verwijderen?${freed}`)) return
+    if (!confirm(`${demo ? 'Voorbeeldfactuur' : invoiceTitle(draft)} verwijderen?${freed}`)) return
     try {
       await api.del(`/invoices/${id}`)
-      toast('Concept verwijderd')
+      toast(demo ? 'Voorbeeldfactuur verwijderd' : 'Concept verwijderd')
       close(pathname)
       navigate('/facturen')
     } catch (e) {
@@ -180,6 +197,7 @@ export function InvoiceEditorPage() {
 
   const statusInfo = invoiceStatuses.find(s => s.id === draft.status)!
   const subtitle = dirty ? 'Niet opgeslagen wijzigingen'
+    : fullyCredited ? 'Helemaal gecrediteerd'
     : draft.status === 'betaald' ? `Betaald${draft.paidAt ? ` op ${date(draft.paidAt)}` : ''}`
     : draft.status === 'verlopen' ? `${-due} dagen te laat`
     : draft.status === 'verzonden' ? (credit ? `Verstuurd${draft.sentAt ? ` op ${date(draft.sentAt)}` : ''}` : due >= 0 ? `Vervalt over ${due} dagen` : 'Vervallen')
@@ -194,27 +212,48 @@ export function InvoiceEditorPage() {
           subtitle={subtitle}
           actions={<>
             {!isNew && <Badge tone={statusInfo.tone}>{statusInfo.label}</Badge>}
-            {!isNew && !readOnly && <button className="btn btn-danger" title="Concept verwijderen" onClick={remove}><Trash2 size={15} /></button>}
+            {!isNew && demo && <Badge tone="gray">Voorbeeld</Badge>}
+            {!isNew && (!readOnly || demo) && <button className="btn btn-danger" title={demo ? 'Voorbeeldfactuur verwijderen' : 'Concept verwijderen'} onClick={remove}><Trash2 size={15} /></button>}
             {!isNew && !credit && <button className="btn" title="Kopie maken als nieuw concept" onClick={() => copy('duplicate')}><Copy size={15} /></button>}
-            {readOnly && !credit && <button className="btn" onClick={() => copy('credit')}><Undo2 size={15} /> Creditnota maken</button>}
+            {readOnly && !credit && !demo && !fullyCredited && <button className="btn" onClick={() => copy('credit')}><Undo2 size={15} /> Creditnota maken</button>}
             <button className="btn" onClick={() => window.print()}><Printer size={15} /> PDF</button>
-            {!readOnly && <button className="btn" onClick={() => save()} disabled={!dirty && !isNew}><Save size={15} /> Opslaan</button>}
-            {!readOnly && !isNew && <button className="btn btn-primary" onClick={() => setDialog('send')}><Send size={15} /> Versturen</button>}
-            {draft.status === 'verlopen' && <a className="btn" href={reminderMail({ ...draft, id: Number(id) }, customer, company)}><BellRing size={15} /> Herinnering</a>}
-            {(draft.status === 'verzonden' || draft.status === 'verlopen') && <button className="btn btn-success" onClick={() => setDialog('paid')}><CheckCircle2 size={15} /> {credit ? 'Verrekend' : 'Betaald'}</button>}
+            {!readOnly && <button className="btn" onClick={() => save()} disabled={saving || (!dirty && !isNew)}><Save size={15} /> Opslaan</button>}
+            {!readOnly && !isNew && <button className="btn btn-primary" disabled={saving} onClick={() => setDialog('send')}><Send size={15} /> Versturen</button>}
+            {draft.status === 'verlopen' && !fullyCredited && <a className="btn" href={reminderMail({ ...draft, id: Number(id) }, customer, company)}><BellRing size={15} /> Herinnering</a>}
+            {(draft.status === 'verzonden' || draft.status === 'verlopen') && !fullyCredited && <button className="btn btn-success" onClick={() => setDialog('paid')}><CheckCircle2 size={15} /> {credit ? 'Verrekend' : 'Betaald'}</button>}
           </>}
         />
       </div>
 
       <div className="invoice-layout">
         <div className="no-print">
-          {readOnly && (
+          {demo && (
+            <div className="notice row between wrap" style={{ gap: 10 }}>
+              <span>Dit is een voorbeeldfactuur uit de welkomstwizard. Hij telt niet mee in je echte nummering en je kunt hem gewoon verwijderen.</span>
+              <button className="btn btn-sm" onClick={remove}><Trash2 size={14} /> Verwijderen</button>
+            </div>
+          )}
+          {readOnly && !demo && (
             <div className="notice row between wrap" style={{ gap: 10 }}>
               <span>
                 <Lock size={13} /> Deze {credit ? 'creditnota' : 'factuur'} is verstuurd en ligt vast: je moet hem 7 jaar bewaren zoals hij is.
-                {!credit && ' Klopt er iets niet? Maak dan een creditnota en zo nodig een nieuwe factuur.'}
+                {!credit && !fullyCredited && ' Klopt er iets niet? Maak dan een creditnota en zo nodig een nieuwe factuur.'}
               </span>
-              {!credit && <button className="btn btn-sm" onClick={() => copy('credit')}><Undo2 size={14} /> Creditnota maken</button>}
+              {!credit && !fullyCredited && <button className="btn btn-sm" onClick={() => copy('credit')}><Undo2 size={14} /> Creditnota maken</button>}
+            </div>
+          )}
+          {!credit && creditNotes.length > 0 && (
+            <div className="notice">
+              {fullyCredited ? 'Helemaal gecrediteerd' : 'Gedeeltelijk gecrediteerd'} met{' '}
+              {creditNotes.map((c, i) => (
+                <span key={c.id}>
+                  {i > 0 && (i === creditNotes.length - 1 ? ' en ' : ', ')}
+                  <a onClick={() => navigate(`/facturen/${c.id}`)} style={{ cursor: 'pointer' }}>creditnota {c.number}</a> ({euro(c.total)})
+                </span>
+              ))}.
+              {fullyCredited
+                ? ' De klant hoeft niets meer te betalen.'
+                : draft.status === 'betaald' ? '' : ` Nog te betalen: ${euro(draft.openAmount ?? totals.total)}.`}
             </div>
           )}
           {!readOnly && linked && (
@@ -236,7 +275,7 @@ export function InvoiceEditorPage() {
                 <Field label={credit ? 'Creditnotanummer' : 'Factuurnummer'}>
                   <input disabled value={draft.number ?? (next ? `Krijgt bij versturen nummer ${next.number}` : 'Krijgt een nummer bij versturen')} />
                 </Field>
-                <Field label="Factuurdatum"><input type="date" value={draft.issueDate} onChange={e => update({ issueDate: e.target.value })} /></Field>
+                <Field label={readOnly ? 'Factuurdatum' : 'Factuurdatum (wordt de dag van versturen)'}><input type="date" value={draft.issueDate} onChange={e => update({ issueDate: e.target.value })} /></Field>
                 <Field label="Vervaldatum">
                   <div className="input-with-chips">
                     <input type="date" value={draft.dueDate} onChange={e => update({ dueDate: e.target.value })} />
@@ -333,6 +372,8 @@ export function InvoiceEditorPage() {
           missing={missingForSending(draft, customer, company)}
           problem={regimeError}
           number={next?.number}
+          issueDate={sendDate}
+          dueDate={credit ? null : addDays(sendDate, termDays)}
           email={customer?.email}
           mailHref={inv => sendMail(inv, customer, company)}
           onSend={() => setStatus('verzonden')}
@@ -342,7 +383,7 @@ export function InvoiceEditorPage() {
         />
       )}
       {dialog === 'paid' && (
-        <PaidDialog total={totals.total} onClose={() => setDialog(null)} onConfirm={paidAt => { setDialog(null); setStatus('betaald', paidAt) }} />
+        <PaidDialog total={credit ? totals.total : draft.openAmount ?? totals.total} onClose={() => setDialog(null)} onConfirm={paidAt => { setDialog(null); setStatus('betaald', paidAt) }} />
       )}
     </>
   )
@@ -354,11 +395,13 @@ const fromServer = (inv: Invoice): Draft => ({
 })
 
 // Eerst versturen (dan krijgt de factuur zijn nummer en ligt hij vast), daarna de PDF maken en mailen.
-function SendDialog({ title, missing, problem, number, email, mailHref, onSend, onSettings, onCustomer, onClose }: {
+function SendDialog({ title, missing, problem, number, issueDate, dueDate, email, mailHref, onSend, onSettings, onCustomer, onClose }: {
   title: string
   missing: string[]
   problem: string | null
   number?: string
+  issueDate: string
+  dueDate: string | null
   email?: string | null
   mailHref: (inv: Invoice) => string
   onSend: () => Promise<Invoice | null>
@@ -411,7 +454,8 @@ function SendDialog({ title, missing, problem, number, email, mailHref, onSend, 
         {problem && <p className="text-red">{problem}</p>}
       </>) : (
         <p style={{ marginTop: 0 }}>
-          Bij versturen krijgt hij {number ? `nummer ${number}` : 'het volgende nummer'} en leggen we jouw gegevens en die van je klant vast.
+          Bij versturen krijgt hij {number ? `nummer ${number}` : 'het volgende nummer'} en de factuurdatum van vandaag, {date(issueDate)}
+          {dueDate ? `, met vervaldatum ${date(dueDate)}` : ''}. We leggen dan ook jouw gegevens en die van je klant vast.
           Daarna kun je hem niet meer aanpassen of verwijderen; een fout herstel je met een creditnota.
           Daarna maak je de PDF en mail je hem.
         </p>

@@ -4,20 +4,25 @@ services:
   potel:
     build: .
     restart: unless-stopped
+    # Alleen bereikbaar vanaf de server zelf, voor je proxy daar. Zo kan niemand de proxy overslaan en zelf een
+    # X-Forwarded-For meesturen. Draait je proxy in een container, zet hem dan in het netwerk hieronder en haal deze regel weg.
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
+    networks:
+      - potel
     volumes:
       - potel-data:/data
     environment:
       BehindProxy: "true"
-      # Alleen doorgestuurde IP-adressen van je eigen proxy vertrouwen. 172.16.0.0/12 is het standaardnetwerk van Docker;
-      # staat je proxy ergens anders, zet dan zijn netwerk hier of zijn IP-adres bij KnownProxies__0.
-      KnownNetworks__0: "172.16.0.0/12"
-      # Jij als eigenaar: het account met dit e-mailadres ziet de pagina Platform met alle klanten. Dat recht wordt
-      # bij het opstarten toegekend zolang er nog geen platformbeheerder is; daarna wijs je anderen aan op Platform.
-      PlatformAdmins__0: "jij@jouwdomein.nl"
-      # Je eigen account: het veiligst maak je het hier aan, vóór de eerste start. Meld je je aan via /aanmelden,
-      # herstart de container dan één keer om toegang tot Platform te krijgen.
+      # Alleen doorgestuurde IP-adressen van je eigen proxy vertrouwen. Een proxy op de server komt binnen via de gateway
+      # van het netwerk hieronder (172.30.0.1). Draait je proxy in een container in dat netwerk, zet dan zijn vaste IP-adres hier.
+      KnownProxies__0: "172.30.0.1"
+      # Jij als eigenaar van het platform (de pagina Platform met alle klanten). Meld je aan via /aanmelden en maak jezelf
+      # daarna platformbeheerder vanaf de server:
+      #   docker compose exec potel dotnet Potel.Api.dll platform-admin jij@jouwdomein.nl
+      # Of laat Potel bij de allereerste start je account maken: vul Admin__* in en zet hetzelfde adres bij PlatformAdmins__0.
+      # Andere platformbeheerders wijs je daarna aan op de pagina Platform.
+      # PlatformAdmins__0: "jij@jouwdomein.nl"
       # Admin__Name: "Jouw naam"
       # Admin__Email: "jij@jouwdomein.nl"
       # Admin__Password: "..."
@@ -26,5 +31,13 @@ services:
       # Smtp__User: "..."
       # Smtp__Password: "..."
       # Smtp__From: "noreply@jouwdomein.nl"
+# Een eigen netwerk met een vast subnet, zodat KnownProxies__0 hierboven precies de gateway is. Botst het met een netwerk
+# dat al op je server bestaat, kies dan een ander subnet en pas KnownProxies__0 aan.
+networks:
+  potel:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+          gateway: 172.30.0.1
 volumes:
   potel-data:

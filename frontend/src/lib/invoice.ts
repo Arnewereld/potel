@@ -37,6 +37,7 @@ export const vatRegimes: { id: VatRegime; label: string; help: string }[] = [
   { id: 'normaal', label: 'Normaal, met btw', help: 'Btw per regel, voor klanten in Nederland en particulieren.' },
   { id: 'verlegd', label: 'Btw verlegd (EU)', help: 'Voor een zakelijke klant in een ander EU-land met een btw-nummer. De klant draagt de btw zelf af.' },
   { id: 'kor', label: 'Kleineondernemersregeling (KOR)', help: 'Je gebruikt de KOR: er staat geen btw op de factuur, wel de vermelding dat je de KOR gebruikt.' },
+  { id: 'vrijgesteld', label: 'Vrijgesteld van btw', help: 'Je werk is vrijgesteld van btw, bijvoorbeeld als zorgverlener of docent. Er staat geen btw op de factuur, wel de vermelding van de vrijstelling.' },
   { id: 'buiten-eu', label: 'Klant buiten de EU', help: 'Geen Nederlandse btw voor een zakelijke klant buiten de EU.' },
 ]
 
@@ -50,7 +51,7 @@ export function defaultRegime(settings: Pick<Settings, 'vatRegime'> | null | und
     if (!inEu(customer.country)) return 'buiten-eu'
     if (customer.vatNumber?.trim()) return 'verlegd'
   }
-  return settings?.vatRegime === 'kor' ? 'kor' : 'normaal'
+  return settings?.vatRegime === 'kor' || settings?.vatRegime === 'vrijgesteld' ? settings.vatRegime : 'normaal'
 }
 
 // Past de regeling bij de klant? Dezelfde controle als RegimeError op de server.
@@ -63,10 +64,12 @@ export function regimeProblem(regime: VatRegime, customer: Customer | null | und
   return null
 }
 
-type Sendable = Pick<Invoice, 'vatRegime' | 'deliveryFrom' | 'lines'>
+type Sendable = Pick<Invoice, 'vatRegime' | 'deliveryFrom' | 'lines' | 'buyer'>
 
 // Wat er nog ontbreekt om te mogen versturen, in dezelfde woorden als de server (Missing in Invoices.cs).
+// Een creditnota heeft de klantgegevens van de factuur die hij corrigeert al bij zich; anders tellen die van de klant nu.
 export function missingForSending(inv: Sendable, customer: Customer | null | undefined, s: Settings) {
+  const buyer = inv.buyer ?? (customer ? buyerFrom(customer) : null)
   const missing: string[] = []
   const need = (value: string | null | undefined, label: string) => { if (!value?.trim()) missing.push(label) }
   need(s.companyName, 'je bedrijfsnaam')
@@ -74,10 +77,10 @@ export function missingForSending(inv: Sendable, customer: Customer | null | und
   need(s.city, 'je postcode en plaats')
   need(s.kvk, 'je KvK-nummer')
   need(s.btw, 'je btw-id')
-  need(customer?.name, 'de naam van de klant')
-  need(customer?.address, 'het adres van de klant')
-  need(customer?.city, 'de postcode en plaats van de klant')
-  if (inv.vatRegime === 'verlegd') need(customer?.vatNumber, 'het btw-nummer van de klant')
+  need(buyer?.name, 'de naam van de klant')
+  need(buyer?.address, 'het adres van de klant')
+  need(buyer?.city, 'de postcode en plaats van de klant')
+  if (inv.vatRegime === 'verlegd') need(buyer?.vatNumber, 'het btw-nummer van de klant')
   if (!inv.deliveryFrom) missing.push('de leverdatum of periode')
   if (inv.lines.length === 0) missing.push('minstens één regel')
   return missing
@@ -113,8 +116,11 @@ export function sendMail(inv: Invoice, c: Customer | null | undefined, s: Settin
     + signature(s))
 }
 
+// Het bedrag dat nog openstaat: het totaal min wat er al gecrediteerd is.
+export const openAmount = (inv: Invoice) => inv.openAmount ?? invoiceTotals(inv.lines).total
+
 export function reminderMail(inv: Invoice, c: Customer | null | undefined, s: Settings) {
-  const total = invoiceTotals(inv.lines).total
+  const total = openAmount(inv)
   const late = -daysUntil(inv.dueDate)
   const iban = inv.seller ? inv.seller.iban : s.iban
   const holder = inv.seller?.name ?? s.companyName

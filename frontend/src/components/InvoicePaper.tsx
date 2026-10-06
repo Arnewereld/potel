@@ -90,7 +90,7 @@ export function InvoicePaper({ invoice, customer, company }: { invoice: Draft; c
         <div className="paper-summary-row">
           {invoice.status === 'betaald' && <div className="paper-stamp">Betaald{invoice.paidAt ? ` · ${date(invoice.paidAt)}` : ''}</div>}
           <div className="paper-totals">
-            {regime !== 'kor' && <div><span>Subtotaal</span><span>{euro(totals.subtotal)}</span></div>}
+            {regime !== 'kor' && regime !== 'vrijgesteld' && <div><span>Subtotaal</span><span>{euro(totals.subtotal)}</span></div>}
             {regime === 'normaal' && totals.vatGroups.map(g => <div key={g.rate}><span>Btw {g.rate}% over {euro(g.base)}</span><span>{euro(g.vat)}</span></div>)}
             {regime === 'verlegd' && <div><span>Btw verlegd</span><span>{euro(0)}</span></div>}
             {regime === 'buiten-eu' && <div><span>Btw niet van toepassing</span><span>{euro(0)}</span></div>}
@@ -118,6 +118,9 @@ export function InvoicePaper({ invoice, customer, company }: { invoice: Draft; c
       )}
       {regime === 'kor' && (
         <p className="paper-reverse">{seller.name} maakt gebruik van de kleineondernemersregeling (KOR). Daarom staat er geen btw op deze factuur.</p>
+      )}
+      {regime === 'vrijgesteld' && (
+        <p className="paper-reverse">Vrijgesteld van btw op grond van artikel 11 van de Wet op de omzetbelasting 1968. Daarom staat er geen btw op deze factuur.</p>
       )}
       {regime === 'buiten-eu' && <p className="paper-reverse">Btw niet van toepassing: dienst aan een afnemer buiten de EU.</p>}
       {invoice.notes && <p className="paper-notes">{invoice.notes}</p>}

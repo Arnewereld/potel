@@ -105,6 +105,8 @@ public static class ProjectEndpoints
         if (!ProjectStatus.All.Contains(input.Status)) return "Onbekende status";
         if (!Billing.All.Contains(input.Billing)) return "Kies per uur of vaste prijs";
         if (input.HourlyRate < 0 || input.FixedPrice < 0 || input.BudgetHours < 0) return "Bedragen en uren kunnen niet negatief zijn";
+        // Zo past een factuurregel van dit project altijd (zie Money.MaxAmount).
+        if (input.HourlyRate > Money.MaxAmount || input.FixedPrice > Money.MaxAmount) return "Dat bedrag is te groot";
         return null;
     }
 

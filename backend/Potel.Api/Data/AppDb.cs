@@ -23,6 +23,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<TimeEntry> TimeEntries => Set<TimeEntry>();
     public DbSet<Settings> Settings => Set<Settings>();
+    public DbSet<PlatformCounter> PlatformCounters => Set<PlatformCounter>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -33,7 +34,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         b.Entity<Invoice>().HasMany(i => i.Lines).WithOne().HasForeignKey(l => l.InvoiceId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<Invoice>().HasOne(i => i.Customer).WithMany().HasForeignKey(i => i.CustomerId).OnDelete(DeleteBehavior.Restrict);
         // Een creditnota wijst naar de factuur die hij corrigeert; die verstuurde factuur kan toch al niet weg.
-        b.Entity<Invoice>().HasOne(i => i.CreditFor).WithMany().HasForeignKey(i => i.CreditForInvoiceId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<Invoice>().HasOne(i => i.CreditFor).WithMany(i => i.Credits).HasForeignKey(i => i.CreditForInvoiceId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Invoice>().OwnsOne(i => i.Seller);
         b.Entity<Invoice>().OwnsOne(i => i.Buyer);
         b.Entity<Invoice>().Property(i => i.VatRegime).HasDefaultValue(VatRegimes.Normal);
@@ -46,6 +47,9 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         b.Entity<TimeEntry>().HasOne<InvoiceLine>().WithMany().HasForeignKey(t => t.InvoiceLineId).OnDelete(DeleteBehavior.SetNull);
         b.Entity<TimeEntry>().HasIndex(t => t.Date);
         b.Entity<TimeEntry>().HasIndex(t => new { t.WorkspaceId, t.ClientId }).IsUnique();
+        // Tellers voor het hele platform; de rij bestaat altijd, zodat ophogen in één update kan.
+        b.Entity<PlatformCounter>().HasKey(c => c.Key);
+        b.Entity<PlatformCounter>().HasData(new PlatformCounter { Key = PlatformCounter.TrialEmails });
         FilterByWorkspace(b);
     }
 

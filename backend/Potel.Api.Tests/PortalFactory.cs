@@ -16,6 +16,8 @@ public class PortalFactory : WebApplicationFactory<Program>
         builder.UseSetting("Workflows:Scheduler", "false");
         builder.UseSetting("Smtp:Host", "");
         builder.UseSetting("RateLimit:AuthPerMinute", "10000");
+        builder.UseSetting("RateLimit:SignupsPerHour", "10000");
+        builder.UseSetting("RateLimit:SignupsPerHourTotal", "10000");
     }
 
     public async Task<HttpClient> LoginAsync(string email = "admin@potel.nl", string password = "welkom123")

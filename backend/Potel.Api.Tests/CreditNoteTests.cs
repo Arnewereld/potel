@@ -46,13 +46,14 @@ public class CreditNoteTests(PortalFactory factory) : IClassFixture<PortalFactor
     {
         var c = await ReadyAsync(factory, "credit-link");
         var customerId = await CustomerAsync(c);
-        var invoiceId = await InvoiceAsync(c, customerId, "verzonden", 2, 50, issueDate: "2026-09-15");
+        var invoiceId = await InvoiceAsync(c, customerId, "verzonden", 2, 50);
         var original = await GetInvoiceAsync(c, invoiceId);
         var credit = await CreditAsync(c, invoiceId);
+        var year = new BusinessClock().Today.Year;
 
         Assert.Equal(invoiceId, credit.GetProperty("creditForInvoiceId").GetInt32());
         Assert.Equal(original.GetProperty("number").GetString(), credit.GetProperty("creditForNumber").GetString());
-        Assert.StartsWith("2026-09-15", credit.GetProperty("creditForIssueDate").GetString());
+        Assert.Equal(original.GetProperty("issueDate").GetString(), credit.GetProperty("creditForIssueDate").GetString());
         Assert.True(credit.GetProperty("isCredit").GetBoolean());
         // De verwijzing staat in een vaste regel op de creditnota, niet in de opmerking.
         Assert.True(credit.GetProperty("notes").ValueKind == JsonValueKind.Null || !credit.GetProperty("notes").GetString()!.Contains("Creditnota voor"));
@@ -71,8 +72,8 @@ public class CreditNoteTests(PortalFactory factory) : IClassFixture<PortalFactor
         Assert.Equal(customerId, saved.GetProperty("customerId").GetInt32());
         Assert.Equal("normaal", saved.GetProperty("vatRegime").GetString());
         var sent = await Json(await SetStatusAsync(c, creditId, "verzonden"));
-        Assert.Equal("2026-0001", original.GetProperty("number").GetString());
-        Assert.Equal("2026-0002", sent.GetProperty("number").GetString());
+        Assert.Equal($"{year}-0001", original.GetProperty("number").GetString());
+        Assert.Equal($"{year}-0002", sent.GetProperty("number").GetString());
         Assert.Equal(-121m, Total(sent));
     }
 

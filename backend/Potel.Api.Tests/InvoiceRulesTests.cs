@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Potel.Api.Data;
 using static Potel.Api.Tests.InvoiceKit;
 
 namespace Potel.Api.Tests;
@@ -45,23 +46,29 @@ public class InvoiceRulesTests(PortalFactory factory) : IClassFixture<PortalFact
         var b = await ReadyAsync(factory, "numbers-b");
         var customerA = await CustomerAsync(a);
         var customerB = await CustomerAsync(b);
+        var today = new BusinessClock().Today;
+        var year = today.Year;
 
-        var first = await InvoiceAsync(a, customerA, "concept", 1, 100, issueDate: "2026-10-01");
-        var deleted = await InvoiceAsync(a, customerA, "concept", 1, 100, issueDate: "2026-10-01");
-        var second = await InvoiceAsync(a, customerA, "concept", 1, 100, issueDate: "2026-10-02");
-        var lastYear = await InvoiceAsync(a, customerA, "concept", 1, 100, issueDate: "2025-12-20");
+        var first = await InvoiceAsync(a, customerA, "concept", 1, 100, issueDate: Day(today.AddDays(-5)));
+        var deleted = await InvoiceAsync(a, customerA, "concept", 1, 100, issueDate: Day(today.AddDays(-5)));
+        var second = await InvoiceAsync(a, customerA, "concept", 1, 100, issueDate: Day(today.AddDays(-4)));
+        var lastYear = await InvoiceAsync(a, customerA, "concept", 1, 100, issueDate: $"{year - 1}-12-20");
         Assert.Equal(JsonValueKind.Null, (await GetInvoiceAsync(a, first)).GetProperty("number").ValueKind);
         // Een concept geeft geen nummer uit, dus weggooien laat geen gat achter.
         Assert.Equal(HttpStatusCode.NoContent, (await a.DeleteAsync($"/api/invoices/{deleted}")).StatusCode);
 
-        Assert.Equal("2026-0001", (await Json(await SetStatusAsync(a, second, "verzonden"))).GetProperty("number").GetString());
-        Assert.Equal("2026-0002", (await Json(await SetStatusAsync(a, first, "verzonden"))).GetProperty("number").GetString());
-        Assert.Equal("2025-0001", (await Json(await SetStatusAsync(a, lastYear, "verzonden"))).GetProperty("number").GetString());
-        Assert.Equal("2026-0003", (await a.GetFromJsonAsync<JsonElement>("/api/invoices/next-number?date=2026-11-01")).GetProperty("number").GetString());
+        // De factuurdatum wordt de dag van versturen, dus het jaartal en de volgorde van de nummers volgen het versturen,
+        // ook voor een concept van vorig jaar.
+        Assert.Equal($"{year}-0001", (await Json(await SetStatusAsync(a, second, "verzonden"))).GetProperty("number").GetString());
+        Assert.Equal($"{year}-0002", (await Json(await SetStatusAsync(a, first, "verzonden"))).GetProperty("number").GetString());
+        var old = await Json(await SetStatusAsync(a, lastYear, "verzonden"));
+        Assert.Equal($"{year}-0003", old.GetProperty("number").GetString());
+        Assert.StartsWith(Day(today), old.GetProperty("issueDate").GetString());
+        Assert.Equal($"{year}-0004", (await a.GetFromJsonAsync<JsonElement>("/api/invoices/next-number")).GetProperty("number").GetString());
 
         // Een andere werkruimte heeft zijn eigen reeks.
-        var other = await InvoiceAsync(b, customerB, "verzonden", 1, 100, issueDate: "2026-10-05");
-        Assert.Equal("2026-0001", (await GetInvoiceAsync(b, other)).GetProperty("number").GetString());
+        var other = await InvoiceAsync(b, customerB, "verzonden", 1, 100);
+        Assert.Equal($"{year}-0001", (await GetInvoiceAsync(b, other)).GetProperty("number").GetString());
 
         // Het nummer staat vast: meesturen bij aanmaken of opslaan doet niets.
         var custom = await a.PostAsJsonAsync("/api/invoices", new

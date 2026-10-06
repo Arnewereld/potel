@@ -47,29 +47,43 @@ public static class Seed
     static string[] ConfiguredPlatformAdmins(IConfiguration config) =>
         (config.GetSection("PlatformAdmins").Get<string[]>() ?? []).Select(a => a.Trim().ToLower()).Where(a => a != "").ToArray();
 
-    // Wie het platform beheert staat in de database, niet in een e-mailadres dat iedereen kan aanmaken.
-    // Alleen zolang er nog geen platformbeheerder is (eerste start, of een update van de versie die naar het e-mailadres keek)
-    // krijgt de eerste bestaande beheerder met een adres uit PlatformAdmins dit recht. Daarna wijst een platformbeheerder anderen aan.
-    public static void PlatformAdmins(AppDb db, IConfiguration config, ILogger logger)
+    // Wie het platform beheert staat in de database, niet in een e-mailadres dat iedereen kan aanmaken. Bij het opstarten
+    // krijgt niemand dit recht vanzelf: wie zich als eerste aanmeldt met het adres van de eigenaar, is daarmee nog niet de eigenaar.
+    // Alleen het account uit Admin:Email (met het wachtwoord uit de instellingen) of de opdracht platform-admin op de server geeft het.
+    public const string PlatformAdminCommand = "platform-admin";
+
+    public static void PlatformAdmins(AppDb db, ILogger logger)
     {
-        var emails = ConfiguredPlatformAdmins(config);
-        if (emails.Length == 0 || db.Users.IgnoreQueryFilters().Any(u => u.IsPlatformAdmin)) return;
-        var candidates = db.Users.IgnoreQueryFilters().Where(u => emails.Contains(u.Email) && u.Role == Roles.Admin && u.Active).ToList();
-        var first = emails.Select(e => candidates.FirstOrDefault(u => u.Email == e)).FirstOrDefault(u => u is not null);
-        if (first is null)
-        {
-            logger.LogWarning("Er is nog geen platformbeheerder: geen account gevonden voor {Emails}. Maak het account aan en start Potel opnieuw.", string.Join(", ", emails));
-            return;
-        }
-        first.IsPlatformAdmin = true;
-        db.SaveChanges();
-        logger.LogWarning("{Email} is nu platformbeheerder. Andere platformbeheerders wijs je aan op de pagina Platform.", first.Email);
+        if (db.Users.IgnoreQueryFilters().Any(u => u.IsPlatformAdmin)) return;
+        logger.LogWarning("Er is nog geen platformbeheerder. Meld je aan en maak jezelf daarna platformbeheerder op de server met: " +
+                          "dotnet Potel.Api.dll {Command} <e-mailadres> (in Docker: docker compose exec potel dotnet Potel.Api.dll {Command} <e-mailadres>)",
+            PlatformAdminCommand, PlatformAdminCommand);
     }
 
+    // De opdracht "platform-admin <e-mailadres>": alleen wie bij de server kan, maakt zo een account platformbeheerder.
+    public static bool MakePlatformAdmin(AppDb db, string email, ILogger logger)
+    {
+        email = email.Trim().ToLower();
+        var user = db.Users.IgnoreQueryFilters().FirstOrDefault(u => u.Email == email);
+        if (user is null)
+        {
+            logger.LogError("Er is geen account met e-mailadres {Email}. Meld je eerst aan via /aanmelden.", email);
+            return false;
+        }
+        user.IsPlatformAdmin = true;
+        db.SaveChanges();
+        logger.LogWarning("{Email} is nu platformbeheerder. Andere platformbeheerders wijs je aan op de pagina Platform.", user.Email);
+        return true;
+    }
+
+    public const string DemoNumberPrefix = "VOORBEELD-";
+
     // Vult de huidige werkruimte met voorbeelddata. Met sampleCompany ook voorbeeld-bedrijfsgegevens.
+    // Alles krijgt IsDemo, zodat je het later in één keer weghaalt (WorkspaceEndpoints, voorbeelddata verwijderen).
     public static void Run(AppDb db, bool sampleCompany)
     {
         if (db.Customers.Any()) return;
+        if (db.Workspaces.Find(db.TenantId) is { } workspace) workspace.DemoDataAt = DateTime.UtcNow;
 
         var settings = db.Settings.OrderBy(x => x.Id).FirstOrDefault() ?? db.Settings.Add(new Settings()).Entity;
         if (sampleCompany) SampleCompany(settings);
@@ -81,6 +95,7 @@ public static class Seed
             new() { Name = "Fatima El Amrani", Company = "Studio Noord", VatNumber = "NL860011223B01", Email = "fatima@studionoord.nl", Phone = "06 34567890", Address = "Noordkade 88", City = "Amsterdam", Notes = "Designbureau; ik bouw hun ontwerpen onder hun naam." },
             new() { Name = "Peter Bakker", Company = "Zorgnet Oost", Email = "peter@zorgnetoost.nl", Phone = "06 45678901", Address = "Hengelosestraat 1", City = "Enschede", Notes = "Onderhoudscontract voor het cliëntportaal (.NET + Angular)." },
         };
+        customers.ForEach(c => c.IsDemo = true);
         db.Customers.AddRange(customers);
         db.SaveChanges();
 
@@ -93,6 +108,7 @@ public static class Seed
             new() { Name = "Onderhoud cliëntportaal", CustomerId = customers[3].Id, Billing = Billing.Hourly, HourlyRate = 90, BudgetHours = 400, Color = "#f5b83d", RepoUrl = "https://dev.azure.com/zorgnetoost/portaal", Description = "Updates, beveiligingspatches en kleine wijzigingen." },
             new() { Name = "Migratie naar Next.js", CustomerId = customers[0].Id, Status = "afgerond", Billing = Billing.Hourly, HourlyRate = 95, BudgetHours = 80, Color = "#ff5ca8", Description = "Oude WooCommerce-shop omgezet naar Next.js." },
         };
+        projects.ForEach(p => p.IsDemo = true);
         db.Projects.AddRange(projects);
         db.SaveChanges();
 
@@ -120,15 +136,16 @@ public static class Seed
                 entries.Add(new TimeEntry
                 {
                     ProjectId = p.Id, Date = d, Minutes = rnd.Next(4, 11) * 15, Description = texts[rnd.Next(texts.Length)],
-                    Billable = p.Billing == Billing.Hourly,
+                    Billable = p.Billing == Billing.Hourly, IsDemo = true,
                 });
             }
         }
         db.TimeEntries.AddRange(entries);
         db.SaveChanges();
 
-        // Uurprojecten worden per maand gefactureerd; de lopende maand staat nog open. Verstuurde facturen hebben hun nummer,
-        // de gegevens van beide partijen zoals ze toen waren en een leverperiode; de uren hangen aan hun factuurregel.
+        // Uurprojecten worden per maand gefactureerd; de lopende maand staat nog open. Verstuurde facturen hebben een nummer
+        // in een eigen reeks (VOORBEELD-0001), zodat je echte facturen gewoon bij 0001 beginnen, de gegevens van beide partijen
+        // zoals ze toen waren en een leverperiode; de uren hangen aan hun factuurregel.
         var invoices = new List<(Invoice Invoice, List<TimeEntry> Entries)>();
         var thisMonth = new DateTime(today.Year, today.Month, 1);
         foreach (var month in entries.Where(e => e.Billable && e.Date < thisMonth).GroupBy(e => (e.ProjectId, new DateTime(e.Date.Year, e.Date.Month, 1))))
@@ -155,7 +172,8 @@ public static class Seed
         var n = 0;
         foreach (var (inv, linked) in invoices.OrderBy(x => x.Invoice.IssueDate))
         {
-            inv.Number = $"{inv.IssueDate.Year}-{++n:0000}";
+            inv.Number = $"{DemoNumberPrefix}{++n:0000}";
+            inv.IsDemo = true;
             inv.SentAt = inv.IssueDate;
             inv.Seller = InvoiceParty.Seller(settings);
             inv.Buyer = InvoiceParty.Buyer(customers.First(c => c.Id == inv.CustomerId));
@@ -165,25 +183,26 @@ public static class Seed
         }
 
         db.Leads.AddRange(
-            new Lead { Name = "Lisa Visser", Company = "Visser Media", Email = "lisa@vissermedia.nl", Value = 6500, Status = "nieuw", Source = "Website", Notes = "Nieuwe website met headless CMS" },
-            new Lead { Name = "Tom Hendriks", Company = "Hendriks Installatie", Value = 18000, Status = "contact", Source = "LinkedIn", Notes = "Klantportaal waar klanten storingen melden" },
-            new Lead { Name = "Eva Smit", Company = "Smit Advies", Value = 4200, Status = "offerte", Source = "Doorverwijzing", Notes = "API-koppeling met Moneybird" },
-            new Lead { Name = "Daan Mulder", Company = "Mulder Retail", Value = 9800, Status = "offerte", Source = "Freelanceplatform", Notes = "Shopify-app op maat" },
-            new Lead { Name = "Noah de Boer", Company = "De Boer Transport", Value = 22000, Status = "gewonnen", Source = "Netwerk", Notes = "MVP ritplanner, start volgende maand" },
-            new Lead { Name = "Julia Meijer", Company = "Meijer Design", Value = 1800, Status = "verloren", Source = "Koude acquisitie", Notes = "WordPress-onderhoud; te klein" }
+            new Lead { IsDemo = true, Name = "Lisa Visser", Company = "Visser Media", Email = "lisa@vissermedia.nl", Value = 6500, Status = "nieuw", Source = "Website", Notes = "Nieuwe website met headless CMS" },
+            new Lead { IsDemo = true, Name = "Tom Hendriks", Company = "Hendriks Installatie", Value = 18000, Status = "contact", Source = "LinkedIn", Notes = "Klantportaal waar klanten storingen melden" },
+            new Lead { IsDemo = true, Name = "Eva Smit", Company = "Smit Advies", Value = 4200, Status = "offerte", Source = "Doorverwijzing", Notes = "API-koppeling met Moneybird" },
+            new Lead { IsDemo = true, Name = "Daan Mulder", Company = "Mulder Retail", Value = 9800, Status = "offerte", Source = "Freelanceplatform", Notes = "Shopify-app op maat" },
+            new Lead { IsDemo = true, Name = "Noah de Boer", Company = "De Boer Transport", Value = 22000, Status = "gewonnen", Source = "Netwerk", Notes = "MVP ritplanner, start volgende maand" },
+            new Lead { IsDemo = true, Name = "Julia Meijer", Company = "Meijer Design", Value = 1800, Status = "verloren", Source = "Koude acquisitie", Notes = "WordPress-onderhoud; te klein" }
         );
 
         DateTime At(int day, int hour) => today.AddDays(day).AddHours(hour);
         db.Appointments.AddRange(
-            new Appointment { Title = "Kennismaking Visser Media", Start = At(0, 10), End = At(0, 11), Kind = "afspraak", Location = "Google Meet" },
-            new Appointment { Title = "Offerte Moneybird-koppeling afronden", Start = At(1, 9), End = At(1, 10), Kind = "taak" },
-            new Appointment { Title = "Sprint review planningsapp", Start = At(2, 14), End = At(2, 15), Kind = "afspraak", CustomerId = customers[1].Id, Location = "Rotterdam" },
-            new Appointment { Title = "Release 2.3 Exact-koppeling", Start = At(3, 9), End = At(3, 12), Kind = "project", CustomerId = customers[0].Id },
-            new Appointment { Title = "Administratie en btw-aangifte", Start = At(4, 15), End = At(4, 17), Kind = "intern" }
+            new Appointment { IsDemo = true, Title = "Kennismaking Visser Media", Start = At(0, 10), End = At(0, 11), Kind = "afspraak", Location = "Google Meet" },
+            new Appointment { IsDemo = true, Title = "Offerte Moneybird-koppeling afronden", Start = At(1, 9), End = At(1, 10), Kind = "taak" },
+            new Appointment { IsDemo = true, Title = "Sprint review planningsapp", Start = At(2, 14), End = At(2, 15), Kind = "afspraak", CustomerId = customers[1].Id, Location = "Rotterdam" },
+            new Appointment { IsDemo = true, Title = "Release 2.3 Exact-koppeling", Start = At(3, 9), End = At(3, 12), Kind = "project", CustomerId = customers[0].Id },
+            new Appointment { IsDemo = true, Title = "Administratie en btw-aangifte", Start = At(4, 15), End = At(4, 17), Kind = "intern" }
         );
 
         db.CustomModules.Add(new CustomModule
         {
+            IsDemo = true,
             Name = "Servers & domeinen",
             Icon = "server",
             Color = "#2fc6c6",
@@ -191,6 +210,7 @@ public static class Seed
         });
         db.CustomModules.Add(new CustomModule
         {
+            IsDemo = true,
             Name = "Licenties",
             Icon = "key",
             Color = "#9b7bff",
@@ -199,28 +219,31 @@ public static class Seed
         db.SaveChanges();
         var modules = db.CustomModules.OrderBy(m => m.Id).ToList();
         db.CustomRecords.AddRange(
-            new CustomRecord { ModuleId = modules[0].Id, DataJson = """{"naam":"fietsplein.nl","soort":"Domein","provider":"TransIP","verloopt":"2027-03-01","kosten":1}""" },
-            new CustomRecord { ModuleId = modules[0].Id, DataJson = """{"naam":"exact-sync productie","soort":"VPS","provider":"Hetzner","verloopt":"","kosten":18}""" },
-            new CustomRecord { ModuleId = modules[0].Id, DataJson = """{"naam":"pixelwerk.dev","soort":"Domein","provider":"Cloudflare","verloopt":"2026-12-15","kosten":1}""" },
-            new CustomRecord { ModuleId = modules[1].Id, DataJson = """{"naam":"JetBrains All Products","verloopt":"2027-02-01","kosten":289,"zakelijk":true}""" },
-            new CustomRecord { ModuleId = modules[1].Id, DataJson = """{"naam":"GitHub Copilot","verloopt":"2026-11-20","kosten":100,"zakelijk":true}""" }
+            new CustomRecord { IsDemo = true, ModuleId = modules[0].Id, DataJson = """{"naam":"fietsplein.nl","soort":"Domein","provider":"TransIP","verloopt":"2027-03-01","kosten":1}""" },
+            new CustomRecord { IsDemo = true, ModuleId = modules[0].Id, DataJson = """{"naam":"exact-sync productie","soort":"VPS","provider":"Hetzner","verloopt":"","kosten":18}""" },
+            new CustomRecord { IsDemo = true, ModuleId = modules[0].Id, DataJson = """{"naam":"pixelwerk.dev","soort":"Domein","provider":"Cloudflare","verloopt":"2026-12-15","kosten":1}""" },
+            new CustomRecord { IsDemo = true, ModuleId = modules[1].Id, DataJson = """{"naam":"JetBrains All Products","verloopt":"2027-02-01","kosten":289,"zakelijk":true}""" },
+            new CustomRecord { IsDemo = true, ModuleId = modules[1].Id, DataJson = """{"naam":"GitHub Copilot","verloopt":"2026-11-20","kosten":100,"zakelijk":true}""" }
         );
 
         db.Workflows.AddRange(
             new Workflow
             {
+                IsDemo = true,
                 Name = "Nieuwe lead opvolgen",
                 Active = true,
                 GraphJson = """{"nodes":[{"id":"n1","type":"trigger.lead","label":"Nieuwe lead","x":80,"y":180},{"id":"n2","type":"logic.if","label":"Waarde boven 5.000?","x":340,"y":180,"config":{"field":"lead.value","operator":">","value":"5000"}},{"id":"n3","type":"action.task","label":"Taak: intake plannen","x":620,"y":80,"config":{"title":"Intakegesprek plannen met {{lead.name}} ({{lead.company}})","days":"0","kind":"taak"}},{"id":"n4","type":"action.status","label":"Status: contact","x":880,"y":80,"config":{"target":"lead","status":"contact"}},{"id":"n5","type":"action.email","label":"Bedankmail","x":620,"y":300,"config":{"to":"{{lead.email}}","subject":"Bedankt voor je aanvraag","body":"Hoi {{lead.name}},\n\nBedankt voor je aanvraag. Ik bekijk je project en kom binnen twee werkdagen bij je terug met een voorstel."}},{"id":"n6","type":"logic.wait","label":"Wacht 3 dagen","x":880,"y":300,"config":{"amount":"3","unit":"dagen"}},{"id":"n7","type":"action.task","label":"Taak: nabellen","x":1140,"y":300,"config":{"title":"Nabellen: {{lead.name}}","days":"0","kind":"taak"}}],"edges":[{"from":"n1","to":"n2"},{"from":"n2","to":"n3","branch":"ja"},{"from":"n3","to":"n4"},{"from":"n2","to":"n5","branch":"nee"},{"from":"n5","to":"n6"},{"from":"n6","to":"n7"}]}"""
             },
             new Workflow
             {
+                IsDemo = true,
                 Name = "Vrijdag: uren nalopen",
                 Active = true,
                 GraphJson = """{"nodes":[{"id":"n1","type":"trigger.schedule","label":"Elke vrijdag 16:00","x":80,"y":180,"config":{"interval":"week","weekday":"5","hour":"16"}},{"id":"n2","type":"action.task","label":"Taak: uren checken","x":360,"y":180,"config":{"title":"Uren van deze week nalopen en open uren factureren","days":"0","kind":"intern"}}],"edges":[{"from":"n1","to":"n2"}]}"""
             },
             new Workflow
             {
+                IsDemo = true,
                 Name = "Betaling ontvangen",
                 Active = false,
                 GraphJson = """{"nodes":[{"id":"n1","type":"trigger.paid","label":"Factuur betaald","x":80,"y":180},{"id":"n2","type":"action.email","label":"Bedankmail","x":360,"y":180,"config":{"to":"{{customer.email}}","subject":"Betaling ontvangen voor factuur {{invoice.number}}","body":"Hoi {{customer.name}},\n\nDank je wel, de betaling voor factuur {{invoice.number}} is binnen."}}],"edges":[{"from":"n1","to":"n2"}]}"""

@@ -10,9 +10,13 @@ namespace Potel.Api.Workflows;
 // Voert werkstromen uit: van trigger, via acties en voorwaarden, tot het einde.
 // Een "Wachten"-blok parkeert de run; de WorkflowScheduler pakt hem later weer op.
 // Werkruimtes met een verlopen proef draaien niets meer, en elke run blijft binnen de grenzen uit WorkflowLimits.
-public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSender email, IOptions<WorkflowLimits> options, BusinessClock clock, ILogger<WorkflowEngine> logger)
+public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSender email, IOptions<WorkflowLimits> options, BusinessClock clock,
+    WorkflowRunBudget budget, ILogger<WorkflowEngine> logger)
 {
     readonly WorkflowLimits limits = options.Value;
+
+    // Waarom een run niet kon starten.
+    public enum StartRefusal { None, TrialEnded, TooManyRuns }
 
     class Outcome
     {
@@ -46,11 +50,25 @@ public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSend
         }
     }
 
-    // Start een run. Geeft null als de werkruimte geen werkstromen meer mag draaien.
-    public async Task<WorkflowRun?> RunAsync(Workflow wf, List<string> startNodeIds, Dictionary<string, string> ctx, string trigger) =>
-        await CanRunAsync() ? await StartRunAsync(wf, startNodeIds, ctx, trigger) : null;
+    // Start een run. Zonder run terug als de proef verlopen is of de werkruimte deze minuut al genoeg runs startte.
+    public async Task<(WorkflowRun? Run, StartRefusal Refusal)> RunAsync(Workflow wf, List<string> startNodeIds, Dictionary<string, string> ctx, string trigger)
+    {
+        if (!await CanRunAsync()) return (null, StartRefusal.TrialEnded);
+        return await StartRunAsync(wf, startNodeIds, ctx, trigger) is { } run ? (run, StartRefusal.None) : (null, StartRefusal.TooManyRuns);
+    }
 
-    async Task<WorkflowRun> StartRunAsync(Workflow wf, List<string> startNodeIds, Dictionary<string, string> ctx, string trigger)
+    public string TooManyRunsMessage => $"Even rustig aan: deze werkruimte startte de afgelopen minuut al {budget.PerMinute} werkstromen. Probeer het over een minuut opnieuw.";
+
+    // Elke nieuwe run telt mee voor het budget per minuut van de werkruimte. Is dat op, dan start hij niet en staat dat in het logboek.
+    async Task<WorkflowRun?> StartRunAsync(Workflow wf, List<string> startNodeIds, Dictionary<string, string> ctx, string trigger)
+    {
+        if (budget.TryStart(db.TenantId)) return await BeginRunAsync(wf, startNodeIds, ctx, trigger);
+        db.Log("werkstroom", $"Werkstroom {wf.Name} niet gestart ({trigger}): deze werkruimte startte de afgelopen minuut al {budget.PerMinute} werkstromen");
+        await db.SaveChangesAsync();
+        return null;
+    }
+
+    async Task<WorkflowRun> BeginRunAsync(Workflow wf, List<string> startNodeIds, Dictionary<string, string> ctx, string trigger)
     {
         var run = new WorkflowRun { WorkflowId = wf.Id, Trigger = trigger, ContextJson = JsonSerializer.Serialize(ctx) };
         db.WorkflowRuns.Add(run);
@@ -133,9 +151,11 @@ public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSend
         if (await db.Workflows.FindAsync(workflowId) is not { Active: true } wf) return;
         var due = DueStarts(wf, now);
         if (due.Count == 0) return;
+        // Is het budget van deze minuut op, dan probeert de planner het de volgende ronde opnieuw.
+        if (!budget.TryStart(db.TenantId)) return;
         wf.LastScheduledAt = now;
         await db.SaveChangesAsync();
-        await StartRunAsync(wf, due, [], "Schema");
+        await BeginRunAsync(wf, due, [], "Schema");
     }
 
     // Start werkstromen met een Schema-trigger die aan de beurt zijn. Een kapotte werkstroom houdt de rest niet tegen.
@@ -258,6 +278,31 @@ public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSend
                 .SetProperty(w => w.EmailDay, today)) == 1;
     }
 
+    // Hetzelfde voor webhooks.
+    async Task<bool> ReserveWebhookAsync(int limit)
+    {
+        if (limit <= 0) return false;
+        var today = DateTime.UtcNow.Date;
+        var id = db.TenantId;
+        return await db.Workspaces
+            .Where(w => w.Id == id && (w.WebhookDay != today || w.WebhooksSent < limit))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(w => w.WebhooksSent, w => w.WebhookDay == today ? w.WebhooksSent + 1 : 1)
+                .SetProperty(w => w.WebhookDay, today)) == 1;
+    }
+
+    // Telt mee voor een daglimiet van het hele platform, zoals alle e-mail uit proefwerkruimtes samen.
+    async Task<bool> ReservePlatformAsync(string key, int limit)
+    {
+        if (limit <= 0) return false;
+        var today = DateTime.UtcNow.Date;
+        return await db.PlatformCounters
+            .Where(c => c.Key == key && (c.Day != today || c.Count < limit))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(c => c.Count, c => c.Day == today ? c.Count + 1 : 1)
+                .SetProperty(c => c.Day, today)) == 1;
+    }
+
     async Task<Outcome> ExecuteNodeAsync(GraphNode node, Dictionary<string, string> ctx, CancellationToken ct)
     {
         string R(string key, string fallback = "") => WorkflowContext.Render(node.Get(key, fallback), ctx);
@@ -304,9 +349,12 @@ public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSend
                     return new Outcome { Status = "let op", Message = $"Niet verstuurd naar {to}: er is nog geen mailserver ingesteld (zie README)" };
                 }
                 var workspace = await db.Workspaces.FindAsync(db.TenantId);
-                var limit = limits.EmailsPerDay(workspace?.Plan ?? Plans.Trial);
+                var plan = workspace?.Plan ?? Plans.Trial;
+                var limit = limits.EmailsPerDay(plan);
                 if (!await ReserveEmailAsync(limit))
                     return new Outcome { Status = "let op", Message = $"Niet verstuurd naar {to}: je werkruimte heeft vandaag de daglimiet van {limit} e-mails bereikt. Morgen kan het weer." };
+                if (plan == Plans.Trial && !await ReservePlatformAsync(PlatformCounter.TrialEmails, limits.EmailsPerDayAllTrials))
+                    return new Outcome { Status = "let op", Message = $"Niet verstuurd naar {to}: tijdens de proefperiode kan er vandaag geen e-mail meer uit. Morgen kan het weer, of kies een abonnement." };
                 // Van het adres van het platform, met de bedrijfsnaam als afzender; antwoorden gaan naar de werkruimte zelf.
                 var settings = await db.Settings.OrderBy(x => x.Id).FirstOrDefaultAsync();
                 try
@@ -367,6 +415,7 @@ public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSend
                 if (customerId is null || !await db.Customers.AnyAsync(c => c.Id == customerId))
                     return Fail("Er is geen klant in deze run. Zet een lead eerst om met \"Klant maken\".");
                 var amount = WorkflowContext.TryNumber(R("amount", "{{lead.value}}"), out var a) ? a : 0;
+                if (Math.Abs(amount) > Money.MaxAmount) return Fail("Het bedrag voor de factuur is te groot");
                 var settings = await SettingsEndpoints.GetAsync(db);
                 var regime = VatRegimes.DefaultFor(settings, await db.Customers.FindAsync(customerId.Value));
                 var today = clock.Today;
@@ -391,6 +440,9 @@ public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSend
                     return Fail("Vul een geldige webhook-URL in (http of https)");
                 if (!limits.AllowPrivateWebhooks && !WebhookGuard.IsAllowedPort(uri.Port))
                     return Fail("Een webhook mag alleen naar poort 80 (http) of 443 (https)");
+                var hookLimit = limits.WebhooksPerDay((await db.Workspaces.FindAsync(db.TenantId))?.Plan ?? Plans.Trial);
+                if (!await ReserveWebhookAsync(hookLimit))
+                    return new Outcome { Status = "let op", Message = $"Niet verstuurd naar {uri.Host}: je werkruimte heeft vandaag de daglimiet van {hookLimit} webhooks bereikt. Morgen kan het weer." };
                 var client = httpFactory.CreateClient(WebhookGuard.ClientName);
                 using var request = new HttpRequestMessage(HttpMethod.Post, uri) { Content = JsonContent.Create(ctx) };
                 try

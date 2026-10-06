@@ -49,11 +49,11 @@ export function SettingsPage() {
   }
 
   const today = toDateInput(new Date())
-  const regime: VatRegime = form.vatRegime === 'kor' ? 'kor' : 'normaal'
+  const regime: VatRegime = form.vatRegime === 'kor' || form.vatRegime === 'vrijgesteld' ? form.vatRegime : 'normaal'
   const preview = {
     number: `${new Date().getFullYear()}-0001`, customerId: 0, issueDate: today, dueDate: today, deliveryFrom: today, status: 'concept' as const, vatRegime: regime,
     reference: '', notes: 'Bedankt voor de fijne samenwerking!',
-    lines: [{ description: 'Ontwikkeling webapplicatie', quantity: 12, unit: 'uur', unitPrice: form.defaultHourlyRate, vatRate: regime === 'kor' ? 0 : 21 }],
+    lines: [{ description: 'Ontwikkeling webapplicatie', quantity: 12, unit: 'uur', unitPrice: form.defaultHourlyRate, vatRate: regime === 'normaal' ? 21 : 0 }],
   }
 
   return (
@@ -94,11 +94,14 @@ export function SettingsPage() {
                 <select value={regime} disabled={!admin} onChange={e => setForm({ ...form, vatRegime: e.target.value as VatRegime })}>
                   <option value="normaal">Normaal: btw op je facturen</option>
                   <option value="kor">Kleineondernemersregeling (KOR): geen btw</option>
+                  <option value="vrijgesteld">Vrijgesteld van btw: geen btw</option>
                 </select>
               </Field>
               <p className="muted field-full" style={{ margin: 0, fontSize: 13 }}>
                 {regime === 'kor'
                   ? 'Je facturen krijgen geen btw, wel de vermelding dat je de KOR gebruikt. Dat mag alleen als je bij de Belastingdienst bent aangemeld voor de KOR.'
+                  : regime === 'vrijgesteld'
+                  ? 'Je facturen krijgen geen btw, wel de vermelding dat je werk vrijgesteld is (artikel 11 Wet OB). Dat geldt bijvoorbeeld voor zorg of onderwijs met een CRKBO-registratie. Doe je ook ander werk? Kies dan per factuur "Normaal".'
                   : 'Voor een zakelijke klant in een ander EU-land wordt de btw vanzelf verlegd, en voor een klant buiten de EU staat er geen btw op. Per factuur kun je het nog aanpassen.'}
               </p>
             </div>
@@ -171,8 +174,9 @@ function Subscription() {
 }
 
 function Account({ admin }: { admin: boolean }) {
-  const { workspace } = useWorkspace()
+  const { workspace, reload } = useWorkspace()
   const [deleting, setDeleting] = useState(false)
+  const [clearing, setClearing] = useState(false)
   const [password, setPassword] = useState('')
   const toast = useToast()
 
@@ -197,10 +201,37 @@ function Account({ admin }: { admin: boolean }) {
     }
   }
 
+  // Alle voorbeelddata uit de welkomstwizard in één keer weg, ook verstuurde voorbeeldfacturen.
+  const clearDemo = async () => {
+    if (!confirm('Alle voorbeelddata verwijderen? Voorbeeldklanten, -projecten, -uren, -facturen, -leads en -werkstromen gaan weg. Wat je zelf hebt toegevoegd blijft staan.')) return
+    setClearing(true)
+    try {
+      await api.del('/workspace/demo-data')
+      toast('Voorbeelddata verwijderd')
+      await reload()
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    } finally {
+      setClearing(false)
+    }
+  }
+
   if (!admin) return <div className="card"><div className="card-body muted">Alleen een beheerder kan gegevens exporteren of de werkruimte verwijderen.</div></div>
 
   return (
     <div className="grid grid-1-1">
+      {workspace?.demoData && (
+        <div className="card">
+          <div className="card-head"><h3><Trash2 size={16} /> Voorbeelddata verwijderen</h3></div>
+          <div className="card-body">
+            <p className="muted" style={{ marginTop: 0 }}>
+              Er staan nog voorbeeldklanten, -projecten en -facturen uit de welkomstwizard in je werkruimte. Haal ze in één keer weg;
+              wat je zelf hebt toegevoegd blijft staan. Voorbeeldfacturen tellen niet mee in je echte factuurnummers.
+            </p>
+            <button type="button" className="btn" disabled={clearing} onClick={clearDemo}><Trash2 size={15} /> Voorbeelddata verwijderen</button>
+          </div>
+        </div>
+      )}
       <div className="card">
         <div className="card-head"><h3><Download size={16} /> Gegevens exporteren</h3></div>
         <div className="card-body">

@@ -55,11 +55,13 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
 builder.Services.AddAuthorization();
 
 // Inloggen en aanmelden zijn per IP-adres begrensd, tegen het raden van wachtwoorden. Mislukte inlogpogingen
-// tellen ook per e-mailadres (LoginThrottle). Gebruikers toevoegen of wijzigen en werkstromen handmatig uitvoeren
-// zijn per werkruimte begrensd.
+// tellen ook per e-mailadres en IP-adres (LoginThrottle), en nieuwe werkruimtes per netwerk en voor het hele platform
+// (SignupThrottle). Gebruikers toevoegen of wijzigen is per werkruimte begrensd, net als het aantal werkstroom-runs
+// per minuut (WorkflowRunBudget, voor handmatig, triggers en de planner samen).
 var authPerMinute = builder.Configuration.GetValue("RateLimit:AuthPerMinute", 10);
-var runsPerMinute = builder.Configuration.GetValue("RateLimit:WorkflowRunsPerMinute", 30);
 builder.Services.AddSingleton<LoginThrottle>();
+builder.Services.AddSingleton<SignupThrottle>();
+builder.Services.AddSingleton<WorkflowRunBudget>();
 builder.Services.AddRateLimiter(o =>
 {
     o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -71,9 +73,6 @@ builder.Services.AddRateLimiter(o =>
     o.AddPolicy("accounts", http => RateLimitPartition.GetFixedWindowLimiter(
         http.User.WorkspaceId() is { } ws ? $"ws:{ws}" : $"ip:{http.Connection.RemoteIpAddress}",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = authPerMinute, Window = TimeSpan.FromMinutes(1) }));
-    o.AddPolicy("workflow-runs", http => RateLimitPartition.GetFixedWindowLimiter(
-        http.User.WorkspaceId() is { } ws ? $"ws:{ws}" : $"ip:{http.Connection.RemoteIpAddress}",
-        _ => new FixedWindowRateLimiterOptions { PermitLimit = runsPerMinute, Window = TimeSpan.FromMinutes(1) }));
 });
 
 // Sleutels voor de inlogcookies bewaren, zodat gebruikers ingelogd blijven na een herstart of update.
@@ -116,8 +115,14 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDb>();
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
     Database.Prepare(db, logger);
+    // Op de server: "dotnet Potel.Api.dll platform-admin jij@example.com" maakt dat account platformbeheerder en stopt dan.
+    if (args is [Seed.PlatformAdminCommand, var platformEmail])
+    {
+        Environment.ExitCode = Seed.MakePlatformAdmin(db, platformEmail, logger) ? 0 : 1;
+        return;
+    }
     Seed.Bootstrap(db, app.Configuration, logger);
-    Seed.PlatformAdmins(db, app.Configuration, logger);
+    Seed.PlatformAdmins(db, logger);
 }
 
 if (app.Environment.IsDevelopment())
