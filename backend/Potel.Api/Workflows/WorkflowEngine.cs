@@ -160,11 +160,13 @@ public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSend
             {
                 var days = int.TryParse(node.Get("days", "1"), out var d) ? d : 1;
                 var start = DateTime.Now.Date.AddDays(days).AddHours(9);
+                // Alleen een klant uit deze werkruimte koppelen, ook als de context van een oudere run komt.
+                var customerId = Id("customer.id") is { } cid && await db.Customers.AnyAsync(c => c.Id == cid) ? cid : (int?)null;
                 var appt = new Appointment
                 {
                     Title = R("title", "Opvolgen: {{lead.name}}"),
                     Start = start, End = start.AddHours(1), Kind = node.Get("kind", "taak"),
-                    CustomerId = Id("customer.id"), Notes = $"Aangemaakt door werkstroom ({node.Label})",
+                    CustomerId = customerId, Notes = $"Aangemaakt door werkstroom ({node.Label})",
                 };
                 db.Appointments.Add(appt);
                 db.Log("planning", $"{appt.Title} ingepland door werkstroom");

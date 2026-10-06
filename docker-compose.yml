@@ -10,9 +10,14 @@ services:
       - potel-data:/data
     environment:
       BehindProxy: "true"
-      # Jij als eigenaar: met dit e-mailadres zie je de pagina Platform met alle klanten.
+      # Alleen doorgestuurde IP-adressen van je eigen proxy vertrouwen. 172.16.0.0/12 is het standaardnetwerk van Docker;
+      # staat je proxy ergens anders, zet dan zijn netwerk hier of zijn IP-adres bij KnownProxies__0.
+      KnownNetworks__0: "172.16.0.0/12"
+      # Jij als eigenaar: het account met dit e-mailadres ziet de pagina Platform met alle klanten. Dat recht wordt
+      # bij het opstarten toegekend zolang er nog geen platformbeheerder is; daarna wijs je anderen aan op Platform.
       PlatformAdmins__0: "jij@jouwdomein.nl"
-      # Optioneel: een eerste account voor jezelf. Kies een sterk wachtwoord of maak je account via /aanmelden.
+      # Je eigen account: het veiligst maak je het hier aan, vóór de eerste start. Meld je je aan via /aanmelden,
+      # herstart de container dan één keer om toegang tot Platform te krijgen.
       # Admin__Name: "Jouw naam"
       # Admin__Email: "jij@jouwdomein.nl"
       # Admin__Password: "..."

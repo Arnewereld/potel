@@ -6,7 +6,7 @@ import { clock, useTimer } from '../lib/timer'
 
 // Start/stop-timer bovenaan de urenpagina.
 export function TimerCard() {
-  const { running, elapsed, start, stop, update, discard } = useTimer()
+  const { running, elapsed, stopping, start, stop, update, discard } = useTimer()
   const { data: projects } = useApi<Project[]>('/projects')
   const active = (projects ?? []).filter(p => p.status === 'actief')
   const [projectId, setProjectId] = useState(0)
@@ -31,7 +31,7 @@ export function TimerCard() {
         </div>
         <div className="timer-clock">{clock(elapsed)}</div>
         <button className="icon-btn" title="Timer weggooien" onClick={() => confirm('Timer stoppen zonder de tijd te boeken?') && discard()}><Trash2 size={16} /></button>
-        <button className="btn btn-stop" onClick={stop}><Square size={14} fill="currentColor" /> Stop</button>
+        <button className="btn btn-stop" disabled={stopping} onClick={stop}><Square size={14} fill="currentColor" /> {stopping ? 'Boeken…' : 'Stop'}</button>
       </div>
     )
   }

@@ -5,22 +5,21 @@ using Potel.Api.Data;
 namespace Potel.Api.Endpoints;
 
 public record PlanRequest(string Plan, DateTime? TrialEndsAt);
+public record PlatformAdminRequest(string Email);
 
 // Voor jou als eigenaar van het platform: alle werkruimtes zien en abonnementen omzetten.
-// Wie dit mag staat in de instelling PlatformAdmins (e-mailadressen).
+// Wie dit mag staat bij de gebruiker in de database (IsPlatformAdmin), nooit in een e-mailadres uit de cookie.
 public static class PlatformEndpoints
 {
-    public static bool IsPlatformAdmin(IConfiguration config, ClaimsPrincipal user)
-    {
-        var email = user.FindFirstValue(ClaimTypes.Email)?.ToLower();
-        return email is not null && (config.GetSection("PlatformAdmins").Get<string[]>() ?? []).Any(a => a.Trim().ToLower() == email);
-    }
+    // De gebruiker uit de cookie, opgezocht binnen zijn eigen werkruimte.
+    public static async Task<bool> IsPlatformAdmin(AppDb db, ClaimsPrincipal user) =>
+        user.UserId() is { } id && await db.Users.FindAsync(id) is { Active: true, IsPlatformAdmin: true };
 
     public static void MapPlatform(this RouteGroupBuilder api)
     {
         var g = api.MapGroup("/platform").AddEndpointFilter(async (ctx, next) =>
-            IsPlatformAdmin(ctx.HttpContext.RequestServices.GetRequiredService<IConfiguration>(), ctx.HttpContext.User)
-                ? await next(ctx) : Results.Forbid());
+            await IsPlatformAdmin(ctx.HttpContext.RequestServices.GetRequiredService<AppDb>(), ctx.HttpContext.User)
+                ? await next(ctx) : Results.Json(new { error = "Dit is alleen voor de eigenaar van het platform." }, statusCode: 403));
 
         g.MapGet("/workspaces", async (AppDb db) =>
         {
@@ -53,5 +52,36 @@ public static class PlatformEndpoints
             await db.SaveChangesAsync();
             return Results.Ok(new { w.Id, w.Plan, w.TrialEndsAt });
         });
+
+        // Wie het platform nog meer mag beheren. Alleen een platformbeheerder kan dat aanpassen.
+        g.MapGet("/admins", async (AppDb db) => await AdminsAsync(db));
+
+        g.MapPost("/admins", async (AppDb db, PlatformAdminRequest req) =>
+        {
+            var email = (req.Email ?? "").Trim().ToLower();
+            var u = await db.Users.IgnoreQueryFilters().FirstOrDefaultAsync(x => x.Email == email);
+            if (u is null) return Results.NotFound(new { error = "Er is geen account met dit e-mailadres. Laat die persoon zich eerst aanmelden." });
+            u.IsPlatformAdmin = true;
+            await db.SaveChangesAsync();
+            return Results.Ok(await AdminsAsync(db));
+        });
+
+        g.MapDelete("/admins/{id:int}", async (AppDb db, ClaimsPrincipal me, int id) =>
+        {
+            if (me.UserId() == id) return Results.BadRequest(new { error = "Je kunt jezelf niet weghalen. Vraag dat aan een andere platformbeheerder." });
+            var u = await db.Users.IgnoreQueryFilters().FirstOrDefaultAsync(x => x.Id == id && x.IsPlatformAdmin);
+            if (u is null) return Results.NotFound();
+            u.IsPlatformAdmin = false;
+            await db.SaveChangesAsync();
+            return Results.Ok(await AdminsAsync(db));
+        });
+    }
+
+    static async Task<List<object>> AdminsAsync(AppDb db)
+    {
+        var admins = await db.Users.IgnoreQueryFilters().Where(u => u.IsPlatformAdmin).OrderBy(u => u.Email).ToListAsync();
+        var ids = admins.Select(u => u.WorkspaceId).ToList();
+        var names = await db.Workspaces.Where(w => ids.Contains(w.Id)).ToDictionaryAsync(w => w.Id, w => w.Name);
+        return admins.Select(u => (object)new { u.Id, u.Name, u.Email, workspace = names.GetValueOrDefault(u.WorkspaceId) }).ToList();
     }
 }

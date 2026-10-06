@@ -4,14 +4,17 @@ import { useApi } from '../lib/useApi'
 import { api } from '../lib/api'
 import { useAuth, type User } from '../lib/auth'
 import { useToast } from '../lib/toast'
+import { useWorkspace } from '../lib/workspace'
 import { date, initials, relative } from '../lib/format'
 import { colorFor } from '../lib/status'
 import { Badge, ErrorBox, Field, Loading, Modal, PageHeader } from '../components/ui'
 
 export function UsersPage() {
   const { user: me } = useAuth()
+  const { workspace } = useWorkspace()
   const { data, error, loading, reload } = useApi<User[]>('/users')
   const [editing, setEditing] = useState<Partial<User> | null>(null)
+  const full = !!workspace && !!data && data.length >= workspace.maxUsers
 
   if (me.role !== 'beheerder') return <ErrorBox message="Alleen beheerders kunnen gebruikers beheren." />
 
@@ -21,7 +24,7 @@ export function UsersPage() {
         icon={<ShieldCheck size={20} />}
         title="Gebruikers"
         subtitle="Wie er in het portaal mag en wat ze mogen."
-        actions={<button className="btn btn-primary" onClick={() => setEditing({ role: 'medewerker', active: true })}><Plus size={16} /> Nieuwe gebruiker</button>}
+        actions={<button className="btn btn-primary" disabled={full} title={full ? 'Je abonnement zit vol' : undefined} onClick={() => setEditing({ role: 'medewerker', active: true })}><Plus size={16} /> Nieuwe gebruiker</button>}
       />
       {error && <ErrorBox message={error} onRetry={() => reload()} />}
       {loading && !data && <Loading />}
@@ -51,7 +54,9 @@ export function UsersPage() {
         </div>
       )}
       <p className="muted" style={{ fontSize: 12, marginTop: 14 }}>
-        Beheerders kunnen alles, ook gebruikers beheren. Medewerkers kunnen alles behalve gebruikers beheren.
+        Beheerders kunnen alles. Medewerkers kunnen alles behalve gebruikers beheren, de bedrijfsgegevens en huisstijl wijzigen,
+        werkstromen met e-mail of een webhook maken, en gegevens exporteren of de werkruimte verwijderen.
+        {workspace && data && <> Je gebruikt {data.length} van de {workspace.maxUsers} {workspace.maxUsers === 1 ? 'plek' : 'plekken'} van je abonnement; uitgeschakelde gebruikers tellen mee.</>}
       </p>
       {editing && <UserForm user={editing} isMe={editing.id === me.id} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload() }} />}
     </>

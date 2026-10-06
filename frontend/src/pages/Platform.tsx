@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
-import { Crown, Building2, Euro, Hourglass, Search, Users } from 'lucide-react'
+import { Crown, Building2, Euro, Hourglass, Search, Users, Trash2, UserPlus } from 'lucide-react'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
+import { useAuth } from '../lib/auth'
 import { useToast } from '../lib/toast'
 import { plans } from '../lib/plans'
 import { date, euro, relative } from '../lib/format'
@@ -90,6 +91,58 @@ export function PlatformPage() {
           </div>
         )}
       </div>
+
+      <PlatformAdmins />
     </>
+  )
+}
+
+interface PlatformAdmin { id: number; name: string; email: string; workspace?: string | null }
+
+// Wie deze pagina nog meer mag zien. Een platformbeheerder wijst anderen aan; een e-mailadres alleen geeft geen toegang.
+function PlatformAdmins() {
+  const { data, error, setData } = useApi<PlatformAdmin[]>('/platform/admins')
+  const { user } = useAuth()
+  const [email, setEmail] = useState('')
+  const toast = useToast()
+
+  const add = async (e: React.FormEvent) => {
+    e.preventDefault()
+    try {
+      setData(await api.post<PlatformAdmin[]>('/platform/admins', { email }))
+      toast(`${email} is nu platformbeheerder`)
+      setEmail('')
+    } catch (err) {
+      toast((err as Error).message, 'error')
+    }
+  }
+
+  const remove = async (a: PlatformAdmin) => {
+    if (!confirm(`${a.email} geen platformbeheerder meer laten zijn?`)) return
+    try {
+      await api.del(`/platform/admins/${a.id}`)
+      setData(prev => prev?.filter(x => x.id !== a.id) ?? null)
+    } catch (err) {
+      toast((err as Error).message, 'error')
+    }
+  }
+
+  return (
+    <div className="card" style={{ marginTop: 18 }}>
+      <div className="card-head"><h3><Crown size={16} /> Platformbeheerders</h3></div>
+      <div className="card-body">
+        {error && <ErrorBox message={error} />}
+        {data?.map(a => (
+          <div key={a.id} className="row between" style={{ padding: '6px 0' }}>
+            <div><strong>{a.name}</strong><div className="cell-sub">{a.email}{a.workspace ? ` · ${a.workspace}` : ''}</div></div>
+            {a.id !== user.id && <button type="button" className="icon-btn danger" title="Weghalen" onClick={() => remove(a)}><Trash2 size={16} /></button>}
+          </div>
+        ))}
+        <form className="row" style={{ gap: 8, marginTop: 10 }} onSubmit={add}>
+          <input type="email" required placeholder="E-mailadres van een bestaand account" value={email} onChange={e => setEmail(e.target.value)} />
+          <button className="btn"><UserPlus size={15} /> Toevoegen</button>
+        </form>
+      </div>
+    </div>
   )
 }

@@ -98,6 +98,17 @@ export const nodeTypes: NodeType[] = [
 
 export const nodeType = (type: string) => nodeTypes.find(n => n.type === type) ?? nodeTypes[5]!
 
+// Blokken die gegevens naar buiten sturen. Een werkstroom met zo'n blok maakt of wijzigt alleen een beheerder
+// (de server controleert dit ook, zie WorkflowEndpoints.AdminOnlyBlocks).
+export const adminOnlyTypes = ['action.email', 'action.webhook']
+
+export function needsAdmin(graph: string | { type: string }[]) {
+  let nodes: { type: string }[] = []
+  if (typeof graph === 'string') { try { nodes = JSON.parse(graph).nodes ?? [] } catch { /* lege grafiek */ } }
+  else nodes = graph
+  return nodes.some(n => adminOnlyTypes.includes(n.type))
+}
+
 export const defaultConfig = (type: string) =>
   Object.fromEntries((nodeType(type).fields ?? []).filter(f => f.default !== undefined).map(f => [f.key, f.default!]))
 

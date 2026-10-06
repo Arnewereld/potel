@@ -204,6 +204,8 @@ export interface Workspace {
   onboarded: boolean
   trialDaysLeft?: number | null
   platformAdmin: boolean
+  // Hoeveel gebruikers het abonnement toestaat (ook uitgeschakelde tellen mee).
+  maxUsers: number
 }
 
 export interface Dashboard {

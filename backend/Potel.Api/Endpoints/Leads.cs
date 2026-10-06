@@ -29,6 +29,8 @@ public static class LeadEndpoints
         g.MapPost("/", async (AppDb db, WorkflowEngine engine, Lead input) =>
         {
             if (string.IsNullOrWhiteSpace(input.Name)) return Results.BadRequest(new { error = "Naam is verplicht" });
+            if (input.CustomerId is { } cid && !await db.Customers.AnyAsync(c => c.Id == cid))
+                return Results.BadRequest(new { error = "Deze klant bestaat niet. Kies een andere klant of laat het veld leeg." });
             if (!LeadStatus.All.Contains(input.Status)) input.Status = "nieuw";
             input.Id = 0;
             input.CreatedAt = DateTime.UtcNow;

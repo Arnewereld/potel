@@ -55,6 +55,7 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
   const [userMenu, setUserMenu] = useState(false)
   const [changingPassword, setChangingPassword] = useState(false)
   const { user, logout } = useAuth()
+  const { running } = useTimer()
   const { workspace, reload: reloadWorkspace } = useWorkspace()
 
   useEffect(() => {
@@ -153,7 +154,7 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
             <div className="user-menu" onMouseLeave={() => setUserMenu(false)}>
               <div className="cell-sub" style={{ padding: '6px 10px' }}>{user.email}</div>
               <button className="nav-item" onClick={() => { setUserMenu(false); setChangingPassword(true) }}><KeyRound size={16} /><span>Wachtwoord wijzigen</span></button>
-              <button className="nav-item" onClick={() => logout()}><LogOut size={16} /><span>Uitloggen</span></button>
+              <button className="nav-item" onClick={() => (!running || confirm('Je timer loopt nog. Uitloggen zonder de tijd te boeken?')) && logout()}><LogOut size={16} /><span>Uitloggen</span></button>
             </div>
           )}
         </div>
@@ -200,7 +201,7 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
 
 // De lopende timer, altijd zichtbaar rechts in de tabbalk.
 function TimerChip() {
-  const { running, elapsed, stop } = useTimer()
+  const { running, elapsed, stopping, stop } = useTimer()
   const navigate = useNavigate()
   if (!running) return null
   return (
@@ -210,7 +211,7 @@ function TimerChip() {
         <span className="truncate">{running.projectName}</span>
         <strong>{clock(elapsed)}</strong>
       </button>
-      <button className="timer-chip-stop" onClick={stop} title="Stoppen en boeken"><Square size={11} fill="currentColor" /></button>
+      <button className="timer-chip-stop" disabled={stopping} onClick={stop} title="Stoppen en boeken"><Square size={11} fill="currentColor" /></button>
     </div>
   )
 }

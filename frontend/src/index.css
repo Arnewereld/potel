@@ -447,6 +447,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .switch span { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left 0.15s; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
 .switch.on { background: var(--green); }
 .switch.on span { left: 19px; }
+.switch:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .content:has(.wf-editor) { padding: 0; }
 .wf-editor { display: flex; flex-direction: column; height: 100%; }

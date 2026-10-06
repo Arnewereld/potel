@@ -48,13 +48,28 @@ public static class TimeEndpoints
         g.MapPost("/", async (AppDb db, TimeEntry input) =>
         {
             if (Validate(db, input) is { } error) return Results.BadRequest(new { error });
+            var clientId = string.IsNullOrWhiteSpace(input.ClientId) ? null : input.ClientId.Trim();
+            if (clientId is { Length: > 64 }) return Results.BadRequest(new { error = "Ongeldig kenmerk voor deze boeking" });
+            // Dezelfde timer twee keer gestopt (dubbelklik of een tweede tabblad): de eerste boeking telt.
+            if (clientId is not null && await db.TimeEntries.FirstOrDefaultAsync(x => x.ClientId == clientId) is { } booked)
+                return Results.Ok(booked);
             var t = new TimeEntry
             {
                 ProjectId = input.ProjectId, Date = input.Date.Date, Minutes = input.Minutes,
-                Description = input.Description?.Trim() ?? "", Billable = input.Billable,
+                Description = input.Description?.Trim() ?? "", Billable = input.Billable, ClientId = clientId,
             };
             db.TimeEntries.Add(t);
-            await db.SaveChangesAsync();
+            try
+            {
+                await db.SaveChangesAsync();
+            }
+            catch (DbUpdateException) when (clientId is not null)
+            {
+                // Tegelijk binnengekomen: de unieke index hield de tweede tegen.
+                db.Entry(t).State = EntityState.Detached;
+                if (await db.TimeEntries.AsNoTracking().FirstOrDefaultAsync(x => x.ClientId == clientId) is { } first) return Results.Ok(first);
+                throw;
+            }
             return Results.Created($"/api/time/{t.Id}", t);
         });
 

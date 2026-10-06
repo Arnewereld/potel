@@ -15,6 +15,11 @@ public static class Plans
     public const string Solo = "zzp";
     public const string Team = "team";
     public static readonly string[] All = [Trial, Solo, Team];
+
+    // Hoeveel gebruikers (ook uitgeschakelde) een werkruimte per abonnement mag hebben.
+    // De verkooppagina toont dit vanuit frontend/src/lib/plans.ts; PlanTests controleert dat die gelijk blijft.
+    static readonly Dictionary<string, int> UserLimits = new() { [Trial] = 5, [Solo] = 1, [Team] = 5 };
+    public static int MaxUsers(string plan) => UserLimits.GetValueOrDefault(plan, 1);
 }
 
 public class Workspace
@@ -142,6 +147,8 @@ public class TimeEntry : IWorkspaceOwned
     public bool Billable { get; set; } = true;
     // Gevuld zodra de uren op een factuur staan; daarna liggen ze vast.
     public int? InvoiceId { get; set; }
+    // Kenmerk dat de timer meestuurt, zodat dubbel stoppen maar één boeking oplevert.
+    public string? ClientId { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
@@ -242,6 +249,12 @@ public class User : IWorkspaceOwned
     public bool Active { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? LastLoginAt { get; set; }
+    // Verandert bij een nieuw wachtwoord, e-mailadres, andere rol of uitschakelen; oudere inlogcookies werken dan niet meer.
+    public string SecurityStamp { get; set; } = Guid.NewGuid().ToString("N");
+    // Eigenaar van het platform. Wordt alleen bij het opstarten uit de instellingen gezet of door een andere platformbeheerder.
+    public bool IsPlatformAdmin { get; set; }
+
+    public void NewSecurityStamp() => SecurityStamp = Guid.NewGuid().ToString("N");
 }
 
 public class WorkflowRun : IWorkspaceOwned

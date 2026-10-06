@@ -3,10 +3,11 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Save, Play, Trash2, Plus, Minus, Maximize, Check, Search, X, AlertTriangle, Clock, History, Blocks, ChevronDown, ChevronRight } from 'lucide-react'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
+import { useAuth } from '../lib/auth'
 import { useTabs, useTabTitle } from '../lib/tabs'
 import { useToast } from '../lib/toast'
 import type { Invoice, Lead, Workflow, WorkflowEdge, WorkflowNode, WorkflowRun, WorkflowRunLog } from '../lib/types'
-import { defaultConfig, nodeType, nodeTypes, variables, type NodeField } from '../lib/nodes'
+import { adminOnlyTypes, defaultConfig, needsAdmin, nodeType, nodeTypes, variables, type NodeField } from '../lib/nodes'
 import { dateTime, euro, invoiceTotals } from '../lib/format'
 import { ErrorBox, Field, Loading, Modal, SubTabs } from '../components/ui'
 
@@ -54,6 +55,8 @@ export function WorkflowEditorPage() {
   const toast = useToast()
   const navigate = useNavigate()
   const { close } = useTabs()
+  const { user } = useAuth()
+  const admin = user.role === 'beheerder'
   useTabTitle(wf?.name)
 
   useEffect(() => {
@@ -177,7 +180,7 @@ export function WorkflowEditorPage() {
 
   const execute = async (body: { leadId?: number; invoiceId?: number }) => {
     setRunDialog(false)
-    if (dirty && !(await save({}, true))) return
+    if (dirty && !locked && !(await save({}, true))) return
     try {
       const run = await api.post<WorkflowRun>(`/workflows/${wf.id}/run`, body)
       runs.reload(true)
@@ -211,20 +214,24 @@ export function WorkflowEditorPage() {
   const linkFrom = cursor ? byId[cursor.from] : null
   const groups = ['Triggers', 'Acties', 'Logica'] as const
   const hasTrigger = nodes.some(n => n.type.startsWith('trigger.'))
+  // E-mail en webhooks sturen gegevens naar buiten: zo'n werkstroom maakt of wijzigt alleen een beheerder.
+  const locked = !admin && (needsAdmin(wf.graphJson) || needsAdmin(nodes))
 
   return (
     <div className="wf-editor">
       <div className="wf-toolbar">
-        <input className="wf-name" value={wf.name} onChange={e => { setWf({ ...wf, name: e.target.value }); setDirty(true) }} />
-        {dirty && <span className="muted">Niet opgeslagen</span>}
+        <input className="wf-name" value={wf.name} disabled={locked} onChange={e => { setWf({ ...wf, name: e.target.value }); setDirty(true) }} />
+        {locked
+          ? <span className="row muted" style={{ gap: 6 }} title="Deze werkstroom stuurt e-mail of roept een webhook aan"><AlertTriangle size={14} /> Alleen een beheerder kan deze werkstroom wijzigen</span>
+          : dirty && <span className="muted">Niet opgeslagen</span>}
         <span className="spacer" />
         <label className="row muted" style={{ gap: 8 }} title="Als hij aan staat, start hij vanzelf bij zijn trigger">
           {wf.active ? 'Actief' : 'Uit'}
-          <button className={`switch ${wf.active ? 'on' : ''}`} onClick={() => save({ active: !wf.active })}><span /></button>
+          <button className={`switch ${wf.active ? 'on' : ''}`} disabled={locked} onClick={() => save({ active: !wf.active })}><span /></button>
         </label>
         <button className="btn btn-danger btn-sm" onClick={remove}><Trash2 size={14} /></button>
         <button className="btn btn-sm" disabled={!hasTrigger} title={hasTrigger ? 'Nu één keer uitvoeren' : 'Voeg eerst een trigger toe'} onClick={() => setRunDialog(true)}><Play size={14} /> Uitvoeren</button>
-        <button className="btn btn-primary btn-sm" onClick={() => save()}><Save size={14} /> Opslaan</button>
+        <button className="btn btn-primary btn-sm" disabled={locked} onClick={() => save()}><Save size={14} /> Opslaan</button>
       </div>
 
       <div className="wf-body">
@@ -334,7 +341,7 @@ export function WorkflowEditorPage() {
                 <input style={{ width: '100%' }} placeholder="Zoek blok…" value={paletteQuery} onChange={e => setPaletteQuery(e.target.value)} />
               </div>
               {groups.map(g => {
-                const items = nodeTypes.filter(t => t.group === g && t.label.toLowerCase().includes(paletteQuery.toLowerCase()))
+                const items = nodeTypes.filter(t => t.group === g && (admin || !adminOnlyTypes.includes(t.type)) && t.label.toLowerCase().includes(paletteQuery.toLowerCase()))
                 if (items.length === 0) return null
                 return (
                   <div key={g}>

@@ -27,11 +27,14 @@ public static class Seed
         db.SaveChanges();
         db.Tenant.WorkspaceId = ws.Id;
 
+        var email = config["Admin:Email"]!.Trim().ToLower();
         var admin = new User
         {
             Name = config["Admin:Name"] ?? "Beheerder",
-            Email = config["Admin:Email"]!.Trim().ToLower(),
+            Email = email,
             Role = Roles.Admin,
+            // Het account uit de instellingen is van de eigenaar zelf, dus dat mag het platform beheren.
+            IsPlatformAdmin = ConfiguredPlatformAdmins(config).Contains(email),
         };
         var password = config["Admin:Password"]!;
         admin.PasswordHash = Endpoints.AuthEndpoints.Hash(admin, password);
@@ -39,6 +42,28 @@ public static class Seed
         db.SaveChanges();
         logger.LogWarning("Beheerder aangemaakt: {Email}. Wijzig het wachtwoord na de eerste keer inloggen.", admin.Email);
         if (config.GetValue("SeedDemoData", true)) Run(db, sampleCompany: true);
+    }
+
+    static string[] ConfiguredPlatformAdmins(IConfiguration config) =>
+        (config.GetSection("PlatformAdmins").Get<string[]>() ?? []).Select(a => a.Trim().ToLower()).Where(a => a != "").ToArray();
+
+    // Wie het platform beheert staat in de database, niet in een e-mailadres dat iedereen kan aanmaken.
+    // Alleen zolang er nog geen platformbeheerder is (eerste start, of een update van de versie die naar het e-mailadres keek)
+    // krijgt de eerste bestaande beheerder met een adres uit PlatformAdmins dit recht. Daarna wijst een platformbeheerder anderen aan.
+    public static void PlatformAdmins(AppDb db, IConfiguration config, ILogger logger)
+    {
+        var emails = ConfiguredPlatformAdmins(config);
+        if (emails.Length == 0 || db.Users.IgnoreQueryFilters().Any(u => u.IsPlatformAdmin)) return;
+        var candidates = db.Users.IgnoreQueryFilters().Where(u => emails.Contains(u.Email) && u.Role == Roles.Admin && u.Active).ToList();
+        var first = emails.Select(e => candidates.FirstOrDefault(u => u.Email == e)).FirstOrDefault(u => u is not null);
+        if (first is null)
+        {
+            logger.LogWarning("Er is nog geen platformbeheerder: geen account gevonden voor {Emails}. Maak het account aan en start Potel opnieuw.", string.Join(", ", emails));
+            return;
+        }
+        first.IsPlatformAdmin = true;
+        db.SaveChanges();
+        logger.LogWarning("{Email} is nu platformbeheerder. Andere platformbeheerders wijs je aan op de pagina Platform.", first.Email);
     }
 
     // Vult de huidige werkruimte met voorbeelddata. Met sampleCompany ook voorbeeld-bedrijfsgegevens.

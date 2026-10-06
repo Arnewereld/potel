@@ -37,6 +37,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         // Wordt een factuur verwijderd, dan komen de uren weer vrij om te factureren.
         b.Entity<TimeEntry>().HasOne<Invoice>().WithMany().HasForeignKey(t => t.InvoiceId).OnDelete(DeleteBehavior.SetNull);
         b.Entity<TimeEntry>().HasIndex(t => t.Date);
+        b.Entity<TimeEntry>().HasIndex(t => new { t.WorkspaceId, t.ClientId }).IsUnique();
         FilterByWorkspace(b);
     }
 

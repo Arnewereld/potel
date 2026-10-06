@@ -1,8 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { api } from './api'
+import { clearSession, resetSession } from './storage'
 
 export interface User {
   id: number
+  workspaceId: number
   name: string
   email: string
   role: 'beheerder' | 'medewerker'
@@ -21,9 +23,6 @@ interface AuthValue {
 }
 
 export type PublicAuth = Pick<AuthValue, 'login' | 'register'>
-
-// Tabbladen van een vorige sessie kunnen naar gegevens van een andere werkruimte wijzen.
-const resetTabs = () => { try { localStorage.removeItem('potel.tabs') } catch { /* negeren */ } }
 
 const AuthContext = createContext<AuthValue | null>(null)
 
@@ -47,19 +46,19 @@ export function AuthProvider({ children, fallback, publicSite }: {
 
   const login = useCallback(async (email: string, password: string) => {
     const u = await api.post<User>('/auth/login', { email, password })
-    resetTabs()
+    resetSession()
     setUser(u)
   }, [])
 
   const register = useCallback(async (input: RegisterInput) => {
     const u = await api.post<User>('/auth/register', input)
-    resetTabs()
+    resetSession()
     setUser(u)
   }, [])
 
   const logout = useCallback(async () => {
     await api.post('/auth/logout').catch(() => {})
-    resetTabs()
+    clearSession()
     setUser(null)
   }, [])
 

@@ -49,6 +49,9 @@ public static class CustomerEndpoints
                 return Results.Conflict(new { error = "Deze klant heeft facturen en kan niet verwijderd worden" });
             if (await db.Projects.AnyAsync(p => p.CustomerId == id))
                 return Results.Conflict(new { error = "Deze klant heeft projecten. Verwijder die eerst." });
+            // Afspraken en leads blijven bestaan, maar wijzen niet meer naar een klant die er niet is.
+            await db.Appointments.Where(a => a.CustomerId == id).ExecuteUpdateAsync(x => x.SetProperty(a => a.CustomerId, (int?)null));
+            await db.Leads.Where(l => l.CustomerId == id).ExecuteUpdateAsync(x => x.SetProperty(l => l.CustomerId, (int?)null));
             db.Customers.Remove(c);
             db.Log("klant", $"Klant {c.Name} verwijderd");
             await db.SaveChangesAsync();

@@ -29,10 +29,11 @@ export function SettingsPage() {
   if (error) return <ErrorBox message={error} />
   if (loading || !form) return <Loading />
 
-  const text = (k: keyof Settings) => ({ value: (form[k] as string | null) ?? '', onChange: (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value }) })
-  const num = (k: keyof Settings) => ({ type: 'number', min: 0, value: form[k] as number, onChange: (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: Number(e.target.value) }) })
-  const dirty = JSON.stringify(form) !== JSON.stringify(data)
+  // Bedrijfsgegevens, IBAN en huisstijl staan op elke factuur; een medewerker kan ze alleen bekijken.
   const admin = user.role === 'beheerder'
+  const text = (k: keyof Settings) => ({ value: (form[k] as string | null) ?? '', disabled: !admin, onChange: (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value }) })
+  const num = (k: keyof Settings) => ({ type: 'number', min: 0, value: form[k] as number, disabled: !admin, onChange: (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: Number(e.target.value) }) })
+  const dirty = JSON.stringify(form) !== JSON.stringify(data)
 
   const save = async (e?: React.FormEvent) => {
     e?.preventDefault()
@@ -59,7 +60,7 @@ export function SettingsPage() {
         icon={<SettingsIcon size={20} />}
         title="Instellingen"
         subtitle="Je gegevens, huisstijl, abonnement en account."
-        actions={(tab === 'bedrijf' || tab === 'huisstijl') && <button className="btn btn-primary" disabled={busy || !dirty}><Save size={15} /> Opslaan</button>}
+        actions={admin && (tab === 'bedrijf' || tab === 'huisstijl') && <button className="btn btn-primary" disabled={busy || !dirty}><Save size={15} /> Opslaan</button>}
       />
       <SubTabs<Tab> value={tab} onChange={t => setParams({ tab: t }, { replace: true })} tabs={[
         { id: 'bedrijf', label: 'Bedrijf', icon: <Building size={14} /> },
@@ -67,6 +68,10 @@ export function SettingsPage() {
         { id: 'abonnement', label: 'Abonnement', icon: <CreditCard size={14} /> },
         { id: 'account', label: 'Account', icon: <UserCog size={14} /> },
       ]} />
+
+      {!admin && (tab === 'bedrijf' || tab === 'huisstijl') && (
+        <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>Alleen een beheerder kan de bedrijfsgegevens en de huisstijl wijzigen.</p>
+      )}
 
       {tab === 'bedrijf' && (
         <div className="grid grid-1-1">
@@ -104,7 +109,7 @@ export function SettingsPage() {
         <div className="grid grid-1-1">
           <div className="card">
             <div className="card-head"><h3><Palette size={16} /> Logo en kleur</h3></div>
-            <div className="card-body"><BrandFields value={form} onChange={patch => setForm({ ...form, ...patch })} /></div>
+            <div className="card-body"><BrandFields value={form} disabled={!admin} onChange={patch => setForm({ ...form, ...patch })} /></div>
           </div>
           <div className="settings-preview"><InvoicePaper invoice={preview} company={form} /></div>
         </div>

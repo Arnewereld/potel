@@ -16,7 +16,7 @@ public static class WorkspaceEndpoints
 
     static object Dto(Workspace w, bool platformAdmin = false) => new
     {
-        w.Id, w.Name, w.Plan, w.TrialEndsAt, w.CreatedAt, platformAdmin,
+        w.Id, w.Name, w.Plan, w.TrialEndsAt, w.CreatedAt, platformAdmin, maxUsers = Plans.MaxUsers(w.Plan),
         onboarded = w.OnboardedAt != null,
         trialDaysLeft = w.Plan == Plans.Trial && w.TrialEndsAt is { } end ? Math.Max(0, (int)Math.Ceiling((end - DateTime.UtcNow).TotalDays)) : (int?)null,
     };
@@ -32,7 +32,7 @@ public static class WorkspaceEndpoints
             if ((req.Password ?? "").Length < AuthEndpoints.MinPasswordLength)
                 return Results.BadRequest(new { error = $"Kies een wachtwoord van minstens {AuthEndpoints.MinPasswordLength} tekens" });
             if (await db.Users.IgnoreQueryFilters().AnyAsync(u => u.Email == email))
-                return Results.Conflict(new { error = "Er bestaat al een account met dit e-mailadres. Log in of gebruik een ander adres." });
+                return Results.Conflict(new { error = AuthEndpoints.EmailUnavailable });
 
             var ws = new Workspace { Name = req.Company.Trim(), TrialEndsAt = DateTime.UtcNow.AddDays(TrialDays) };
             db.Workspaces.Add(ws);
@@ -53,8 +53,8 @@ public static class WorkspaceEndpoints
 
         var g = api.MapGroup("/workspace");
 
-        g.MapGet("/", async (AppDb db, IConfiguration config, ClaimsPrincipal user) =>
-            await db.Workspaces.FindAsync(db.TenantId) is { } w ? Results.Ok(Dto(w, PlatformEndpoints.IsPlatformAdmin(config, user))) : Results.NotFound());
+        g.MapGet("/", async (AppDb db, ClaimsPrincipal user) =>
+            await db.Workspaces.FindAsync(db.TenantId) is { } w ? Results.Ok(Dto(w, await PlatformEndpoints.IsPlatformAdmin(db, user))) : Results.NotFound());
 
         g.MapPost("/onboarded", async (AppDb db) =>
         {
