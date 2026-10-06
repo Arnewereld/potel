@@ -10,13 +10,19 @@ namespace Potel.Api.Data.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            // Wie platformbeheerder is, zet Seed.PlatformAdmins bij het opstarten vanuit PlatformAdmins in de instellingen.
+            // Wie platformbeheerder is, staat voortaan in de database (zie Seed.PlatformAdmins).
             migrationBuilder.AddColumn<bool>(
                 name: "IsPlatformAdmin",
                 table: "Users",
                 type: "INTEGER",
                 nullable: false,
                 defaultValue: false);
+
+            // Bij een bestaande installatie is de eerste beheerder de eigenaar die bij de eerste start is aangemaakt.
+            // Die houdt de pagina Platform; op een nieuwe database is de tabel nog leeg en doet dit niets.
+            migrationBuilder.Sql(
+                "UPDATE Users SET IsPlatformAdmin = 1 WHERE Id = " +
+                "(SELECT MIN(Id) FROM Users WHERE Role = 'beheerder' AND Active = 1)");
 
             // Bestaande gebruikers krijgen een lege stempel, net als hun huidige cookies: ze blijven ingelogd
             // tot hun wachtwoord, e-mailadres, rol of status verandert.

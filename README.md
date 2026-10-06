@@ -26,7 +26,7 @@ Potel is gebouwd om te verkopen: elke klant maakt zelf een account aan en krijgt
 | **Huisstijl** | Elke klant uploadt een logo en kiest een accentkleur; die komen op de facturen. |
 | **Abonnement** | Proef (30 dagen), ZZP of Team. Na de proef is de werkruimte alleen-lezen tot er een abonnement is gekozen. Overstappen gaat nu via een mail naar jou; jij zet het om op *Platform*. |
 | **Account** | Beheerders exporteren alle gegevens als JSON of verwijderen hun hele werkruimte. |
-| **Platform** | Alleen voor jou (de e-mailadressen in `PlatformAdmins`): alle werkruimtes, gebruik, proefperiodes, omzet per maand, en abonnementen omzetten. |
+| **Platform** | Alleen voor platformbeheerders (jij): alle werkruimtes, gebruik, proefperiodes, omzet per maand, abonnementen omzetten en andere platformbeheerders aanwijzen. |
 
 Verder: alles opent als **tabblad** bovenin (dubbelklik op een tabblad sluit de andere), **Ctrl K** om overal te zoeken, en een licht (standaard) en donker thema.
 
@@ -75,16 +75,23 @@ Met Docker draait alles in één container. De database en de sleutels van de in
 docker compose up -d
 ```
 
-Vul eerst in `docker-compose.yml` je eigen e-mailadres in bij `PlatformAdmins__0`. Zet er een reverse proxy met https voor (bijvoorbeeld Caddy of het https van je hostingplatform); inlogcookies werken in productie alleen via https.
+Meld je na de eerste start zelf aan via `/aanmelden` en maak jezelf daarna platformbeheerder vanaf de server:
+
+```bash
+docker compose exec potel dotnet Potel.Api.dll platform-admin jij@jouwdomein.nl
+```
+
+Wie platformbeheerder is, staat in de database. Een e-mailadres in de instellingen geeft dat recht niet meer, zodat niemand het kan overnemen door zich met jouw adres aan te melden. Zet er een reverse proxy met https voor (bijvoorbeeld Caddy of het https van je hostingplatform); inlogcookies werken in productie alleen via https.
 
 Belangrijke instellingen (als omgevingsvariabele, met `__` voor een punt):
 
 | Instelling | Betekenis |
 | --- | --- |
-| `PlatformAdmins__0` | E-mailadres van de eigenaar die de pagina Platform ziet. Meer adressen: `__1`, `__2`. |
+| `Admin__Email`, `Admin__Password`, `PlatformAdmins__0` | Alleen voor de allereerste start: maakt je account meteen aan, en met hetzelfde adres bij `PlatformAdmins__0` ben je ook platformbeheerder. |
 | `BehindProxy` | `true` als er een reverse proxy voor staat, zodat https en het echte IP-adres herkend worden. |
+| `KnownProxies__0` | Het IP-adres van je proxy. Alleen van dat adres wordt het doorgestuurde IP-adres van bezoekers geloofd. |
 | `DatabasePath`, `KeysPath` | Waar de SQLite-database en de cookiesleutels staan (standaard in `/data`). |
-| `RateLimit__AuthPerMinute` | Hoe vaak per minuut één IP-adres mag inloggen of aanmelden (standaard 10). |
+| `RateLimit__AuthPerMinute` | Hoe vaak per minuut één IP-adres mag inloggen of aanmelden (standaard 10). Daarnaast geldt een grens per e-mailadres, en op aanmelden een grens per netwerk en voor het hele platform. |
 | `Smtp__*` | Mailserver voor de werkstroomblokken die e-mail sturen. |
 
 Voordat je echt verkoopt, regel je nog:

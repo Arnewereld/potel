@@ -16,7 +16,7 @@ interface TabsContextValue {
 
 const TabsContext = createContext<TabsContextValue | null>(null)
 const STORAGE_KEY = 'potel.tabs'
-const publicPaths = ['/inloggen', '/aanmelden']
+const publicPaths = ['/inloggen', '/login', '/aanmelden']
 
 export function defaultTitle(fullPath: string) {
   const path = fullPath.split('?')[0]!
