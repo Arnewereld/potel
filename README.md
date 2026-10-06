@@ -32,7 +32,7 @@ Verder: alles opent als **tabblad** bovenin (dubbelklik op een tabblad sluit de 
 
 ## Starten
 
-Je hebt nodig: [.NET 8 SDK](https://dotnet.microsoft.com/download) en [Node.js 20+](https://nodejs.org).
+Je hebt nodig: [.NET 10 SDK](https://dotnet.microsoft.com/download) en [Node.js 20+](https://nodejs.org).
 
 **1. Backend** (API op http://localhost:5080, maakt `potel.db` aan met voorbeelddata):
 

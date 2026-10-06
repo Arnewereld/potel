@@ -104,10 +104,7 @@ builder.Services.Configure<ForwardedHeadersOptions>(o =>
     foreach (var ip in builder.Configuration.GetSection("KnownProxies").Get<string[]>() ?? [])
         o.KnownProxies.Add(IPAddress.Parse(ip.Trim()));
     foreach (var cidr in builder.Configuration.GetSection("KnownNetworks").Get<string[]>() ?? [])
-    {
-        var net = System.Net.IPNetwork.Parse(cidr.Trim());
-        o.KnownNetworks.Add(new Microsoft.AspNetCore.HttpOverrides.IPNetwork(net.BaseAddress, net.PrefixLength));
-    }
+        o.KnownIPNetworks.Add(System.Net.IPNetwork.Parse(cidr.Trim()));
 });
 
 var app = builder.Build();
