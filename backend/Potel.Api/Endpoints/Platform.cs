@@ -32,7 +32,7 @@ public static class PlatformEndpoints
                 var mine = users.Where(u => u.WorkspaceId == w.Id).ToList();
                 return new
                 {
-                    w.Id, w.Name, w.Plan, w.TrialEndsAt, w.CreatedAt, onboarded = w.OnboardedAt != null,
+                    w.Id, w.Name, w.Plan, w.TrialEndsAt, w.CreatedAt, onboarded = w.OnboardedAt != null, w.Kvk, w.TermsVersion, w.TermsAcceptedAt,
                     owner = mine.FirstOrDefault(u => u.Role == Roles.Admin)?.Email,
                     users = mine.Count,
                     lastActive = mine.Max(u => u.LastLoginAt),

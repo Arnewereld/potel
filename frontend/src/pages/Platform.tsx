@@ -22,6 +22,9 @@ interface Row {
   lastActive?: string | null
   invoices: number
   timeEntries: number
+  kvk?: string | null
+  termsVersion?: string | null
+  termsAcceptedAt?: string | null
 }
 
 // Alleen voor de eigenaar van het platform: wie gebruikt Potel, op welk abonnement.
@@ -71,7 +74,11 @@ export function PlatformPage() {
                   const left = r.plan === 'proef' && r.trialEndsAt ? daysUntil(r.trialEndsAt) : null
                   return (
                     <tr key={r.id}>
-                      <td><strong>{r.name}</strong><div className="cell-sub">{r.owner} · nr. {r.id}</div></td>
+                      <td>
+                        <strong>{r.name}</strong>
+                        <div className="cell-sub">{r.owner} · nr. {r.id}{r.kvk && <> · KvK {r.kvk}</>}</div>
+                        <div className="cell-sub">{r.termsVersion ? `Voorwaarden ${r.termsVersion} geaccepteerd op ${date(r.termsAcceptedAt)}` : 'Nog geen voorwaarden geaccepteerd'}</div>
+                      </td>
                       <td>
                         <div className="row" style={{ gap: 8 }}>
                           <select value={r.plan} onChange={e => setPlan(r, e.target.value as Row['plan'])} style={{ width: 'auto' }}>

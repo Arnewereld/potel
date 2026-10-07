@@ -10,7 +10,7 @@ public class WorkspaceTests(PortalFactory factory) : IClassFixture<PortalFactory
     async Task<HttpClient> RegisterAsync(string email, bool demo = false)
     {
         var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
-        var res = await client.PostAsJsonAsync("/api/auth/register", new { company = $"Bedrijf {email}", name = "Eigenaar", email, password = "geheim123", demoData = demo });
+        var res = await client.PostAsJsonAsync("/api/auth/register", new { company = $"Bedrijf {email}", name = "Eigenaar", email, password = "geheim123", demoData = demo, kvk = "12345678", acceptTerms = true, businessUse = true });
         Assert.Equal(HttpStatusCode.Created, res.StatusCode);
         return client;
     }
@@ -63,7 +63,7 @@ public class WorkspaceTests(PortalFactory factory) : IClassFixture<PortalFactory
     public async Task Email_is_unique_across_workspaces_and_deleting_removes_everything()
     {
         var client = await RegisterAsync("weg@example.com", demo: true);
-        var again = await factory.CreateClient().PostAsJsonAsync("/api/auth/register", new { company = "X", name = "Y", email = "weg@example.com", password = "geheim123", demoData = false });
+        var again = await factory.CreateClient().PostAsJsonAsync("/api/auth/register", new { company = "X", name = "Y", email = "weg@example.com", password = "geheim123", demoData = false, kvk = "12345678", acceptTerms = true, businessUse = true });
         Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
 
         var wrong = new HttpRequestMessage(HttpMethod.Delete, "/api/workspace") { Content = JsonContent.Create(new { password = "fout" }) };

@@ -1,8 +1,8 @@
-// Prijzen en contactgegevens voor de verkooppagina en het abonnementsscherm. Pas ze hier aan.
+// Prijzen voor de verkooppagina en het abonnementsscherm. Je contactadres en bedrijfsgegevens staan in de sectie
+// "Platform" van appsettings.json op de server, zie lib/platform.ts.
 export const product = {
   name: 'Potel',
   tagline: 'Het portaal voor freelance developers',
-  salesEmail: 'hallo@potel.nl',
 }
 
 export interface Plan {

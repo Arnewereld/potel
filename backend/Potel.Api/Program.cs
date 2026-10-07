@@ -179,6 +179,7 @@ app.Use(async (http, next) =>
 var api = app.MapGroup("/api").RequireAuthorization();
 api.MapAuth();
 api.MapAccountEmail();
+api.MapPublicInfo();
 api.MapUsers();
 api.MapDashboard();
 api.MapCustomers();

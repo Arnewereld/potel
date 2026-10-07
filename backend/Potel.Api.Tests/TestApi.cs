@@ -18,7 +18,7 @@ static class TestApi
     public static async Task<(HttpClient Client, HttpStatusCode Status)> TryRegisterAsync(WebApplicationFactory<Program> f, string email, string password = "geheim123")
     {
         var client = Client(f);
-        var res = await client.PostAsJsonAsync("/api/auth/register", new { company = $"Bedrijf {email}", name = "Eigenaar", email, password, demoData = false });
+        var res = await client.PostAsJsonAsync("/api/auth/register", new { company = $"Bedrijf {email}", name = "Eigenaar", email, password, demoData = false, kvk = "12345678", acceptTerms = true, businessUse = true });
         return (client, res.StatusCode);
     }
 

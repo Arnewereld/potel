@@ -7,6 +7,7 @@ import { useToast } from '../lib/toast'
 import { useAuth } from '../lib/auth'
 import { useWorkspace } from '../lib/workspace'
 import { plans, product } from '../lib/plans'
+import { contactEmail, usePlatformInfo } from '../lib/platform'
 import type { Settings, VatRegime } from '../lib/types'
 import { date, toDateInput } from '../lib/format'
 import { ErrorBox, Field, Loading, Modal, PageHeader, SubTabs } from '../components/ui'
@@ -139,6 +140,7 @@ export function SettingsPage() {
 
 function Subscription() {
   const { workspace } = useWorkspace()
+  const email = contactEmail(usePlatformInfo())
   if (!workspace) return <Loading />
   const current = plans.find(p => p.id === workspace.plan)
   return (<>
@@ -162,14 +164,20 @@ function Subscription() {
           <ul>{p.features.map(f => <li key={f}><Check size={15} /> {f}</li>)}</ul>
           {workspace.plan === p.id
             ? <button type="button" className="btn" disabled>Je huidige abonnement</button>
+            : !email
+            ? <button type="button" className="btn" disabled><Mail size={15} /> Kies {p.name}</button>
             : <a className={`btn ${p.highlight ? 'btn-primary' : ''}`}
-                href={`mailto:${product.salesEmail}?subject=${encodeURIComponent(`${product.name} ${p.name} voor ${workspace.name}`)}&body=${encodeURIComponent(`Hoi,\n\nIk wil graag overstappen op ${product.name} ${p.name} voor werkruimte "${workspace.name}" (nr. ${workspace.id}).\n\nGroet,`)}`}>
+                href={`mailto:${email}?subject=${encodeURIComponent(`${product.name} ${p.name} voor ${workspace.name}`)}&body=${encodeURIComponent(`Hoi,\n\nIk wil graag overstappen op ${product.name} ${p.name} voor werkruimte "${workspace.name}" (nr. ${workspace.id}).\n\nGroet,`)}`}>
                 <Mail size={15} /> Kies {p.name}
               </a>}
         </div>
       ))}
     </div>
-    <p className="muted" style={{ fontSize: 13 }}>Online betalen komt eraan. Tot die tijd zetten we je abonnement na je mail binnen één werkdag om.</p>
+    <p className="muted" style={{ fontSize: 13 }}>
+      {email
+        ? 'Online betalen komt eraan. Tot die tijd zetten we je abonnement na je mail binnen één werkdag om.'
+        : 'Overstappen kan nog niet, want de beheerder van dit platform heeft nog geen contactadres ingesteld.'}
+    </p>
   </>)
 }
 

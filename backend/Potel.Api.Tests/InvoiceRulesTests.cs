@@ -119,8 +119,9 @@ public class InvoiceRulesTests(PortalFactory factory) : IClassFixture<PortalFact
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
         var body = await Json(res);
         var missing = body.GetProperty("missing").EnumerateArray().Select(m => m.GetString()).ToList();
-        Assert.Equal(new[] { "je adres", "je postcode en plaats", "je KvK-nummer", "je btw-id", "het adres van de klant" }, missing);
-        Assert.StartsWith("Vul eerst je adres, je postcode en plaats, je KvK-nummer, je btw-id en het adres van de klant in.", body.GetProperty("error").GetString());
+        // Het KvK-nummer staat er al sinds het aanmelden.
+        Assert.Equal(new[] { "je adres", "je postcode en plaats", "je btw-id", "het adres van de klant" }, missing);
+        Assert.StartsWith("Vul eerst je adres, je postcode en plaats, je btw-id en het adres van de klant in.", body.GetProperty("error").GetString());
         Assert.Equal(JsonValueKind.Null, (await GetInvoiceAsync(c, id)).GetProperty("number").ValueKind);
         // Ook meteen verstuurd aanmaken lukt dan niet, en er blijft geen half concept achter.
         Assert.Equal(HttpStatusCode.BadRequest, (await PostInvoiceAsync(c, customerId, "verzonden", 1, 100)).StatusCode);

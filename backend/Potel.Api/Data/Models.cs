@@ -25,6 +25,13 @@ public static class Plans
     public const string TrialEndedError = "Je proefperiode is afgelopen. Kies een abonnement onder Instellingen om weer te kunnen werken.";
 }
 
+// De versie van de algemene voorwaarden en de verwerkersovereenkomst (de teksten staan in frontend/src/pages/public/Legal.tsx).
+// Pas je de tekst aan, verhoog dan deze versie: bij elke werkruimte staat welke versie bij het aanmelden is geaccepteerd.
+public static class Terms
+{
+    public const string Version = "2026-10-concept";
+}
+
 public class Workspace
 {
     public int Id { get; set; }
@@ -42,6 +49,13 @@ public class Workspace
     public int WebhooksSent { get; set; }
     // Gezet zolang er voorbeelddata in de werkruimte staat, zodat je die in één keer kunt weghalen.
     public DateTime? DemoDataAt { get; set; }
+    // Het KvK-nummer uit het aanmelden: Potel is alleen voor bedrijven.
+    public string? Kvk { get; set; }
+    // Welke versie van de voorwaarden en verwerkersovereenkomst is geaccepteerd, wanneer en door wie.
+    public string? TermsVersion { get; set; }
+    public DateTime? TermsAcceptedAt { get; set; }
+    public int? TermsAcceptedByUserId { get; set; }
+    public string? TermsAcceptedByEmail { get; set; }
 
     // Na de proef zonder abonnement is een werkruimte alleen-lezen: niets wijzigen en geen werkstromen meer.
     public bool TrialExpired(DateTime utcNow) => Plan == Plans.Trial && TrialEndsAt is { } end && end < utcNow;

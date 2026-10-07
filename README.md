@@ -21,8 +21,9 @@ Potel is gebouwd om te verkopen: elke klant maakt zelf een account aan en krijgt
 | **Werkstromen** | Een canvas zoals in n8n: zet blokken neer, stel ze in en verbind ze door te slepen. Staat een werkstroom aan, dan start hij vanzelf bij zijn trigger en voert hij de acties echt uit. Zie hieronder. |
 | **Gebruikers** | Iedereen logt in met e-mail en wachtwoord. Beheerders voegen gebruikers toe, kiezen hun rol en kunnen ze uitschakelen. Wachtwoord vergeten? Dan krijg je een link per mail die één uur en één keer werkt. Na het aanmelden bevestig je je e-mailadres via een link; tot die tijd staat er een balk bovenin met *Opnieuw versturen*. |
 | **Eigen modules** | Maak zelf een lijst met je eigen velden (tekst, getal, datum, ja/nee). Standaard staan er *Servers & domeinen* en *Licenties* in. Een nieuwe module verschijnt direct in het menu. |
-| **Verkooppagina** | Op `/` voor bezoekers: uitleg, functies, prijzen en veelgestelde vragen. Prijzen en je contactadres pas je aan in `frontend/src/lib/plans.ts`. |
-| **Aanmelden** | Op `/aanmelden` maakt een klant zelf een werkruimte aan, eventueel met voorbeelddata, en doorloopt een welkomstwizard (bedrijf, tarief, huisstijl, eerste klant). |
+| **Verkooppagina** | Op `/` voor bezoekers: uitleg, functies, prijzen en veelgestelde vragen, met onderaan je bedrijfsgegevens. Prijzen pas je aan in `frontend/src/lib/plans.ts`, je bedrijfsgegevens en contactadres in de sectie `Platform` van de instellingen (zie hieronder). |
+| **Aanmelden** | Op `/aanmelden` maakt een klant zelf een werkruimte aan, eventueel met voorbeelddata, en doorloopt een welkomstwizard (bedrijf, tarief, huisstijl, eerste klant). Alleen voor bedrijven: een KvK-nummer van 8 cijfers, een vinkje voor zakelijk gebruik en akkoord op de voorwaarden en de verwerkersovereenkomst zijn verplicht, ook op de server. Bij de werkruimte staat welke versie van de voorwaarden is geaccepteerd, wanneer en door wie. |
+| **Juridische teksten** | Op `/voorwaarden`, `/privacy` en `/verwerkersovereenkomst` staan concepten van de algemene voorwaarden, de privacyverklaring en de verwerkersovereenkomst, met je bedrijfsgegevens erin. Ze staan in `frontend/src/pages/public/Legal.tsx`. Pas je ze aan, verhoog dan `Terms.Version` in `backend/Potel.Api/Data/Models.cs`. |
 | **Huisstijl** | Elke klant uploadt een logo en kiest een accentkleur; die komen op de facturen. |
 | **Abonnement** | Proef (30 dagen), ZZP of Team. Na de proef is de werkruimte alleen-lezen tot er een abonnement is gekozen. Overstappen gaat nu via een mail naar jou; jij zet het om op *Platform*. |
 | **Account** | Beheerders exporteren alle gegevens als JSON of verwijderen hun hele werkruimte. |
@@ -95,18 +96,20 @@ Belangrijke instellingen (als omgevingsvariabele, met `__` voor een punt):
 | `RateLimit__AuthPerMinute` | Hoe vaak per minuut één IP-adres mag inloggen, aanmelden of een nieuw wachtwoord mag aanvragen (standaard 10). Daarnaast geldt een grens per e-mailadres, en op aanmelden een grens per netwerk en voor het hele platform. |
 | `RateLimit__AccountMailsPerHour` | Hoeveel mails over het account (wachtwoord vergeten, e-mailadres bevestigen) één adres per uur krijgt (standaard 3). |
 | `Smtp__*` | Mailserver voor wachtwoord vergeten, het bevestigen van e-mailadressen en de werkstroomblokken die e-mail sturen. |
+| `Platform__Company`, `Platform__Address`, `Platform__City`, `Platform__Email`, `Platform__Phone`, `Platform__Kvk`, `Platform__VatId` | Je eigen bedrijfsgegevens. Ze staan onderaan de verkooppagina en in de juridische teksten, en `Platform__Email` is het adres waar klanten naartoe mailen om over te stappen. Zolang hier nog `[Vul in: …]` staat, zie je dat geel gemarkeerd. |
+| `Platform__SubProcessors__0__Name`, `__Purpose`, `__Location` | De subverwerkers voor de privacyverklaring en de verwerkersovereenkomst, zoals je hostingpartij en je mailprovider. Begin bij `0` en tel op. |
 
 Voordat je echt verkoopt, regel je nog:
 
 - **Betalen**: online betalen (bijvoorbeeld Stripe of Mollie) zit er nog niet in. Klanten mailen nu om over te stappen en jij zet het abonnement om op *Platform*.
-- **Juridisch**: algemene voorwaarden, een privacyverklaring en een verwerkersovereenkomst; je verwerkt immers gegevens van de klanten van je klanten.
+- **Juridisch**: vul de sectie `Platform` in met je bedrijfsgegevens en subverwerkers, en laat de concepten op `/voorwaarden`, `/privacy` en `/verwerkersovereenkomst` nakijken door een jurist. In `Legal.tsx` staan nog een paar keuzes geel gemarkeerd, zoals de bewaartermijn na opzeggen, het maximum van je aansprakelijkheid en hoe snel je een datalek meldt. Haal daarna de regel *Concept* bovenaan weg en verhoog `Terms.Version`. Werkruimtes van vóór deze versie hebben nog geen voorwaarden geaccepteerd; dat zie je op *Platform*.
 - **Mail**: stel `Smtp__*` en `App__BaseUrl` in, anders werken wachtwoord vergeten en het bevestigen van e-mailadressen niet. Neem een mailprovider in de EU en zet SPF, DKIM en DMARC aan voor je domein, zodat je mail niet in de spam belandt.
 - **Back-ups** van het volume `/data`.
 
 ## Nog niet ingebouwd
 
 - **Online betalen**: klanten mailen om over te stappen en jij zet het abonnement om op *Platform*.
-- **Juridische teksten**: algemene voorwaarden, privacyverklaring en verwerkersovereenkomst.
+- **Opnieuw akkoord vragen**: verhoog je `Terms.Version`, dan vraagt Potel bestaande klanten nog niet om de nieuwe versie te accepteren. Meld de wijziging zelf per mail, zoals de voorwaarden beloven.
 - **Tweestapsverificatie** voor beheerders.
 - **Opzeggen met bewaartermijn**: *Werkruimte verwijderen* wist nu meteen alles.
 

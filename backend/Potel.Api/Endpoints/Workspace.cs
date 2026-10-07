@@ -10,7 +10,7 @@ using Potel.Api.Data;
 
 namespace Potel.Api.Endpoints;
 
-public record RegisterRequest(string Company, string Name, string Email, string Password, bool DemoData);
+public record RegisterRequest(string Company, string Name, string Email, string Password, bool DemoData, string? Kvk, bool AcceptTerms, bool BusinessUse);
 public record DeleteWorkspaceRequest(string Password);
 
 // Begrenst het aanmaken van werkruimtes: per netwerk (IPv4 /24, IPv6 /64) en voor het hele platform samen, per uur.
@@ -56,9 +56,19 @@ public sealed class SignupThrottle(IConfiguration config) : IDisposable
     }
 }
 
-public static class WorkspaceEndpoints
+public static partial class WorkspaceEndpoints
 {
     public const int TrialDays = 30;
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"^[0-9]{8}$")]
+    private static partial System.Text.RegularExpressions.Regex KvkNumber();
+
+    // Een KvK-nummer is 8 cijfers; spaties en punten mogen ertussen staan. Null als het geen geldig nummer is.
+    public static string? NormalizeKvk(string? kvk)
+    {
+        var digits = (kvk ?? "").Replace(" ", "").Replace(".", "").Trim();
+        return KvkNumber().IsMatch(digits) ? digits : null;
+    }
 
     static object Dto(Workspace w, bool platformAdmin = false) => new
     {
@@ -77,21 +87,32 @@ public static class WorkspaceEndpoints
             if (!email.Contains('@') || email.Length < 5) return Results.BadRequest(new { error = "Vul een geldig e-mailadres in" });
             if ((req.Password ?? "").Length < AuthEndpoints.MinPasswordLength)
                 return Results.BadRequest(new { error = $"Kies een wachtwoord van minstens {AuthEndpoints.MinPasswordLength} tekens" });
+            // Alleen voor bedrijven: met een KvK-nummer, voor zakelijk gebruik en met akkoord op de voorwaarden.
+            if (NormalizeKvk(req.Kvk) is not { } kvk) return Results.BadRequest(new { error = "Vul je KvK-nummer in. Dat zijn 8 cijfers." });
+            if (!req.BusinessUse) return Results.BadRequest(new { error = "Potel is alleen voor zakelijk gebruik. Bevestig dat je het voor je bedrijf gebruikt." });
+            if (!req.AcceptTerms) return Results.BadRequest(new { error = "Ga akkoord met de algemene voorwaarden en de verwerkersovereenkomst om een account aan te maken." });
             if (await db.Users.IgnoreQueryFilters().AnyAsync(u => u.Email == email))
                 return Results.Conflict(new { error = AuthEndpoints.EmailUnavailable });
             if (throttle.TryStart(http.Connection.RemoteIpAddress) is { } tooMany)
                 return Results.Json(new { error = tooMany }, statusCode: StatusCodes.Status429TooManyRequests);
 
-            var ws = new Workspace { Name = req.Company.Trim(), TrialEndsAt = DateTime.UtcNow.AddDays(TrialDays) };
+            var ws = new Workspace { Name = req.Company.Trim(), TrialEndsAt = DateTime.UtcNow.AddDays(TrialDays), Kvk = kvk };
             db.Workspaces.Add(ws);
             await db.SaveChangesAsync();
             db.Tenant.WorkspaceId = ws.Id;
 
-            db.Settings.Add(new Settings { CompanyName = ws.Name, OwnerName = req.Name.Trim(), Email = email });
+            db.Settings.Add(new Settings { CompanyName = ws.Name, OwnerName = req.Name.Trim(), Email = email, Kvk = kvk });
             var user = new User { Name = req.Name.Trim(), Email = email, Role = Roles.Admin, LastLoginAt = DateTime.UtcNow };
             user.PasswordHash = AuthEndpoints.Hash(user, req.Password!);
             db.Users.Add(user);
             db.Log("systeem", $"Werkruimte {ws.Name} aangemaakt");
+            await db.SaveChangesAsync();
+            // Vastleggen welke voorwaarden deze klant accepteerde, wanneer en wie dat deed.
+            ws.TermsVersion = Terms.Version;
+            ws.TermsAcceptedAt = DateTime.UtcNow;
+            ws.TermsAcceptedByUserId = user.Id;
+            ws.TermsAcceptedByEmail = user.Email;
+            db.Log("systeem", $"Algemene voorwaarden en verwerkersovereenkomst (versie {Terms.Version}) geaccepteerd door {user.Email}");
             await db.SaveChangesAsync();
             if (req.DemoData) Seed.Run(db, sampleCompany: false);
             // Werken kan meteen; mail uit werkstromen pas na het bevestigen van het adres.

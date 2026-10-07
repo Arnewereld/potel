@@ -15,7 +15,11 @@ export interface User {
   emailVerified: boolean
 }
 
-export interface RegisterInput { company: string; name: string; email: string; password: string; demoData: boolean }
+export interface RegisterInput {
+  company: string; name: string; email: string; password: string; demoData: boolean
+  // Alleen zakelijk: KvK-nummer, bevestiging van zakelijk gebruik en akkoord op de voorwaarden. De server controleert dit ook.
+  kvk: string; businessUse: boolean; acceptTerms: boolean
+}
 
 interface AuthValue {
   user: User

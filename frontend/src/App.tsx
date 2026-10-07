@@ -10,6 +10,7 @@ import { WorkspaceProvider } from './lib/workspace'
 import { Loading } from './components/ui'
 import { PublicSite } from './pages/public/PublicSite'
 import { ResetPasswordPage, VerifyEmailPage } from './pages/public/AccountLinks'
+import { ProcessorAgreementPage, PrivacyPage, TermsPage } from './pages/public/Legal'
 import { UsersPage } from './pages/Users'
 import { DashboardPage } from './pages/Dashboard'
 import { CustomersPage } from './pages/Customers'
@@ -28,10 +29,13 @@ import { ProjectDetailPage } from './pages/ProjectDetail'
 import { SettingsPage } from './pages/Settings'
 import { PlatformPage } from './pages/Platform'
 
-// Pagina's die los van inloggen werken, zoals de links uit een mail.
+// Pagina's die los van inloggen werken, zoals de links uit een mail en de juridische teksten.
 const standalone: Record<string, () => React.ReactNode> = {
   '/wachtwoord-herstellen': ResetPasswordPage,
   '/email-bevestigen': VerifyEmailPage,
+  '/voorwaarden': TermsPage,
+  '/privacy': PrivacyPage,
+  '/verwerkersovereenkomst': ProcessorAgreementPage,
 }
 
 export default function App() {

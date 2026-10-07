@@ -22,7 +22,7 @@ public class EmailOracleTests(PortalFactory factory) : IClassFixture<PortalFacto
         var rename = await a.PutAsJsonAsync($"/api/users/{me}", new { name = "X", email = "elders@victimcorp.nl", role = "beheerder", active = true });
         var (_, signup) = await TryRegisterAsync(factory, "elders@victimcorp.nl");
         var signupMessage = await (await TestApi.Client(factory).PostAsJsonAsync("/api/auth/register",
-            new { company = "X", name = "Y", email = "elders@victimcorp.nl", password = "geheim123", demoData = false })).ErrorAsync();
+            new { company = "X", name = "Y", email = "elders@victimcorp.nl", password = "geheim123", demoData = false, kvk = "12345678", acceptTerms = true, businessUse = true })).ErrorAsync();
 
         Assert.Equal(ownWorkspace.StatusCode, elsewhere.StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, rename.StatusCode);

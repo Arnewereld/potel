@@ -85,7 +85,7 @@ public class SignupLimitTests(SignupNetworkFactory factory) : IClassFixture<Sign
     {
         var req = new HttpRequestMessage(HttpMethod.Post, "/api/auth/register")
         {
-            Content = JsonContent.Create(new { company = "Bedrijf", name = "Eigenaar", email = $"aanmelding-{Guid.NewGuid():N}@example.com", password = "geheim123", demoData = false }),
+            Content = JsonContent.Create(new { company = "Bedrijf", name = "Eigenaar", email = $"aanmelding-{Guid.NewGuid():N}@example.com", password = "geheim123", demoData = false, kvk = "12345678", acceptTerms = true, businessUse = true }),
         };
         req.Headers.Add("X-Test-Peer", peer);
         return await factory.CreateClient().SendAsync(req);

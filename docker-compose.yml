@@ -33,6 +33,19 @@ services:
       # Smtp__User: "..."
       # Smtp__Password: "..."
       # Smtp__From: "noreply@jouwdomein.nl"
+      # Jouw bedrijfsgegevens voor onderaan de verkooppagina en in de voorwaarden. Klanten mailen naar Platform__Email om over te stappen.
+      # Platform__Company: "Jouw Bedrijf B.V."
+      # Platform__Address: "Straat 1"
+      # Platform__City: "1234 AB Plaats"
+      # Platform__Email: "hallo@jouwdomein.nl"
+      # Platform__Kvk: "12345678"
+      # Platform__VatId: "NL000000000B01"
+      # Platform__SubProcessors__0__Name: "Je hostingpartij"
+      # Platform__SubProcessors__0__Purpose: "Hosting van de server en de back-ups"
+      # Platform__SubProcessors__0__Location: "Nederland"
+      # Platform__SubProcessors__1__Name: "Je mailprovider"
+      # Platform__SubProcessors__1__Purpose: "Versturen van e-mail"
+      # Platform__SubProcessors__1__Location: "Nederland"
 # Een eigen netwerk met een vast subnet, zodat KnownProxies__0 hierboven precies de gateway is. Botst het met een netwerk
 # dat al op je server bestaat, kies dan een ander subnet en pas KnownProxies__0 aan.
 networks:

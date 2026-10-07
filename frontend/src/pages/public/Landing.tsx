@@ -5,6 +5,8 @@ import {
 } from 'lucide-react'
 import { plans, product } from '../../lib/plans'
 import { Logo } from './PublicSite'
+import { CompanyDetails } from './Legal'
+import { legalLinks, usePlatformInfo } from '../../lib/platform'
 
 const features = [
   { icon: Timer, color: '#ff6d5a', title: 'Uren met één klik', text: 'Start de timer als je begint, stop als je klaar bent. Hij loopt door als je je laptop dichtklapt en staat altijd in beeld.' },
@@ -24,6 +26,7 @@ const faq = [
 
 export function LandingPage() {
   const [open, setOpen] = useState<number | null>(0)
+  const info = usePlatformInfo()
   return (
     <div className="public">
       <header className="public-nav">
@@ -136,7 +139,8 @@ export function LandingPage() {
 
       <footer className="public-foot">
         <Logo size={18} />
-        <span>© {new Date().getFullYear()} {product.name} · <a href={`mailto:${product.salesEmail}`}>{product.salesEmail}</a></span>
+        <CompanyDetails info={info} />
+        <nav>{legalLinks.map(l => <Link key={l.to} to={l.to}>{l.label}</Link>)}</nav>
       </footer>
     </div>
   )
