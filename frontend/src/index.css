@@ -931,7 +931,7 @@ a.btn { text-decoration: none; color: inherit; display: inline-flex; align-items
 .trial-chip.urgent .trial-days { background: var(--red); }
 .collapsed .trial-chip span:not(.trial-days) { display: none; }
 .collapsed .trial-chip { justify-content: center; padding: 6px; }
-.plan-status { padding: 20px; }
+.plan-status { padding: 20px; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .danger-card { border-color: color-mix(in srgb, var(--red) 35%, var(--border)); }
 
 /* ---------- Links uit een mail ---------- */

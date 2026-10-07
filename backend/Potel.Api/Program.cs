@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Potel.Api.Data;
 using Potel.Api.Endpoints;
+using Potel.Api.Payments;
 using Potel.Api.Workflows;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -73,6 +74,11 @@ builder.Services.AddRateLimiter(o =>
     o.AddPolicy("accounts", http => RateLimitPartition.GetFixedWindowLimiter(
         http.User.WorkspaceId() is { } ws ? $"ws:{ws}" : $"ip:{http.Connection.RemoteIpAddress}",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = authPerMinute, Window = TimeSpan.FromMinutes(1) }));
+    // De webhook van Mollie is openbaar; per IP-adres begrensd, zodat niemand ons met verzonnen ids Mollie laat bestoken.
+    var webhooksPerMinute = builder.Configuration.GetValue("RateLimit:MollieWebhookPerMinute", 120);
+    o.AddPolicy("mollie", http => RateLimitPartition.GetFixedWindowLimiter(
+        http.Connection.RemoteIpAddress?.ToString() ?? "onbekend",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = webhooksPerMinute, Window = TimeSpan.FromMinutes(1) }));
 });
 
 // Sleutels voor de inlogcookies bewaren, zodat gebruikers ingelogd blijven na een herstart of update.
@@ -96,6 +102,14 @@ builder.Services.AddHttpClient(WebhookGuard.ClientName)
         c.MaxResponseContentBufferSize = 64 * 1024;
     })
     .ConfigurePrimaryHttpMessageHandler(sp => WebhookGuard.CreateHandler(sp.GetRequiredService<IOptions<WorkflowLimits>>().Value.AllowPrivateWebhooks));
+// Online betalen via Mollie, alleen als Mollie:ApiKey is ingesteld.
+builder.Services.Configure<MollieOptions>(builder.Configuration.GetSection("Mollie"));
+builder.Services.AddHttpClient<MollieClient>(c =>
+{
+    c.BaseAddress = new Uri(MollieClient.BaseUrl);
+    c.Timeout = TimeSpan.FromSeconds(20);
+});
+builder.Services.AddScoped<MollieBilling>();
 if (builder.Configuration.GetValue("Workflows:Scheduler", true))
     builder.Services.AddHostedService<WorkflowScheduler>();
 
@@ -145,13 +159,13 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
 
-// Na een verlopen proefperiode kun je nog alles bekijken en exporteren, maar niets meer wijzigen tot je een abonnement kiest.
-// Wel mag je nog inloggen, je wachtwoord wijzigen of herstellen, je e-mailadres bevestigen (alles onder /api/auth),
-// gebruikers uitschakelen of verwijderen, de welkomstwizard sluiten en je werkruimte verwijderen. Al het andere is dicht,
-// ook wat hier later bijkomt.
+// Na een verlopen proefperiode, of als een abonnement is afgelopen of niet betaald, kun je nog alles bekijken en exporteren,
+// maar niets meer wijzigen tot je (weer) een abonnement kiest. Wel mag je nog inloggen, je wachtwoord wijzigen of herstellen,
+// je e-mailadres bevestigen (alles onder /api/auth), betalen of opzeggen (/api/billing), gebruikers uitschakelen of
+// verwijderen, de welkomstwizard sluiten en je werkruimte verwijderen. Al het andere is dicht, ook wat hier later bijkomt.
 static bool WritableAfterTrial(HttpRequest r)
 {
-    if (r.Path.StartsWithSegments("/api/auth") || r.Path.StartsWithSegments("/api/platform")) return true;
+    if (r.Path.StartsWithSegments("/api/auth") || r.Path.StartsWithSegments("/api/platform") || r.Path.StartsWithSegments("/api/billing")) return true;
     if (r.Path.StartsWithSegments("/api/users", out var user) && user.HasValue && (HttpMethods.IsPut(r.Method) || HttpMethods.IsDelete(r.Method))) return true;
     if (r.Path.StartsWithSegments("/api/workspace", out var rest))
         return (HttpMethods.IsDelete(r.Method) && (!rest.HasValue || rest == "/"))
@@ -165,10 +179,10 @@ app.Use(async (http, next) =>
         && !WritableAfterTrial(http.Request) && http.User.Identity?.IsAuthenticated == true)
     {
         var db = http.RequestServices.GetRequiredService<AppDb>();
-        if (await db.Workspaces.FindAsync(db.TenantId) is { } w && w.TrialExpired(DateTime.UtcNow))
+        if (await db.Workspaces.FindAsync(db.TenantId) is { } w && w.ReadOnlyReason(DateTime.UtcNow) is { } reason)
         {
             http.Response.StatusCode = StatusCodes.Status402PaymentRequired;
-            await http.Response.WriteAsJsonAsync(new { error = Plans.TrialEndedError });
+            await http.Response.WriteAsJsonAsync(new { error = reason });
             return;
         }
     }
@@ -193,6 +207,7 @@ api.MapTime();
 api.MapSettings();
 api.MapWorkspace();
 api.MapPlatform();
+api.MapBilling();
 api.MapFallback(() => Results.NotFound());
 
 app.MapFallbackToFile("index.html");

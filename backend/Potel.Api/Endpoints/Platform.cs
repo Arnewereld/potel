@@ -33,6 +33,7 @@ public static class PlatformEndpoints
                 return new
                 {
                     w.Id, w.Name, w.Plan, w.TrialEndsAt, w.CreatedAt, onboarded = w.OnboardedAt != null, w.Kvk, w.TermsVersion, w.TermsAcceptedAt,
+                    w.PaidUntil, subscriptionActive = w.MollieSubscriptionId != null, w.SubscriptionCanceledAt, readOnly = w.ReadOnly(DateTime.UtcNow),
                     owner = mine.FirstOrDefault(u => u.Role == Roles.Admin)?.Email,
                     users = mine.Count,
                     lastActive = mine.Max(u => u.LastLoginAt),
@@ -49,8 +50,12 @@ public static class PlatformEndpoints
             if (!Plans.All.Contains(req.Plan)) return Results.BadRequest(new { error = "Onbekend abonnement" });
             w.Plan = req.Plan;
             if (req.Plan == Plans.Trial) w.TrialEndsAt = req.TrialEndsAt ?? DateTime.UtcNow.AddDays(WorkspaceEndpoints.TrialDays);
+            // Zet je het zelf om, dan loopt het abonnement door tot je het weer omzet, ook als een betaalde periode via Mollie voorbij is.
+            // Een lopend abonnement bij Mollie blijft lopen; zeg dat zo nodig op in Mollie.
+            w.PaidUntil = null;
+            w.SubscriptionCanceledAt = null;
             await db.SaveChangesAsync();
-            return Results.Ok(new { w.Id, w.Plan, w.TrialEndsAt });
+            return Results.Ok(new { w.Id, w.Plan, w.TrialEndsAt, w.PaidUntil, readOnly = w.ReadOnly(DateTime.UtcNow) });
         });
 
         // Wie het platform nog meer mag beheren. Alleen een platformbeheerder kan dat aanpassen.

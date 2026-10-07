@@ -25,7 +25,7 @@ Potel is gebouwd om te verkopen: elke klant maakt zelf een account aan en krijgt
 | **Aanmelden** | Op `/aanmelden` maakt een klant zelf een werkruimte aan, eventueel met voorbeelddata, en doorloopt een welkomstwizard (bedrijf, tarief, huisstijl, eerste klant). Alleen voor bedrijven: een KvK-nummer van 8 cijfers, een vinkje voor zakelijk gebruik en akkoord op de voorwaarden en de verwerkersovereenkomst zijn verplicht, ook op de server. Bij de werkruimte staat welke versie van de voorwaarden is geaccepteerd, wanneer en door wie. |
 | **Juridische teksten** | Op `/voorwaarden`, `/privacy` en `/verwerkersovereenkomst` staan concepten van de algemene voorwaarden, de privacyverklaring en de verwerkersovereenkomst, met je bedrijfsgegevens erin. Ze staan in `frontend/src/pages/public/Legal.tsx`. Pas je ze aan, verhoog dan `Terms.Version` in `backend/Potel.Api/Data/Models.cs`. |
 | **Huisstijl** | Elke klant uploadt een logo en kiest een accentkleur; die komen op de facturen. |
-| **Abonnement** | Proef (30 dagen), ZZP of Team. Na de proef is de werkruimte alleen-lezen tot er een abonnement is gekozen. Overstappen gaat nu via een mail naar jou; jij zet het om op *Platform*. |
+| **Abonnement** | Proef (30 dagen), ZZP of Team. Na de proef is de werkruimte alleen-lezen tot er een abonnement is gekozen. Met een sleutel van Mollie betalen klanten zelf: de eerste maand met iDEAL, daarna elke maand automatisch, en opzeggen kan onder *Instellingen*. Zonder Mollie mailen klanten jou en zet jij het abonnement om op *Platform*. |
 | **Account** | Beheerders exporteren alle gegevens als JSON of verwijderen hun hele werkruimte. |
 | **Platform** | Alleen voor platformbeheerders (jij): alle werkruimtes, gebruik, proefperiodes, omzet per maand, abonnementen omzetten en andere platformbeheerders aanwijzen. |
 
@@ -97,18 +97,42 @@ Belangrijke instellingen (als omgevingsvariabele, met `__` voor een punt):
 | `RateLimit__AccountMailsPerHour` | Hoeveel mails over het account (wachtwoord vergeten, e-mailadres bevestigen) één adres per uur krijgt (standaard 3). |
 | `Smtp__*` | Mailserver voor wachtwoord vergeten, het bevestigen van e-mailadressen en de werkstroomblokken die e-mail sturen. |
 | `Platform__Company`, `Platform__Address`, `Platform__City`, `Platform__Email`, `Platform__Phone`, `Platform__Kvk`, `Platform__VatId` | Je eigen bedrijfsgegevens. Ze staan onderaan de verkooppagina en in de juridische teksten, en `Platform__Email` is het adres waar klanten naartoe mailen om over te stappen. Zolang hier nog `[Vul in: …]` staat, zie je dat geel gemarkeerd. |
+| `Mollie__ApiKey` | Zet online betalen aan, zie hieronder. Leeg (standaard) betekent: klanten mailen om over te stappen. |
+| `Mollie__WebhookUrl` | Alleen nodig als Mollie je server niet via `App__BaseUrl` kan bereiken, bijvoorbeeld bij het testen via een tunnel. |
+| `RateLimit__MollieWebhookPerMinute` | Hoe vaak per minuut één IP-adres de webhook van Mollie mag aanroepen (standaard 120). |
 | `Platform__SubProcessors__0__Name`, `__Purpose`, `__Location` | De subverwerkers voor de privacyverklaring en de verwerkersovereenkomst, zoals je hostingpartij en je mailprovider. Begin bij `0` en tel op. |
 
 Voordat je echt verkoopt, regel je nog:
 
-- **Betalen**: online betalen (bijvoorbeeld Stripe of Mollie) zit er nog niet in. Klanten mailen nu om over te stappen en jij zet het abonnement om op *Platform*.
+- **Betalen**: zet Mollie aan (zie hieronder) en test eerst met een testsleutel. Controleer je prijzen in `Plans` (`backend/Potel.Api/Data/Models.cs`) en `frontend/src/lib/plans.ts`, en vul je eigen bedrijfsgegevens volledig in bij *Instellingen* in je eigen werkruimte, anders blijven de facturen voor je klanten als concept staan.
 - **Juridisch**: vul de sectie `Platform` in met je bedrijfsgegevens en subverwerkers, en laat de concepten op `/voorwaarden`, `/privacy` en `/verwerkersovereenkomst` nakijken door een jurist. In `Legal.tsx` staan nog een paar keuzes geel gemarkeerd, zoals de bewaartermijn na opzeggen, het maximum van je aansprakelijkheid en hoe snel je een datalek meldt. Haal daarna de regel *Concept* bovenaan weg en verhoog `Terms.Version`. Werkruimtes van vóór deze versie hebben nog geen voorwaarden geaccepteerd; dat zie je op *Platform*.
 - **Mail**: stel `Smtp__*` en `App__BaseUrl` in, anders werken wachtwoord vergeten en het bevestigen van e-mailadressen niet. Neem een mailprovider in de EU en zet SPF, DKIM en DMARC aan voor je domein, zodat je mail niet in de spam belandt.
 - **Back-ups** van het volume `/data`.
 
+### Online betalen met Mollie
+
+Zonder sleutel blijft alles zoals het was: klanten mailen je en jij zet het abonnement om op *Platform*. Met een sleutel krijgt elk betaald abonnement onder *Instellingen, Abonnement* een knop *Betalen met iDEAL*.
+
+1. Maak een account bij [Mollie](https://www.mollie.com) en zet iDEAL en SEPA-incasso aan. Voor de maandelijkse incasso moet Mollie je account ook voor terugkerende betalingen goedkeuren.
+2. Zet `App__BaseUrl` op je openbare https-adres. Mollie meldt elke betaling op `https://jouwdomein/api/mollie/webhook`; dat adres moet vanaf internet bereikbaar zijn en heeft geen inlog nodig.
+3. Begin met de testsleutel: `Mollie__ApiKey=test_...`. Op de testbetaalpagina van Mollie kies je zelf of een betaling lukt of mislukt. Controleer dat het abonnement omgaat, dat er in je eigen werkruimte een betaalde factuur verschijnt en dat opzeggen werkt.
+4. Werkt alles, vervang de sleutel door je live-sleutel (`live_...`).
+
+Zo werkt het:
+
+- De eerste betaling is met iDEAL, voor de prijs uit `Plans` plus 21% btw. Is die betaald, dan maakt Potel bij Mollie een abonnement dat elke maand hetzelfde bedrag afschrijft, zet het abonnement om en stopt de proefperiode.
+- Wat er met een betaling is gebeurd, vraagt Potel altijd zelf op bij Mollie; de webhook zegt alleen welke betaling het is. Een verzonnen id doet dus niets, en een betaling die Mollie twee keer meldt, telt één keer.
+- Elke betaling wordt een factuur in de werkruimte van de eerste platformbeheerder (jij), bij een klant met de gegevens van de betalende werkruimte. De factuur wordt verstuurd en meteen op betaald gezet, en start je werkstromen met de trigger *Factuur betaald*. Potel mailt de factuur niet zelf; stuur hem door of mail hem met een werkstroom. Mist er iets om te mogen versturen, zoals je btw-id, dan blijft hij als concept staan met een melding in je logboek.
+- Lukt een incasso niet, dan krijgt de klant een melding en nog 10 dagen de tijd om opnieuw met iDEAL te betalen. Daarna wordt de werkruimte alleen-lezen.
+- Opzeggen stopt het abonnement bij Mollie. De klant werkt door tot het einde van de betaalde maand; daarna is de werkruimte alleen-lezen tot hij opnieuw betaalt. Een werkruimte verwijderen zegt het abonnement eerst op.
+- Overstappen van ZZP naar Team (of andersom) is een nieuwe betaling met iDEAL; het oude abonnement stopt dan. Wat er nog over was van de oude maand, wordt niet verrekend.
+- Zet je een abonnement zelf om op *Platform*, dan loopt het door tot je het weer omzet. Een lopend abonnement bij Mollie zeg je dan zelf op in Mollie.
+
 ## Nog niet ingebouwd
 
-- **Online betalen**: klanten mailen om over te stappen en jij zet het abonnement om op *Platform*.
+- **Terugbetalen en stornering**: een terugbetaling of een gestorneerde incasso regel je in Mollie, en de creditnota maak je zelf in Potel.
+- **Jaarbetaling en verrekenen bij overstappen**: alleen maandabonnementen, zonder korting voor een jaar vooruit.
+- **Btw verlegd voor klanten in een ander EU-land**: Potel kent alleen Nederlandse klanten, dus er staat altijd 21% btw op de betaling.
 - **Opnieuw akkoord vragen**: verhoog je `Terms.Version`, dan vraagt Potel bestaande klanten nog niet om de nieuwe versie te accepteren. Meld de wijziging zelf per mail, zoals de voorwaarden beloven.
 - **Tweestapsverificatie** voor beheerders.
 - **Opzeggen met bewaartermijn**: *Werkruimte verwijderen* wist nu meteen alles.

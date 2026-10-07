@@ -25,6 +25,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
     public DbSet<Settings> Settings => Set<Settings>();
     public DbSet<PlatformCounter> PlatformCounters => Set<PlatformCounter>();
     public DbSet<AccountToken> AccountTokens => Set<AccountToken>();
+    public DbSet<MolliePayment> MolliePayments => Set<MolliePayment>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -54,6 +55,8 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         // Een link uit een mail vinden we terug aan de hash van het token; weg met de gebruiker.
         b.Entity<AccountToken>().HasIndex(t => t.TokenHash).IsUnique();
         b.Entity<AccountToken>().HasOne<User>().WithMany().HasForeignKey(t => t.UserId).OnDelete(DeleteBehavior.Cascade);
+        // Een werkruimte vinden we terug aan zijn klant bij Mollie, voor de incasso's van het abonnement.
+        b.Entity<Workspace>().HasIndex(w => w.MollieCustomerId);
         FilterByWorkspace(b);
     }
 
@@ -62,7 +65,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
     {
         Filter<Customer>(b); Filter<Lead>(b); Filter<Invoice>(b); Filter<Appointment>(b); Filter<Project>(b); Filter<TimeEntry>(b);
         Filter<Settings>(b); Filter<CustomModule>(b); Filter<CustomRecord>(b); Filter<Workflow>(b); Filter<Activity>(b);
-        Filter<User>(b); Filter<WorkflowRun>(b); Filter<AccountToken>(b);
+        Filter<User>(b); Filter<WorkflowRun>(b); Filter<AccountToken>(b); Filter<MolliePayment>(b);
     }
 
     void Filter<T>(ModelBuilder b) where T : class, IWorkspaceOwned

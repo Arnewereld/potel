@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Potel.Api.Data;
+using Potel.Api.Payments;
 
 namespace Potel.Api.Endpoints;
 
@@ -70,11 +71,14 @@ public static partial class WorkspaceEndpoints
         return KvkNumber().IsMatch(digits) ? digits : null;
     }
 
-    static object Dto(Workspace w, bool platformAdmin = false) => new
+    static object Dto(Workspace w, bool platformAdmin = false, bool onlinePayment = false) => new
     {
         w.Id, w.Name, w.Plan, w.TrialEndsAt, w.CreatedAt, platformAdmin, maxUsers = Plans.MaxUsers(w.Plan),
         onboarded = w.OnboardedAt != null, demoData = w.DemoDataAt != null,
         trialDaysLeft = w.Plan == Plans.Trial && w.TrialEndsAt is { } end ? Math.Max(0, (int)Math.Ceiling((end - DateTime.UtcNow).TotalDays)) : (int?)null,
+        // Online betalen via Mollie staat aan, en hoe het abonnement ervoor staat.
+        onlinePayment, subscriptionActive = w.MollieSubscriptionId != null, w.PaidUntil, w.SubscriptionCanceledAt,
+        readOnly = w.ReadOnlyReason(DateTime.UtcNow),
     };
 
     public static void MapWorkspace(this RouteGroupBuilder api)
@@ -124,8 +128,8 @@ public static partial class WorkspaceEndpoints
 
         var g = api.MapGroup("/workspace");
 
-        g.MapGet("/", async (AppDb db, ClaimsPrincipal user) =>
-            await db.Workspaces.FindAsync(db.TenantId) is { } w ? Results.Ok(Dto(w, await PlatformEndpoints.IsPlatformAdmin(db, user))) : Results.NotFound());
+        g.MapGet("/", async (AppDb db, ClaimsPrincipal user, MollieBilling billing) =>
+            await db.Workspaces.FindAsync(db.TenantId) is { } w ? Results.Ok(Dto(w, await PlatformEndpoints.IsPlatformAdmin(db, user), billing.Enabled)) : Results.NotFound());
 
         g.MapPost("/onboarded", async (AppDb db) =>
         {
@@ -198,7 +202,7 @@ public static partial class WorkspaceEndpoints
         }).RequireAuthorization(p => p.RequireRole(Roles.Admin));
 
         // Verwijdert de hele werkruimte met alle gegevens. Alleen een beheerder, met wachtwoord.
-        g.MapDelete("/", async (AppDb db, HttpContext http, ClaimsPrincipal me, [Microsoft.AspNetCore.Mvc.FromBody] DeleteWorkspaceRequest req) =>
+        g.MapDelete("/", async (AppDb db, HttpContext http, ClaimsPrincipal me, MollieBilling billing, [Microsoft.AspNetCore.Mvc.FromBody] DeleteWorkspaceRequest req) =>
         {
             var user = me.UserId() is { } id ? await db.Users.FindAsync(id) : null;
             if (user is null) return Results.Unauthorized();
@@ -210,6 +214,10 @@ public static partial class WorkspaceEndpoints
                 return Results.Json(new { error = "In deze werkruimte zit een account dat ook het platform beheert. Vraag een platformbeheerder eerst die rechten weg te halen." }, statusCode: StatusCodes.Status403Forbidden);
             if (user.IsPlatformAdmin && !await db.Users.IgnoreQueryFilters().AnyAsync(u => u.IsPlatformAdmin && u.WorkspaceId != user.WorkspaceId))
                 return Results.Conflict(new { error = "Je bent de laatste platformbeheerder. Wijs eerst op de pagina Platform iemand uit een andere werkruimte aan, anders kan niemand het platform meer beheren." });
+
+            // Eerst het abonnement bij Mollie stoppen, zodat er na het verwijderen niets meer wordt afgeschreven.
+            if (await db.Workspaces.FindAsync(db.TenantId) is { } current && !await billing.StopBeforeDeleteAsync(current))
+                return Results.Json(new { error = "Je abonnement kon niet worden opgezegd, dus je werkruimte is nog niet verwijderd. Probeer het over een paar minuten opnieuw." }, statusCode: StatusCodes.Status502BadGateway);
 
             // Volgorde maakt uit vanwege de koppelingen tussen tabellen.
             db.TimeEntries.RemoveRange(db.TimeEntries);
@@ -227,6 +235,7 @@ public static partial class WorkspaceEndpoints
             db.Activities.RemoveRange(db.Activities);
             db.Settings.RemoveRange(db.Settings);
             db.AccountTokens.RemoveRange(db.AccountTokens);
+            db.MolliePayments.RemoveRange(db.MolliePayments);
             db.Users.RemoveRange(db.Users);
             if (await db.Workspaces.FindAsync(db.TenantId) is { } w) db.Workspaces.Remove(w);
             await db.SaveChangesAsync();

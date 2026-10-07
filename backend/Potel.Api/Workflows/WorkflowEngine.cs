@@ -16,7 +16,7 @@ public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSend
     readonly WorkflowLimits limits = options.Value;
 
     // Waarom een run niet kon starten.
-    public enum StartRefusal { None, TrialEnded, TooManyRuns }
+    public enum StartRefusal { None, ReadOnly, TooManyRuns }
 
     class Outcome
     {
@@ -27,9 +27,9 @@ public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSend
         public bool Failed => Status == "fout";
     }
 
-    // Mag deze werkruimte nu werkstromen draaien? Niet na een verlopen proef zonder abonnement.
+    // Mag deze werkruimte nu werkstromen draaien? Niet als hij alleen-lezen is, zoals na een verlopen proef zonder abonnement.
     public async Task<bool> CanRunAsync() =>
-        await db.Workspaces.FindAsync(db.TenantId) is { } w && !w.TrialExpired(DateTime.UtcNow);
+        await db.Workspaces.FindAsync(db.TenantId) is { } w && !w.ReadOnly(DateTime.UtcNow);
 
     // Start elke actieve werkstroom die op deze trigger wacht. Fouten breken de aanroeper nooit.
     public async Task TriggerAsync(string triggerType, Dictionary<string, string> ctx, string description)
@@ -53,7 +53,7 @@ public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSend
     // Start een run. Zonder run terug als de proef verlopen is of de werkruimte deze minuut al genoeg runs startte.
     public async Task<(WorkflowRun? Run, StartRefusal Refusal)> RunAsync(Workflow wf, List<string> startNodeIds, Dictionary<string, string> ctx, string trigger)
     {
-        if (!await CanRunAsync()) return (null, StartRefusal.TrialEnded);
+        if (!await CanRunAsync()) return (null, StartRefusal.ReadOnly);
         return await StartRunAsync(wf, startNodeIds, ctx, trigger) is { } run ? (run, StartRefusal.None) : (null, StartRefusal.TooManyRuns);
     }
 

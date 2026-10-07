@@ -25,6 +25,11 @@ interface Row {
   kvk?: string | null
   termsVersion?: string | null
   termsAcceptedAt?: string | null
+  // Online betalen via Mollie.
+  paidUntil?: string | null
+  subscriptionActive?: boolean
+  subscriptionCanceledAt?: string | null
+  readOnly?: boolean
 }
 
 // Alleen voor de eigenaar van het platform: wie gebruikt Potel, op welk abonnement.
@@ -43,7 +48,7 @@ export function PlatformPage() {
 
   const setPlan = async (row: Row, plan: Row['plan']) => {
     try {
-      const res = await api.put<{ plan: Row['plan']; trialEndsAt?: string | null }>(`/platform/workspaces/${row.id}/plan`, { plan })
+      const res = await api.put<Pick<Row, 'plan' | 'trialEndsAt' | 'paidUntil' | 'readOnly'>>(`/platform/workspaces/${row.id}/plan`, { plan })
       setData(data.map(r => (r.id === row.id ? { ...r, ...res } : r)))
       toast(`${row.name} staat nu op ${plans.find(p => p.id === plan)?.name}`)
     } catch (e) {
@@ -85,7 +90,10 @@ export function PlatformPage() {
                             {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                           </select>
                           {left !== null && <Badge tone={left <= 0 ? 'red' : left <= 5 ? 'yellow' : 'gray'}>{left <= 0 ? 'verlopen' : `nog ${left} d`}</Badge>}
+                          {r.plan !== 'proef' && r.readOnly && <Badge tone="red">alleen-lezen</Badge>}
                         </div>
+                        {r.subscriptionActive && <div className="cell-sub">Betaalt via Mollie, betaald tot {date(r.paidUntil)}</div>}
+                        {!r.subscriptionActive && r.subscriptionCanceledAt && r.paidUntil && <div className="cell-sub">Opgezegd, betaald tot {date(r.paidUntil)}</div>}
                       </td>
                       <td className="muted">{r.users} gebruikers · {r.timeEntries} boekingen · {r.invoices} facturen</td>
                       <td className="muted">{r.lastActive ? relative(r.lastActive) : 'nooit'}</td>

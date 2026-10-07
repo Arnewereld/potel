@@ -234,7 +234,7 @@ public static partial class InvoiceEndpoints
     }
 
     // Start werkstromen met de trigger "Factuur betaald".
-    static async Task TriggerPaid(AppDb db, WorkflowEngine engine, Invoice inv)
+    public static async Task TriggerPaid(AppDb db, WorkflowEngine engine, Invoice inv)
     {
         var full = await Full(db).FirstAsync(i => i.Id == inv.Id);
         var ctx = new Dictionary<string, string>();

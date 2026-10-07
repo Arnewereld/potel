@@ -33,6 +33,9 @@ services:
       # Smtp__User: "..."
       # Smtp__Password: "..."
       # Smtp__From: "noreply@jouwdomein.nl"
+      # Online betalen met iDEAL en automatische incasso via Mollie. Begin met een testsleutel (test_...), daarna live_...
+      # Mollie moet https://jouwdomein/api/mollie/webhook kunnen bereiken, dus App__BaseUrl moet ingevuld zijn.
+      # Mollie__ApiKey: "test_..."
       # Jouw bedrijfsgegevens voor onderaan de verkooppagina en in de voorwaarden. Klanten mailen naar Platform__Email om over te stappen.
       # Platform__Company: "Jouw Bedrijf B.V."
       # Platform__Address: "Straat 1"

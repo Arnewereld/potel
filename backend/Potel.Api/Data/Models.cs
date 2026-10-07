@@ -22,7 +22,17 @@ public static class Plans
     static readonly Dictionary<string, int> UserLimits = new() { [Trial] = 5, [Solo] = 1, [Team] = 5 };
     public static int MaxUsers(string plan) => UserLimits.GetValueOrDefault(plan, 1);
 
+    // De prijs per maand in euro, exclusief btw. Ook dit staat in frontend/src/lib/plans.ts (monthly); PlanTests controleert dat.
+    static readonly Dictionary<string, decimal> MonthlyPrices = new() { [Trial] = 0, [Solo] = 12, [Team] = 29 };
+    public static decimal MonthlyPrice(string plan) => MonthlyPrices.GetValueOrDefault(plan);
+    public static readonly string[] Paid = [Solo, Team];
+    public static string Name(string plan) => plan switch { Solo => "ZZP", Team => "Team", _ => "Proef" };
+
     public const string TrialEndedError = "Je proefperiode is afgelopen. Kies een abonnement onder Instellingen om weer te kunnen werken.";
+    public const string SubscriptionEndedError = "Je abonnement is afgelopen. Kies opnieuw een abonnement onder Instellingen om weer te kunnen werken.";
+    public const string PaymentMissingError = "We hebben de laatste betaling van je abonnement niet ontvangen. Betaal opnieuw onder Instellingen, Abonnement om weer te kunnen werken.";
+    // Zo lang wachten we op een automatische incasso voordat de werkruimte alleen-lezen wordt. Een incasso duurt een paar werkdagen.
+    public const int PaymentGraceDays = 10;
 }
 
 // De versie van de algemene voorwaarden en de verwerkersovereenkomst (de teksten staan in frontend/src/pages/public/Legal.tsx).
@@ -56,9 +66,54 @@ public class Workspace
     public DateTime? TermsAcceptedAt { get; set; }
     public int? TermsAcceptedByUserId { get; set; }
     public string? TermsAcceptedByEmail { get; set; }
+    // Online betalen via Mollie: de klant en het lopende abonnement daar, en tot wanneer er betaald is.
+    // PaidUntil is leeg als jij het abonnement zelf omzet op de pagina Platform; dan loopt het door tot je het weer omzet.
+    public string? MollieCustomerId { get; set; }
+    public string? MollieSubscriptionId { get; set; }
+    public DateTime? PaidUntil { get; set; }
+    public DateTime? SubscriptionCanceledAt { get; set; }
+    // De klant die bij deze werkruimte hoort in de werkruimte van de eigenaar, voor de facturen van het abonnement.
+    public int? BillingCustomerId { get; set; }
 
     // Na de proef zonder abonnement is een werkruimte alleen-lezen: niets wijzigen en geen werkstromen meer.
     public bool TrialExpired(DateTime utcNow) => Plan == Plans.Trial && TrialEndsAt is { } end && end < utcNow;
+
+    // Waarom deze werkruimte nu alleen-lezen is, of null als alles kan. Na een opgezegd abonnement gaat dat in zodra de
+    // betaalde periode voorbij is; loopt het abonnement nog, dan wachten we eerst een paar dagen op de incasso.
+    public string? ReadOnlyReason(DateTime utcNow)
+    {
+        if (TrialExpired(utcNow)) return Plans.TrialEndedError;
+        if (Plan == Plans.Trial || PaidUntil is not { } until) return null;
+        if (MollieSubscriptionId is null) return until < utcNow ? Plans.SubscriptionEndedError : null;
+        return until.AddDays(Plans.PaymentGraceDays) < utcNow ? Plans.PaymentMissingError : null;
+    }
+
+    public bool ReadOnly(DateTime utcNow) => ReadOnlyReason(utcNow) is not null;
+}
+
+// Een betaling bij Mollie voor het abonnement van een werkruimte: de eerste met iDEAL, daarna de maandelijkse incasso's.
+// Het id is dat van Mollie (tr_...). De status nemen we altijd over van Mollie zelf, nooit uit de webhook.
+public class MolliePayment : IWorkspaceOwned
+{
+    public string Id { get; set; } = "";
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public string Plan { get; set; } = "";
+    // "first" voor de betaling met iDEAL, "recurring" voor een incasso van het abonnement.
+    public string SequenceType { get; set; } = "first";
+    public string Status { get; set; } = "open";
+    // Het bedrag inclusief btw, en het btw-percentage.
+    public decimal Amount { get; set; }
+    public decimal VatRate { get; set; }
+    public string? SubscriptionId { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? PaidAt { get; set; }
+    // De maand waarvoor deze betaling is.
+    public DateTime? PeriodStart { get; set; }
+    public DateTime? PeriodEnd { get; set; }
+    // Gezet zodra de betaling is verwerkt, zodat een herhaalde webhook niets dubbel doet.
+    public DateTime? AppliedAt { get; set; }
+    // De factuur voor deze betaling in de werkruimte van de eigenaar van het platform.
+    public int? InvoiceId { get; set; }
 }
 
 // Tellers over het hele platform, los van werkruimtes. Bijvoorbeeld hoeveel e-mails alle proefwerkruimtes samen vandaag stuurden.

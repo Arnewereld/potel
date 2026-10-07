@@ -212,7 +212,7 @@ export function PrivacyPage() {
         <p>We verkopen je gegevens niet. We delen ze alleen met partijen die we nodig hebben om {i.name} te leveren:</p>
         <ul>
           {i.subProcessors.map((p, n) => <li key={n}><V value={p.name} /> (<V value={p.location} />): {p.purpose.toLowerCase()}</li>)}
-          <li>Onze betaalprovider, als je online betaalt: voor het innen van je abonnement</li>
+          <li>Mollie B.V. (Nederland), als je online betaalt: voor het innen van je abonnement met iDEAL en automatische incasso</li>
           <li>Onze boekhouder: voor onze administratie</li>
         </ul>
         <p>Met elk van deze partijen hebben we afspraken gemaakt, zodat ze je gegevens alleen voor ons gebruiken. Aan de overheid geven we gegevens alleen als de wet ons daartoe verplicht.</p>

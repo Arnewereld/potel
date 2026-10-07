@@ -48,7 +48,7 @@ public class WorkflowScheduler(IServiceScopeFactory scopes, IOptions<WorkflowLim
         List<int> workspaces;
         using (var scope = scopes.CreateScope())
             workspaces = (await scope.ServiceProvider.GetRequiredService<AppDb>().Workspaces.AsNoTracking().OrderBy(w => w.Id).ToListAsync(ct))
-                .Where(w => !w.TrialExpired(now)).Select(w => w.Id).ToList();
+                .Where(w => !w.ReadOnly(now)).Select(w => w.Id).ToList();
 
         foreach (var (id, task) in busy)
             if (task.IsCompleted) busy.TryRemove(id, out _);

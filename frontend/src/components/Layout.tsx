@@ -133,6 +133,12 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
         </nav>
 
         <div className="sidebar-foot">
+          {workspace && workspace.plan !== 'proef' && workspace.readOnly && (
+            <button className="trial-chip urgent" onClick={() => navigate('/instellingen?tab=abonnement')} title={workspace.readOnly}>
+              <span className="trial-days">!</span>
+              <span>Alleen-lezen<small>Kies of betaal je abonnement</small></span>
+            </button>
+          )}
           {workspace?.plan === 'proef' && (
             <button className={`trial-chip ${(workspace.trialDaysLeft ?? 0) <= 5 ? 'urgent' : ''}`} onClick={() => navigate('/instellingen?tab=abonnement')} title="Abonnement kiezen">
               <span className="trial-days">{workspace.trialDaysLeft}</span>

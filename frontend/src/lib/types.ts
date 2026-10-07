@@ -257,6 +257,13 @@ export interface Workspace {
   maxUsers: number
   // Er staat nog voorbeelddata uit de welkomstwizard in.
   demoData: boolean
+  // Online betalen via Mollie staat aan op deze server, en hoe het abonnement ervoor staat.
+  onlinePayment?: boolean
+  subscriptionActive?: boolean
+  paidUntil?: string | null
+  subscriptionCanceledAt?: string | null
+  // Waarom de werkruimte alleen-lezen is, of null als alles kan.
+  readOnly?: string | null
 }
 
 export interface Dashboard {

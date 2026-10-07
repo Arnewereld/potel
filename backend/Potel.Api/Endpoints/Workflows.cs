@@ -78,7 +78,9 @@ public static class WorkflowEndpoints
             var (run, refusal) = await engine.RunAsync(w, starts, ctx, "Handmatig gestart");
             return refusal switch
             {
-                WorkflowEngine.StartRefusal.TrialEnded => Results.Json(new { error = Plans.TrialEndedError }, statusCode: StatusCodes.Status402PaymentRequired),
+                WorkflowEngine.StartRefusal.ReadOnly => Results.Json(
+                    new { error = (await db.Workspaces.FindAsync(db.TenantId))?.ReadOnlyReason(DateTime.UtcNow) ?? Plans.TrialEndedError },
+                    statusCode: StatusCodes.Status402PaymentRequired),
                 WorkflowEngine.StartRefusal.TooManyRuns => Results.Json(new { error = engine.TooManyRunsMessage }, statusCode: StatusCodes.Status429TooManyRequests),
                 _ => Results.Ok(run),
             };

@@ -50,6 +50,25 @@ public class PlanTests(PortalFactory factory) : IClassFixture<PortalFactory>
         }
     }
 
+    // De prijs die Mollie afschrijft komt uit Plans in de backend; de verkooppagina toont die uit plans.ts.
+    [Fact]
+    public void Frontend_plans_show_the_same_monthly_prices()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "frontend", "src", "lib", "plans.ts"))) dir = dir.Parent;
+        if (dir is null) return; // alleen de backend uitgecheckt
+        var plans = File.ReadAllText(Path.Combine(dir.FullName, "frontend", "src", "lib", "plans.ts"));
+        foreach (var plan in Plans.All)
+        {
+            var m = Regex.Match(plans, $@"id:\s*'{plan}'[^}}]*?monthly:\s*(\d+(?:\.\d+)?)", RegexOptions.Singleline);
+            Assert.True(m.Success, $"plans.ts mist monthly voor {plan}");
+            Assert.Equal(Plans.MonthlyPrice(plan), decimal.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture));
+            var price = Regex.Match(plans, $@"id:\s*'{plan}'[^}}]*?price:\s*'€ (\d+)'", RegexOptions.Singleline);
+            Assert.Equal(Plans.MonthlyPrice(plan), decimal.Parse(price.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture));
+        }
+        Assert.Equal(Plans.All.Where(p => p != Plans.Trial), Plans.Paid);
+    }
+
     [Fact]
     public async Task Expired_trial_cannot_insert_demo_data_or_other_writes()
     {
