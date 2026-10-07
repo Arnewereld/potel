@@ -24,6 +24,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
     public DbSet<TimeEntry> TimeEntries => Set<TimeEntry>();
     public DbSet<Settings> Settings => Set<Settings>();
     public DbSet<PlatformCounter> PlatformCounters => Set<PlatformCounter>();
+    public DbSet<AccountToken> AccountTokens => Set<AccountToken>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -50,6 +51,9 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         // Tellers voor het hele platform; de rij bestaat altijd, zodat ophogen in één update kan.
         b.Entity<PlatformCounter>().HasKey(c => c.Key);
         b.Entity<PlatformCounter>().HasData(new PlatformCounter { Key = PlatformCounter.TrialEmails });
+        // Een link uit een mail vinden we terug aan de hash van het token; weg met de gebruiker.
+        b.Entity<AccountToken>().HasIndex(t => t.TokenHash).IsUnique();
+        b.Entity<AccountToken>().HasOne<User>().WithMany().HasForeignKey(t => t.UserId).OnDelete(DeleteBehavior.Cascade);
         FilterByWorkspace(b);
     }
 
@@ -58,7 +62,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
     {
         Filter<Customer>(b); Filter<Lead>(b); Filter<Invoice>(b); Filter<Appointment>(b); Filter<Project>(b); Filter<TimeEntry>(b);
         Filter<Settings>(b); Filter<CustomModule>(b); Filter<CustomRecord>(b); Filter<Workflow>(b); Filter<Activity>(b);
-        Filter<User>(b); Filter<WorkflowRun>(b);
+        Filter<User>(b); Filter<WorkflowRun>(b); Filter<AccountToken>(b);
     }
 
     void Filter<T>(ModelBuilder b) where T : class, IWorkspaceOwned

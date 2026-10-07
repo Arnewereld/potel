@@ -174,9 +174,10 @@ public class SmtpMailTests(SmtpMailFactory factory) : IClassFixture<SmtpMailFact
         var run = await RunAsync(tenant, await CreateWorkflowAsync(tenant, "Mail", graph));
         Assert.True(run.Status == "klaar", string.Join(" | ", run.Messages));
 
-        Assert.True(await WaitUntil(() => !factory.Smtp.Messages.IsEmpty, TimeSpan.FromSeconds(5)));
+        Assert.True(await WaitUntil(() => factory.Smtp.Messages.Any(m => m.Contains("RCPT TO:<klant@example.org>")), TimeSpan.FromSeconds(5)));
         // Lange kopregels mogen over meerdere regels staan; plak ze weer aan elkaar.
-        var raw = Regex.Replace(factory.Smtp.Messages.Single(), @"\r\n[ \t]+", " ");
+        // De bevestigingsmail van het aanmelden ging ook via deze server; het gaat hier om de mail van de werkstroom.
+        var raw = Regex.Replace(factory.Smtp.Messages.Single(m => m.Contains("RCPT TO:<klant@example.org>")), @"\r\n[ \t]+", " ");
         var lines = raw.Split("\r\n");
         Assert.Contains("MAIL FROM:<mailer@potel.test>", lines);
         Assert.Equal(["RCPT TO:<klant@example.org>"], lines.Where(l => l.StartsWith("RCPT TO")));

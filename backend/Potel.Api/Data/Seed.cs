@@ -33,8 +33,9 @@ public static class Seed
             Name = config["Admin:Name"] ?? "Beheerder",
             Email = email,
             Role = Roles.Admin,
-            // Het account uit de instellingen is van de eigenaar zelf, dus dat mag het platform beheren.
+            // Het account uit de instellingen is van de eigenaar zelf, dus dat mag het platform beheren en telt als bevestigd.
             IsPlatformAdmin = ConfiguredPlatformAdmins(config).Contains(email),
+            EmailVerifiedAt = DateTime.UtcNow,
         };
         var password = config["Admin:Password"]!;
         admin.PasswordHash = Endpoints.AuthEndpoints.Hash(admin, password);

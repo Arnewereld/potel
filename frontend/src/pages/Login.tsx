@@ -46,7 +46,7 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
           <input type="email" autoComplete="username" autoFocus required value={email} onChange={e => setEmail(e.target.value)} />
         </label>
         <label className="field" style={{ marginTop: 14 }}>
-          <span>Wachtwoord</span>
+          <span className="field-label-row">Wachtwoord <Link to="/wachtwoord-vergeten">Wachtwoord vergeten?</Link></span>
           <input type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} />
         </label>
         {error && <div className="login-error">{error}</div>}

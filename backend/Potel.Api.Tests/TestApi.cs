@@ -3,6 +3,9 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Potel.Api.Data;
 
 namespace Potel.Api.Tests;
 
@@ -19,11 +22,23 @@ static class TestApi
         return (client, res.StatusCode);
     }
 
-    public static async Task<HttpClient> RegisterAsync(WebApplicationFactory<Program> f, string email, string password = "geheim123")
+    // Een nieuwe werkruimte waarvan de beheerder zijn adres al bevestigde, zoals na een klik op de link in de bevestigingsmail.
+    public static async Task<HttpClient> RegisterAsync(WebApplicationFactory<Program> f, string email, string password = "geheim123", bool verified = true)
     {
         var (client, status) = await TryRegisterAsync(f, email, password);
         Assert.Equal(HttpStatusCode.Created, status);
+        if (verified) MarkVerified(f, email);
         return client;
+    }
+
+    public static void MarkVerified(WebApplicationFactory<Program> f, string email)
+    {
+        using var scope = f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDb>();
+        var user = db.Users.IgnoreQueryFilters().Single(u => u.Email == email);
+        user.EmailVerifiedAt = DateTime.UtcNow;
+        db.Tenant.WorkspaceId = user.WorkspaceId;
+        db.SaveChanges();
     }
 
     public static async Task<(HttpClient Client, HttpStatusCode Status)> TryLoginAsync(WebApplicationFactory<Program> f, string email, string password = "geheim123")

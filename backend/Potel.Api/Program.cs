@@ -82,6 +82,12 @@ if (builder.Configuration["KeysPath"] is { Length: > 0 } keysPath)
 builder.Services.Configure<WorkflowLimits>(builder.Configuration.GetSection("Workflows"));
 builder.Services.AddScoped<WorkflowEngine>();
 builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
+// Mails over je account (wachtwoord herstellen, adres bevestigen), met links naar het openbare adres uit App:BaseUrl.
+builder.Services.AddSingleton<AppUrls>();
+builder.Services.AddSingleton<AccountMailThrottle>();
+builder.Services.AddSingleton<SystemMailQueue>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<SystemMailQueue>());
+builder.Services.AddScoped<AccountMail>();
 // Webhooks alleen naar openbare adressen, zonder doorverwijzingen of gedeelde cookies (zie WebhookGuard).
 builder.Services.AddHttpClient(WebhookGuard.ClientName)
     .ConfigureHttpClient((sp, c) =>
@@ -140,8 +146,9 @@ app.UseAuthorization();
 app.UseRateLimiter();
 
 // Na een verlopen proefperiode kun je nog alles bekijken en exporteren, maar niets meer wijzigen tot je een abonnement kiest.
-// Wel mag je nog inloggen, je wachtwoord wijzigen, gebruikers uitschakelen of verwijderen, de welkomstwizard sluiten
-// en je werkruimte verwijderen. Al het andere is dicht, ook wat hier later bijkomt.
+// Wel mag je nog inloggen, je wachtwoord wijzigen of herstellen, je e-mailadres bevestigen (alles onder /api/auth),
+// gebruikers uitschakelen of verwijderen, de welkomstwizard sluiten en je werkruimte verwijderen. Al het andere is dicht,
+// ook wat hier later bijkomt.
 static bool WritableAfterTrial(HttpRequest r)
 {
     if (r.Path.StartsWithSegments("/api/auth") || r.Path.StartsWithSegments("/api/platform")) return true;
@@ -171,6 +178,7 @@ app.Use(async (http, next) =>
 // Alles onder /api vraagt om een ingelogde gebruiker, behalve inloggen zelf.
 var api = app.MapGroup("/api").RequireAuthorization();
 api.MapAuth();
+api.MapAccountEmail();
 api.MapUsers();
 api.MapDashboard();
 api.MapCustomers();

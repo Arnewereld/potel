@@ -15,6 +15,7 @@ import { useTabs } from '../lib/tabs'
 import { useModules } from '../lib/modules'
 import { ModuleIcon } from './Icon'
 import { CommandPalette } from './CommandPalette'
+import { VerifyEmailBanner } from './VerifyEmailBanner'
 
 const nav = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -161,6 +162,7 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
       </aside>
 
       <div className="main">
+        {!user.emailVerified && <VerifyEmailBanner email={user.email} />}
         <div className="tabbar" role="tablist">
           {tabs.map(t => {
             const active = t.path === current

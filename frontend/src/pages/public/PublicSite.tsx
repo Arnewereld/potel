@@ -5,6 +5,7 @@ import { product } from '../../lib/plans'
 import { LandingPage } from './Landing'
 import { LoginPage } from '../Login'
 import { SignupPage } from './Signup'
+import { ForgotPasswordPage } from './ForgotPassword'
 
 // Alles wat je ziet zonder in te loggen: de verkooppagina, inloggen en aanmelden.
 export function PublicSite({ auth }: { auth: PublicAuth }) {
@@ -14,6 +15,7 @@ export function PublicSite({ auth }: { auth: PublicAuth }) {
     <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/aanmelden" element={<SignupPage onRegister={auth.register} />} />
+      <Route path="/wachtwoord-vergeten" element={<ForgotPasswordPage />} />
       <Route path="*" element={<LoginPage onLogin={auth.login} />} />
     </Routes>
   )

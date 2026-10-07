@@ -1,4 +1,4 @@
-import { Route, Routes } from 'react-router-dom'
+import { Route, Routes, useLocation } from 'react-router-dom'
 import { ActiveTabContext } from './lib/tabs'
 import { Layout } from './components/Layout'
 import { TabsProvider } from './lib/tabs'
@@ -9,6 +9,7 @@ import { TimerProvider } from './lib/timer'
 import { WorkspaceProvider } from './lib/workspace'
 import { Loading } from './components/ui'
 import { PublicSite } from './pages/public/PublicSite'
+import { ResetPasswordPage, VerifyEmailPage } from './pages/public/AccountLinks'
 import { UsersPage } from './pages/Users'
 import { DashboardPage } from './pages/Dashboard'
 import { CustomersPage } from './pages/Customers'
@@ -27,7 +28,16 @@ import { ProjectDetailPage } from './pages/ProjectDetail'
 import { SettingsPage } from './pages/Settings'
 import { PlatformPage } from './pages/Platform'
 
+// Pagina's die los van inloggen werken, zoals de links uit een mail.
+const standalone: Record<string, () => React.ReactNode> = {
+  '/wachtwoord-herstellen': ResetPasswordPage,
+  '/email-bevestigen': VerifyEmailPage,
+}
+
 export default function App() {
+  const { pathname } = useLocation()
+  const Page = standalone[pathname]
+  if (Page) return <ToastProvider><Page /></ToastProvider>
   return (
     <ToastProvider>
       <AuthProvider fallback={<Loading />} publicSite={auth => <PublicSite auth={auth} />}>

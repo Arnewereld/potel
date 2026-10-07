@@ -19,7 +19,7 @@ Potel is gebouwd om te verkopen: elke klant maakt zelf een account aan en krijgt
 | **Facturen** | Overzicht met wat openstaat, wat te laat is, concepten en wat je dit jaar ontving, plus per factuur hoeveel dagen hij nog loopt of te laat is. Regels met eenheid (uur, dag, stuk, maand), referentie van de klant, leverdatum of periode (vult zich vanzelf uit de uren), open uren van de klant met één klik erbij en dupliceren. Volgens de regels van de Belastingdienst: alleen een concept kun je nog aanpassen of verwijderen. *Versturen* controleert eerst of alle verplichte gegevens er zijn, geeft dan het volgende nummer per jaar zonder gaten en legt jouw gegevens en die van je klant vast; daarna gaat alleen de status nog vooruit en herstel je een fout met een creditnota die vast naar de oorspronkelijke factuur verwijst. Btw per factuur: normaal, verlegd (alleen voor zakelijke klanten in een ander EU-land, met beide btw-nummers), KOR of buiten de EU, met de juiste vermelding erbij. Server en factuur ronden op dezelfde manier af. Na versturen staat er een mail klaar; bij te late facturen een herinneringsmail. Strakke A4-layout met betaalblok, die je als PDF opslaat. |
 | **Instellingen** | Je bedrijfsgegevens voor op de factuur, je standaard uurtarief, betaaltermijn en je doelen in uren per week en per jaar. |
 | **Werkstromen** | Een canvas zoals in n8n: zet blokken neer, stel ze in en verbind ze door te slepen. Staat een werkstroom aan, dan start hij vanzelf bij zijn trigger en voert hij de acties echt uit. Zie hieronder. |
-| **Gebruikers** | Iedereen logt in met e-mail en wachtwoord. Beheerders voegen gebruikers toe, kiezen hun rol en kunnen ze uitschakelen. |
+| **Gebruikers** | Iedereen logt in met e-mail en wachtwoord. Beheerders voegen gebruikers toe, kiezen hun rol en kunnen ze uitschakelen. Wachtwoord vergeten? Dan krijg je een link per mail die één uur en één keer werkt. Na het aanmelden bevestig je je e-mailadres via een link; tot die tijd staat er een balk bovenin met *Opnieuw versturen*. |
 | **Eigen modules** | Maak zelf een lijst met je eigen velden (tekst, getal, datum, ja/nee). Standaard staan er *Servers & domeinen* en *Licenties* in. Een nieuwe module verschijnt direct in het menu. |
 | **Verkooppagina** | Op `/` voor bezoekers: uitleg, functies, prijzen en veelgestelde vragen. Prijzen en je contactadres pas je aan in `frontend/src/lib/plans.ts`. |
 | **Aanmelden** | Op `/aanmelden` maakt een klant zelf een werkruimte aan, eventueel met voorbeelddata, en doorloopt een welkomstwizard (bedrijf, tarief, huisstijl, eerste klant). |
@@ -91,15 +91,24 @@ Belangrijke instellingen (als omgevingsvariabele, met `__` voor een punt):
 | `BehindProxy` | `true` als er een reverse proxy voor staat, zodat https en het echte IP-adres herkend worden. |
 | `KnownProxies__0` | Het IP-adres van je proxy. Alleen van dat adres wordt het doorgestuurde IP-adres van bezoekers geloofd. |
 | `DatabasePath`, `KeysPath` | Waar de SQLite-database en de cookiesleutels staan (standaard in `/data`). |
-| `RateLimit__AuthPerMinute` | Hoe vaak per minuut één IP-adres mag inloggen of aanmelden (standaard 10). Daarnaast geldt een grens per e-mailadres, en op aanmelden een grens per netwerk en voor het hele platform. |
-| `Smtp__*` | Mailserver voor de werkstroomblokken die e-mail sturen. |
+| `App__BaseUrl` | Het openbare adres van Potel, bijvoorbeeld `https://potel.jouwdomein.nl`. Daarmee maakt Potel de links in mails. In productie is dit verplicht: Potel neemt het adres nooit over uit het verzoek, want dat kan iedereen verzinnen. |
+| `RateLimit__AuthPerMinute` | Hoe vaak per minuut één IP-adres mag inloggen, aanmelden of een nieuw wachtwoord mag aanvragen (standaard 10). Daarnaast geldt een grens per e-mailadres, en op aanmelden een grens per netwerk en voor het hele platform. |
+| `RateLimit__AccountMailsPerHour` | Hoeveel mails over het account (wachtwoord vergeten, e-mailadres bevestigen) één adres per uur krijgt (standaard 3). |
+| `Smtp__*` | Mailserver voor wachtwoord vergeten, het bevestigen van e-mailadressen en de werkstroomblokken die e-mail sturen. |
 
 Voordat je echt verkoopt, regel je nog:
 
 - **Betalen**: online betalen (bijvoorbeeld Stripe of Mollie) zit er nog niet in. Klanten mailen nu om over te stappen en jij zet het abonnement om op *Platform*.
 - **Juridisch**: algemene voorwaarden, een privacyverklaring en een verwerkersovereenkomst; je verwerkt immers gegevens van de klanten van je klanten.
-- **Wachtwoord vergeten**: werkt nog niet via e-mail; een beheerder van de werkruimte kan een nieuw wachtwoord zetten bij *Gebruikers*.
+- **Mail**: stel `Smtp__*` en `App__BaseUrl` in, anders werken wachtwoord vergeten en het bevestigen van e-mailadressen niet. Neem een mailprovider in de EU en zet SPF, DKIM en DMARC aan voor je domein, zodat je mail niet in de spam belandt.
 - **Back-ups** van het volume `/data`.
+
+## Nog niet ingebouwd
+
+- **Online betalen**: klanten mailen om over te stappen en jij zet het abonnement om op *Platform*.
+- **Juridische teksten**: algemene voorwaarden, privacyverklaring en verwerkersovereenkomst.
+- **Tweestapsverificatie** voor beheerders.
+- **Opzeggen met bewaartermijn**: *Werkruimte verwijderen* wist nu meteen alles.
 
 ## Werkstromen
 
@@ -121,7 +130,7 @@ Een werkstroom begint met een **trigger** en loopt via de lijnen langs de blokke
 
 In tekstvelden kun je gegevens invoegen met dubbele accolades, zoals `{{lead.name}}` of `{{invoice.number}}`. Onder *Uitvoeringen* zie je per run welke blokken liepen en wat er gebeurde.
 
-**E-mail versturen:** vul in `appsettings.json` de sectie `Smtp` in (server, poort, gebruiker, wachtwoord, afzender). Zolang er geen mailserver is ingesteld, slaat het blok de mail over en staat er een melding in de uitvoering. Alle mail gaat van jouw afzenderadres (of de gebruiker als `From` leeg is), met de bedrijfsnaam van de werkruimte als naam; antwoorden gaan naar het e-mailadres onder *Instellingen*. Per werkruimte geldt een daglimiet: 20 tijdens de proef, 200 met een abonnement. Is die op, dan slaat het blok de mail over met een melding en loopt de werkstroom gewoon verder.
+**E-mail versturen:** vul in `appsettings.json` de sectie `Smtp` in (server, poort, gebruiker, wachtwoord, afzender). Zolang er geen mailserver is ingesteld, slaat het blok de mail over en staat er een melding in de uitvoering. Hetzelfde geldt zolang geen enkele beheerder van de werkruimte zijn e-mailadres heeft bevestigd. Alle mail gaat van jouw afzenderadres (of de gebruiker als `From` leeg is), met de bedrijfsnaam van de werkruimte als naam; antwoorden gaan naar het e-mailadres onder *Instellingen*. Per werkruimte geldt een daglimiet: 20 tijdens de proef, 200 met een abonnement. Is die op, dan slaat het blok de mail over met een melding en loopt de werkstroom gewoon verder.
 
 **Grenzen:** zodat één werkruimte de server niet kan volzetten, stopt een run na 200 blokken, 30 seconden, 10 e-mails en webhooks samen of 20 keer wachten. De planner op de achtergrond doet elke 30 seconden per werkruimte hooguit 10 runs en werkt een paar werkruimtes tegelijk af; werkruimtes met een verlopen proef slaat hij over. Handmatig uitvoeren kan 30 keer per minuut per werkruimte (`RateLimit__WorkflowRunsPerMinute`). De rest pas je aan in `appsettings.json` onder `Workflows` (als omgevingsvariabele bijvoorbeeld `Workflows__EmailsPerDayTrial`). Draai je Potel alleen voor jezelf en wil je webhooks naar je eigen netwerk, zet dan `Workflows__AllowPrivateWebhooks` op `true`.
 

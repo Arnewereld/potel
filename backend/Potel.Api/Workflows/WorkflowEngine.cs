@@ -348,6 +348,13 @@ public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSend
                     await db.SaveChangesAsync();
                     return new Outcome { Status = "let op", Message = $"Niet verstuurd naar {to}: er is nog geen mailserver ingesteld (zie README)" };
                 }
+                // Pas mail als een beheerder van de werkruimte zijn adres heeft bevestigd; zo is een proefaccount geen anoniem spamkanon.
+                if (!await db.Users.AnyAsync(u => u.Role == Roles.Admin && u.Active && u.EmailVerifiedAt != null))
+                {
+                    db.Log("e-mail", $"E-mail \"{subject}\" aan {to} niet verstuurd: het e-mailadres van de beheerder is nog niet bevestigd");
+                    await db.SaveChangesAsync();
+                    return new Outcome { Status = "let op", Message = $"Niet verstuurd naar {to}: het e-mailadres van de beheerder van deze werkruimte is nog niet bevestigd. Klik op de link in de bevestigingsmail; daarna versturen je werkstromen gewoon e-mail." };
+                }
                 var workspace = await db.Workspaces.FindAsync(db.TenantId);
                 var plan = workspace?.Plan ?? Plans.Trial;
                 var limit = limits.EmailsPerDay(plan);

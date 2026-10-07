@@ -11,9 +11,9 @@ namespace Potel.Api.Endpoints;
 public record LoginRequest(string Email, string Password);
 public record PasswordRequest(string Current, string New);
 public record UserInput(string Name, string Email, string Role, bool Active, string? Password);
-public record UserDto(int Id, int WorkspaceId, string Name, string Email, string Role, bool Active, DateTime CreatedAt, DateTime? LastLoginAt)
+public record UserDto(int Id, int WorkspaceId, string Name, string Email, string Role, bool Active, DateTime CreatedAt, DateTime? LastLoginAt, bool EmailVerified)
 {
-    public static UserDto From(User u) => new(u.Id, u.WorkspaceId, u.Name, u.Email, u.Role, u.Active, u.CreatedAt, u.LastLoginAt);
+    public static UserDto From(User u) => new(u.Id, u.WorkspaceId, u.Name, u.Email, u.Role, u.Active, u.CreatedAt, u.LastLoginAt, u.EmailVerifiedAt != null);
 }
 
 // Begrenst mislukte inlogpogingen. Streng per e-mailadres en IP-adres samen: wie het wachtwoord raadt, zit na een paar
@@ -147,7 +147,7 @@ public static class AuthEndpoints
             user.UserId() is { } id && await db.Users.FindAsync(id) is { Active: true } u
                 ? Results.Ok(UserDto.From(u)) : Results.Unauthorized());
 
-        // Een nieuw wachtwoord logt je overal anders uit; deze sessie krijgt een nieuwe cookie en blijft ingelogd.
+        // Een nieuw wachtwoord logt je overal anders uit en maakt open herstellinks ongeldig; deze sessie krijgt een nieuwe cookie en blijft ingelogd.
         g.MapPut("/password", async (AppDb db, HttpContext http, ClaimsPrincipal user, PasswordRequest req) =>
         {
             var u = user.UserId() is { } id ? await db.Users.FindAsync(id) : null;
@@ -158,6 +158,7 @@ public static class AuthEndpoints
                 return Results.BadRequest(new { error = $"Kies een wachtwoord van minstens {MinPasswordLength} tekens" });
             u.PasswordHash = Hash(u, req.New!);
             u.NewSecurityStamp();
+            await AccountMail.RevokeAsync(db, u.Id, TokenPurposes.PasswordReset);
             await db.SaveChangesAsync();
             await SignIn(http, u);
             return Results.NoContent();
@@ -187,7 +188,7 @@ public static class AuthEndpoints
             return Results.Created($"/api/users/{u.Id}", UserDto.From(u));
         }).RequireRateLimiting("accounts");
 
-        g.MapPut("/{id:int}", async (AppDb db, HttpContext http, ClaimsPrincipal me, int id, UserInput input) =>
+        g.MapPut("/{id:int}", async (AppDb db, HttpContext http, AccountMail mail, ClaimsPrincipal me, int id, UserInput input) =>
         {
             var u = await db.Users.FindAsync(id);
             if (u is null) return Results.NotFound();
@@ -208,11 +209,16 @@ public static class AuthEndpoints
                 return Results.Conflict(new { error = EmailUnavailable });
 
             if (!string.IsNullOrEmpty(input.Password)) u.PasswordHash = Hash(u, input.Password);
+            // Een nieuw adres moet opnieuw bevestigd worden, en links naar het oude adres werken niet meer.
+            var emailChanged = email != u.Email;
+            if (emailChanged) u.EmailVerifiedAt = null;
+            if (emailChanged || !string.IsNullOrEmpty(input.Password)) await AccountMail.RevokeAsync(db, u.Id, emailChanged ? null : TokenPurposes.PasswordReset);
             u.Name = input.Name.Trim(); u.Email = email; u.Role = input.Role; u.Active = input.Active;
             if (securityChanged) u.NewSecurityStamp();
             await db.SaveChangesAsync();
-            // Pas je jezelf aan, dan blijf je met een nieuwe cookie ingelogd.
+            // Pas je jezelf aan, dan blijf je met een nieuwe cookie ingelogd. Een nieuw eigen adres krijgt meteen een bevestigingsmail.
             if (securityChanged && me.UserId() == id) await SignIn(http, u);
+            if (emailChanged && me.UserId() == id) await mail.SendVerificationAsync(u, http.Request);
             return Results.Ok(UserDto.From(u));
         }).RequireRateLimiting("accounts");
 
@@ -224,6 +230,7 @@ public static class AuthEndpoints
             if (u.Role == Roles.Admin && !await db.Users.AnyAsync(x => x.Id != id && x.Role == Roles.Admin && x.Active))
                 return Results.BadRequest(new { error = "Er moet minstens één actieve beheerder overblijven" });
             if (await ProtectedPlatformAdmin(db, me, u) is { } refused) return refused;
+            db.AccountTokens.RemoveRange(db.AccountTokens.Where(t => t.UserId == id));
             db.Users.Remove(u);
             db.Log("gebruiker", $"Gebruiker {u.Name} verwijderd");
             await db.SaveChangesAsync();

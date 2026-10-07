@@ -78,3 +78,31 @@ public class SmtpEmailSender(IConfiguration config) : IEmailSender
         await client.SendMailAsync(message, ct);
     }
 }
+
+// Systeemmails (wachtwoord herstellen) gaan via een wachtrij op de achtergrond. Zo duurt een verzoek even lang
+// of er nu wel of geen account bij het adres hoort, en houdt een trage mailserver niemand op.
+public sealed class SystemMailQueue(IEmailSender sender, ILogger<SystemMailQueue> logger) : BackgroundService
+{
+    readonly System.Threading.Channels.Channel<OutgoingEmail> queue =
+        System.Threading.Channels.Channel.CreateBounded<OutgoingEmail>(new System.Threading.Channels.BoundedChannelOptions(500)
+        {
+            FullMode = System.Threading.Channels.BoundedChannelFullMode.DropWrite,
+        });
+
+    public bool TryEnqueue(OutgoingEmail mail) => queue.Writer.TryWrite(mail);
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        await foreach (var mail in queue.Reader.ReadAllAsync(stoppingToken))
+        {
+            try
+            {
+                await sender.SendAsync(mail, stoppingToken);
+            }
+            catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
+            {
+                logger.LogWarning(ex, "Systeemmail \"{Subject}\" niet verstuurd", mail.Subject);
+            }
+        }
+    }
+}

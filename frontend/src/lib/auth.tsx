@@ -11,6 +11,8 @@ export interface User {
   active: boolean
   createdAt: string
   lastLoginAt?: string | null
+  // Bevestigd via de link in de mail. Zolang dat niet zo is, staat er een balk bovenin.
+  emailVerified: boolean
 }
 
 export interface RegisterInput { company: string; name: string; email: string; password: string; demoData: boolean }

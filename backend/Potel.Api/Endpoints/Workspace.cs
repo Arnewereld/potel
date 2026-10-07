@@ -70,7 +70,7 @@ public static class WorkspaceEndpoints
     public static void MapWorkspace(this RouteGroupBuilder api)
     {
         // Zelf een account aanmaken: een nieuwe werkruimte met een proefperiode en jij als beheerder.
-        api.MapPost("/auth/register", async (AppDb db, HttpContext http, SignupThrottle throttle, RegisterRequest req) =>
+        api.MapPost("/auth/register", async (AppDb db, HttpContext http, SignupThrottle throttle, AccountMail mail, RegisterRequest req) =>
         {
             var email = (req.Email ?? "").Trim().ToLower();
             if (string.IsNullOrWhiteSpace(req.Company) || string.IsNullOrWhiteSpace(req.Name)) return Results.BadRequest(new { error = "Vul je naam en bedrijfsnaam in" });
@@ -94,6 +94,8 @@ public static class WorkspaceEndpoints
             db.Log("systeem", $"Werkruimte {ws.Name} aangemaakt");
             await db.SaveChangesAsync();
             if (req.DemoData) Seed.Run(db, sampleCompany: false);
+            // Werken kan meteen; mail uit werkstromen pas na het bevestigen van het adres.
+            await mail.SendVerificationAsync(user, http.Request);
 
             await AuthEndpoints.SignIn(http, user);
             return Results.Created("/api/workspace", UserDto.From(user));
@@ -203,6 +205,7 @@ public static class WorkspaceEndpoints
             db.Workflows.RemoveRange(db.Workflows);
             db.Activities.RemoveRange(db.Activities);
             db.Settings.RemoveRange(db.Settings);
+            db.AccountTokens.RemoveRange(db.AccountTokens);
             db.Users.RemoveRange(db.Users);
             if (await db.Workspaces.FindAsync(db.TenantId) is { } w) db.Workspaces.Remove(w);
             await db.SaveChangesAsync();

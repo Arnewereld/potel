@@ -483,8 +483,32 @@ public class User : IWorkspaceOwned
     public string SecurityStamp { get; set; } = Guid.NewGuid().ToString("N");
     // Eigenaar van het platform. Wordt alleen bij het opstarten uit de instellingen gezet of door een andere platformbeheerder.
     public bool IsPlatformAdmin { get; set; }
+    // Wanneer de gebruiker zijn e-mailadres bevestigde via de link in de mail. Leeg na een nieuw adres.
+    public DateTime? EmailVerifiedAt { get; set; }
 
     public void NewSecurityStamp() => SecurityStamp = Guid.NewGuid().ToString("N");
+}
+
+public static class TokenPurposes
+{
+    public const string PasswordReset = "wachtwoord";
+    public const string VerifyEmail = "e-mail";
+}
+
+// Een link uit een mail om je wachtwoord te herstellen of je e-mailadres te bevestigen. Werkt één keer en kort.
+public class AccountToken : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int UserId { get; set; }
+    public string Purpose { get; set; } = "";
+    // Alleen de SHA-256 van het token; het token zelf staat alleen in de mail.
+    public string TokenHash { get; set; } = "";
+    // Het adres waar de mail heen ging. Heeft de gebruiker intussen een ander adres, dan werkt de link niet meer.
+    public string Email { get; set; } = "";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime ExpiresAt { get; set; }
+    public DateTime? UsedAt { get; set; }
 }
 
 public class WorkflowRun : IWorkspaceOwned

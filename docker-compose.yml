@@ -17,6 +17,8 @@ services:
       # Alleen doorgestuurde IP-adressen van je eigen proxy vertrouwen. Een proxy op de server komt binnen via de gateway
       # van het netwerk hieronder (172.30.0.1). Draait je proxy in een container in dat netwerk, zet dan zijn vaste IP-adres hier.
       KnownProxies__0: "172.30.0.1"
+      # Het openbare adres van Potel, met https. Nodig voor de links in mails (wachtwoord vergeten, e-mailadres bevestigen).
+      # App__BaseUrl: "https://potel.jouwdomein.nl"
       # Jij als eigenaar van het platform (de pagina Platform met alle klanten). Meld je aan via /aanmelden en maak jezelf
       # daarna platformbeheerder vanaf de server:
       #   docker compose exec potel dotnet Potel.Api.dll platform-admin jij@jouwdomein.nl
@@ -26,7 +28,7 @@ services:
       # Admin__Name: "Jouw naam"
       # Admin__Email: "jij@jouwdomein.nl"
       # Admin__Password: "..."
-      # Mail voor werkstromen (optioneel)
+      # Mail voor wachtwoord vergeten, het bevestigen van e-mailadressen en werkstromen. Zonder mailserver werkt wachtwoord vergeten niet.
       # Smtp__Host: "smtp.jouwprovider.nl"
       # Smtp__User: "..."
       # Smtp__Password: "..."
