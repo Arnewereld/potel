@@ -16,10 +16,16 @@ interface TabsContextValue {
 
 const TabsContext = createContext<TabsContextValue | null>(null)
 const STORAGE_KEY = 'potel.tabs'
+const publicPaths = ['/inloggen', '/login', '/aanmelden', '/wachtwoord-vergeten']
 
 export function defaultTitle(fullPath: string) {
   const path = fullPath.split('?')[0]!
   if (path === '/') return 'Dashboard'
+  if (path === '/uren') return 'Uren'
+  if (path === '/projecten') return 'Projecten'
+  if (path.startsWith('/projecten/')) return 'Project'
+  if (path === '/instellingen') return 'Instellingen'
+  if (path === '/platform') return 'Platform'
   if (path.startsWith('/planning')) return 'Planning'
   if (path === '/klanten') return 'Klanten'
   if (path.startsWith('/klanten/')) return 'Klant'
@@ -31,6 +37,7 @@ export function defaultTitle(fullPath: string) {
   if (path.startsWith('/werkstromen/')) return 'Werkstroom'
   if (path === '/modules') return 'Eigen modules'
   if (path.startsWith('/modules/')) return 'Module'
+  if (path === '/gebruikers') return 'Gebruikers'
   return 'Pagina'
 }
 
@@ -49,9 +56,12 @@ export function TabsProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
   const current = location.pathname + location.search
 
+  // Na inloggen of aanmelden kom je op het dashboard, niet op een tabblad "Inloggen".
+  const isPublic = publicPaths.includes(location.pathname)
   useEffect(() => {
+    if (isPublic) { navigate('/', { replace: true }); return }
     setTabs(prev => (prev.some(t => t.path === current) ? prev : [...prev, { path: current, title: defaultTitle(current) }]))
-  }, [current])
+  }, [current, isPublic, navigate])
 
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(tabs)) } catch { /* negeren */ }

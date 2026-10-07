@@ -1,4 +1,10 @@
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
 
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
   const res = await fetch(`/api${url}`, {
@@ -6,6 +12,9 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
     headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
+  if (res.status === 401 && !url.startsWith('/auth/')) {
+    window.dispatchEvent(new Event('potel:unauthorized'))
+  }
   if (!res.ok) {
     let message = `Er ging iets mis (${res.status})`
     try {
@@ -13,7 +22,7 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
       if (data?.error) message = data.error
       else if (data?.title) message = data.title
     } catch { /* geen JSON */ }
-    throw new ApiError(message)
+    throw new ApiError(message, res.status)
   }
   if (res.status === 204) return undefined as T
   return res.json()
@@ -23,5 +32,5 @@ export const api = {
   get: <T>(url: string) => request<T>('GET', url),
   post: <T>(url: string, body?: unknown) => request<T>('POST', url, body ?? {}),
   put: <T>(url: string, body: unknown) => request<T>('PUT', url, body),
-  del: (url: string) => request<void>('DELETE', url),
+  del: (url: string, body?: unknown) => request<void>('DELETE', url, body),
 }

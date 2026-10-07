@@ -1,0 +1,8 @@
+**/node_modules
+**/bin
+**/obj
+**/*.db
+**/*.db-*
+**/*.bak
+backend/Potel.Api/wwwroot
+.git

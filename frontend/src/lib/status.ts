@@ -1,4 +1,10 @@
-import type { InvoiceStatus, LeadStatus } from './types'
+import type { InvoiceStatus, LeadStatus, ProjectStatus } from './types'
+
+export const projectStatuses: { id: ProjectStatus; label: string; tone: string }[] = [
+  { id: 'actief', label: 'Actief', tone: 'green' },
+  { id: 'gepauzeerd', label: 'Gepauzeerd', tone: 'yellow' },
+  { id: 'afgerond', label: 'Afgerond', tone: 'gray' },
+]
 
 export const leadStatuses: { id: LeadStatus; label: string; tone: string; color: string }[] = [
   { id: 'nieuw', label: 'Nieuw', tone: 'blue', color: '#4ea5ff' },

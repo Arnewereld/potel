@@ -5,6 +5,15 @@ namespace Potel.Api.Endpoints;
 
 public static class AppointmentEndpoints
 {
+    // Een klant mag leeg blijven, maar als hij is gekozen moet hij in deze werkruimte bestaan.
+    static async Task<string?> Validate(AppDb db, Appointment input)
+    {
+        if (string.IsNullOrWhiteSpace(input.Title)) return "Titel is verplicht";
+        if (input.End < input.Start) return "Einde ligt voor het begin";
+        if (input.CustomerId is { } cid && !await db.Customers.AnyAsync(c => c.Id == cid)) return "Deze klant bestaat niet. Kies een andere klant of laat het veld leeg.";
+        return null;
+    }
+
     public static void MapAppointments(this RouteGroupBuilder api)
     {
         var g = api.MapGroup("/appointments");
@@ -19,8 +28,7 @@ public static class AppointmentEndpoints
 
         g.MapPost("/", async (AppDb db, Appointment input) =>
         {
-            if (string.IsNullOrWhiteSpace(input.Title)) return Results.BadRequest(new { error = "Titel is verplicht" });
-            if (input.End < input.Start) return Results.BadRequest(new { error = "Einde ligt voor het begin" });
+            if (await Validate(db, input) is { } error) return Results.BadRequest(new { error });
             input.Id = 0;
             db.Appointments.Add(input);
             db.Log("planning", $"{input.Title} ingepland op {input.Start:dd-MM HH:mm}");
@@ -32,8 +40,7 @@ public static class AppointmentEndpoints
         {
             var a = await db.Appointments.FindAsync(id);
             if (a is null) return Results.NotFound();
-            if (string.IsNullOrWhiteSpace(input.Title)) return Results.BadRequest(new { error = "Titel is verplicht" });
-            if (input.End < input.Start) return Results.BadRequest(new { error = "Einde ligt voor het begin" });
+            if (await Validate(db, input) is { } error) return Results.BadRequest(new { error });
             if (!a.Done && input.Done) db.Log("planning", $"{a.Title} afgerond");
             a.Title = input.Title; a.Start = input.Start; a.End = input.End; a.Kind = input.Kind;
             a.CustomerId = input.CustomerId; a.Location = input.Location; a.Notes = input.Notes; a.Done = input.Done;

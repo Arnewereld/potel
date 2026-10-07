@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Potel.Api.Data;
+using Potel.Api.Workflows;
 
 namespace Potel.Api.Endpoints;
 
@@ -14,14 +15,18 @@ public static class CustomerEndpoints
         g.MapGet("/{id:int}", async (AppDb db, int id) =>
             await db.Customers.FindAsync(id) is { } c ? Results.Ok(c) : Results.NotFound());
 
-        g.MapPost("/", async (AppDb db, Customer input) =>
+        g.MapPost("/", async (AppDb db, WorkflowEngine engine, Customer input) =>
         {
             if (string.IsNullOrWhiteSpace(input.Name)) return Results.BadRequest(new { error = "Naam is verplicht" });
             input.Id = 0;
             input.CreatedAt = DateTime.UtcNow;
+            input.Country = Countries.Normalize(input.Country);
             db.Customers.Add(input);
             db.Log("klant", $"Klant {input.Name} toegevoegd");
             await db.SaveChangesAsync();
+            var ctx = new Dictionary<string, string>();
+            WorkflowContext.AddCustomer(ctx, input);
+            await engine.TriggerAsync("trigger.customer", ctx, $"Nieuwe klant: {input.Name}");
             return Results.Created($"/api/customers/{input.Id}", input);
         });
 
@@ -31,7 +36,7 @@ public static class CustomerEndpoints
             if (c is null) return Results.NotFound();
             if (string.IsNullOrWhiteSpace(input.Name)) return Results.BadRequest(new { error = "Naam is verplicht" });
             c.Name = input.Name; c.Company = input.Company; c.Email = input.Email; c.Phone = input.Phone;
-            c.Address = input.Address; c.City = input.City; c.Notes = input.Notes;
+            c.Address = input.Address; c.City = input.City; c.Country = Countries.Normalize(input.Country); c.VatNumber = input.VatNumber; c.Notes = input.Notes;
             db.Log("klant", $"Klant {c.Name} bijgewerkt");
             await db.SaveChangesAsync();
             return Results.Ok(c);
@@ -43,6 +48,11 @@ public static class CustomerEndpoints
             if (c is null) return Results.NotFound();
             if (await db.Invoices.AnyAsync(i => i.CustomerId == id))
                 return Results.Conflict(new { error = "Deze klant heeft facturen en kan niet verwijderd worden" });
+            if (await db.Projects.AnyAsync(p => p.CustomerId == id))
+                return Results.Conflict(new { error = "Deze klant heeft projecten. Verwijder die eerst." });
+            // Afspraken en leads blijven bestaan, maar wijzen niet meer naar een klant die er niet is.
+            await db.Appointments.Where(a => a.CustomerId == id).ExecuteUpdateAsync(x => x.SetProperty(a => a.CustomerId, (int?)null));
+            await db.Leads.Where(l => l.CustomerId == id).ExecuteUpdateAsync(x => x.SetProperty(l => l.CustomerId, (int?)null));
             db.Customers.Remove(c);
             db.Log("klant", $"Klant {c.Name} verwijderd");
             await db.SaveChangesAsync();

@@ -1,23 +1,28 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Pencil, Trash2, Mail, Phone, MapPin, Receipt, CalendarDays, StickyNote, User, Plus } from 'lucide-react'
+import { Pencil, Trash2, Mail, Phone, MapPin, Receipt, CalendarDays, StickyNote, User, Plus, FolderKanban } from 'lucide-react'
 import { useApi } from '../lib/useApi'
 import { api } from '../lib/api'
 import { useTabs, useTabTitle } from '../lib/tabs'
 import { useToast } from '../lib/toast'
-import type { Appointment, Customer, Invoice } from '../lib/types'
+import type { Appointment, Customer, Invoice, Project } from '../lib/types'
 import { date, dateTime, euro, initials, invoiceTotals } from '../lib/format'
 import { colorFor, invoiceStatuses, kindColor } from '../lib/status'
+import { isNetherlands } from '../lib/invoice'
 import { Badge, Empty, ErrorBox, Loading, SubTabs } from '../components/ui'
 import { CustomerForm } from '../components/CustomerForm'
+import { ProjectForm } from '../components/ProjectForm'
+import { ProjectCard } from './Projects'
 
-type TabId = 'overzicht' | 'facturen' | 'planning' | 'notities'
+type TabId = 'overzicht' | 'projecten' | 'facturen' | 'planning' | 'notities'
 
 export function CustomerDetailPage() {
   const { id } = useParams()
   const { data: customer, setData, error, loading } = useApi<Customer>(`/customers/${id}`)
   const { data: invoices } = useApi<Invoice[]>('/invoices')
   const { data: appointments } = useApi<Appointment[]>('/appointments')
+  const { data: projects } = useApi<Project[]>(`/projects?customerId=${id}`)
+  const [newProject, setNewProject] = useState(false)
   const [tab, setTab] = useState<TabId>('overzicht')
   const [editing, setEditing] = useState(false)
   const [notes, setNotes] = useState<string | null>(null)
@@ -81,6 +86,7 @@ export function CustomerDetailPage() {
         onChange={setTab}
         tabs={[
           { id: 'overzicht', label: 'Overzicht', icon: <User size={14} /> },
+          { id: 'projecten', label: 'Projecten', icon: <FolderKanban size={14} />, count: projects?.length },
           { id: 'facturen', label: 'Facturen', icon: <Receipt size={14} />, count: mine.length },
           { id: 'planning', label: 'Planning', icon: <CalendarDays size={14} />, count: myAppointments.length },
           { id: 'notities', label: 'Notities', icon: <StickyNote size={14} /> },
@@ -97,7 +103,8 @@ export function CustomerDetailPage() {
                 <dt>Bedrijf</dt><dd>{customer.company || '—'}</dd>
                 <dt>E-mail</dt><dd>{customer.email || '—'}</dd>
                 <dt>Telefoon</dt><dd>{customer.phone || '—'}</dd>
-                <dt>Adres</dt><dd>{[customer.address, customer.city].filter(Boolean).join(', ') || '—'}</dd>
+                <dt>Adres</dt><dd>{[customer.address, customer.city, !isNetherlands(customer.country) && customer.country].filter(Boolean).join(', ') || '—'}</dd>
+                <dt>Btw-nummer</dt><dd>{customer.vatNumber || '—'}</dd>
                 <dt>Klant sinds</dt><dd>{date(customer.createdAt)}</dd>
               </dl>
             </div>
@@ -113,6 +120,16 @@ export function CustomerDetailPage() {
         </div>
       )}
 
+      {tab === 'projecten' && (<>
+        <div className="row" style={{ justifyContent: 'flex-end', marginBottom: 12 }}>
+          <button className="btn btn-sm btn-primary" onClick={() => setNewProject(true)}><Plus size={14} /> Project</button>
+        </div>
+        {projects?.length === 0 && <div className="card"><Empty icon={<FolderKanban size={22} />} title="Nog geen projecten voor deze klant" /></div>}
+        <div className="project-grid">
+          {projects?.map(p => <ProjectCard key={p.id} project={p} onClick={() => navigate(`/projecten/${p.id}`)} />)}
+        </div>
+      </>)}
+
       {tab === 'facturen' && (
         <div className="card">
           <div className="card-head"><h3>Facturen</h3><button className="btn btn-sm btn-primary" onClick={() => navigate(`/facturen/nieuw?klant=${customer.id}`)}><Plus size={14} /> Factuur</button></div>
@@ -125,7 +142,7 @@ export function CustomerDetailPage() {
                     const st = invoiceStatuses.find(s => s.id === i.status)!
                     return (
                       <tr key={i.id} className="clickable" onClick={() => navigate(`/facturen/${i.id}`)}>
-                        <td>{i.number}</td><td className="muted">{date(i.issueDate)}</td>
+                        <td>{i.number ?? <span className="muted">Concept</span>}</td><td className="muted">{date(i.issueDate)}</td>
                         <td><Badge tone={st.tone}>{st.label}</Badge></td>
                         <td className="num">{euro(invoiceTotals(i.lines).total)}</td>
                       </tr>
@@ -170,6 +187,7 @@ export function CustomerDetailPage() {
         </div>
       )}
 
+      {newProject && <ProjectForm customerId={customer.id} onClose={() => setNewProject(false)} onSaved={p => { setNewProject(false); navigate(`/projecten/${p.id}`) }} />}
       {editing && <CustomerForm customer={customer} onClose={() => setEditing(false)} onSaved={c => { setData(c); setEditing(false) }} />}
     </>
   )

@@ -1,0 +1,61 @@
+# Starten op een server:  docker compose up -d
+# Zet er een reverse proxy met https voor (bijvoorbeeld Caddy) en vul hieronder je eigen gegevens in.
+services:
+  potel:
+    build: .
+    restart: unless-stopped
+    # Alleen bereikbaar vanaf de server zelf, voor je proxy daar. Zo kan niemand de proxy overslaan en zelf een
+    # X-Forwarded-For meesturen. Draait je proxy in een container, zet hem dan in het netwerk hieronder en haal deze regel weg.
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks:
+      - potel
+    volumes:
+      - potel-data:/data
+    environment:
+      BehindProxy: "true"
+      # Alleen doorgestuurde IP-adressen van je eigen proxy vertrouwen. Een proxy op de server komt binnen via de gateway
+      # van het netwerk hieronder (172.30.0.1). Draait je proxy in een container in dat netwerk, zet dan zijn vaste IP-adres hier.
+      KnownProxies__0: "172.30.0.1"
+      # Het openbare adres van Potel, met https. Nodig voor de links in mails (wachtwoord vergeten, e-mailadres bevestigen).
+      # App__BaseUrl: "https://potel.jouwdomein.nl"
+      # Jij als eigenaar van het platform (de pagina Platform met alle klanten). Meld je aan via /aanmelden en maak jezelf
+      # daarna platformbeheerder vanaf de server:
+      #   docker compose exec potel dotnet Potel.Api.dll platform-admin jij@jouwdomein.nl
+      # Of laat Potel bij de allereerste start je account maken: vul Admin__* in en zet hetzelfde adres bij PlatformAdmins__0.
+      # Andere platformbeheerders wijs je daarna aan op de pagina Platform.
+      # PlatformAdmins__0: "jij@jouwdomein.nl"
+      # Admin__Name: "Jouw naam"
+      # Admin__Email: "jij@jouwdomein.nl"
+      # Admin__Password: "..."
+      # Mail voor wachtwoord vergeten, het bevestigen van e-mailadressen en werkstromen. Zonder mailserver werkt wachtwoord vergeten niet.
+      # Smtp__Host: "smtp.jouwprovider.nl"
+      # Smtp__User: "..."
+      # Smtp__Password: "..."
+      # Smtp__From: "noreply@jouwdomein.nl"
+      # Online betalen met iDEAL en automatische incasso via Mollie. Begin met een testsleutel (test_...), daarna live_...
+      # Mollie moet https://jouwdomein/api/mollie/webhook kunnen bereiken, dus App__BaseUrl moet ingevuld zijn.
+      # Mollie__ApiKey: "test_..."
+      # Jouw bedrijfsgegevens voor onderaan de verkooppagina en in de voorwaarden. Klanten mailen naar Platform__Email om over te stappen.
+      # Platform__Company: "Jouw Bedrijf B.V."
+      # Platform__Address: "Straat 1"
+      # Platform__City: "1234 AB Plaats"
+      # Platform__Email: "hallo@jouwdomein.nl"
+      # Platform__Kvk: "12345678"
+      # Platform__VatId: "NL000000000B01"
+      # Platform__SubProcessors__0__Name: "Je hostingpartij"
+      # Platform__SubProcessors__0__Purpose: "Hosting van de server en de back-ups"
+      # Platform__SubProcessors__0__Location: "Nederland"
+      # Platform__SubProcessors__1__Name: "Je mailprovider"
+      # Platform__SubProcessors__1__Purpose: "Versturen van e-mail"
+      # Platform__SubProcessors__1__Location: "Nederland"
+# Een eigen netwerk met een vast subnet, zodat KnownProxies__0 hierboven precies de gateway is. Botst het met een netwerk
+# dat al op je server bestaat, kies dan een ander subnet en pas KnownProxies__0 aan.
+networks:
+  potel:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+          gateway: 172.30.0.1
+volumes:
+  potel-data:
