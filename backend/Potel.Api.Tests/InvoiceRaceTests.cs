@@ -1,29 +1,149 @@
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
 using static Potel.Api.Tests.InvoiceKit;
 
 namespace Potel.Api.Tests;
 
-// Dubbelklikken of twee tabbladen: gelijktijdige verzoeken mogen uren nooit twee keer factureren en nooit hetzelfde nummer geven.
-public class InvoiceRaceTests(PortalFactory factory) : IClassFixture<PortalFactory>
+// Telt de verzoeken die uren op een factuur zetten zodra ze binnenkomen, zodat een test weet dat ze echt tegelijk lopen.
+public class RaceFactory : PortalFactory
 {
+    readonly Lock sync = new();
+    readonly List<(int Total, TaskCompletionSource Done)> waiting = [];
+
+    public int Arrivals { get; private set; }
+
+    public Task ArrivedAsync(int total)
+    {
+        lock (sync)
+        {
+            if (Arrivals >= total) return Task.CompletedTask;
+            var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            waiting.Add((total, done));
+            return done.Task;
+        }
+    }
+
+    void Arrive()
+    {
+        lock (sync)
+        {
+            Arrivals++;
+            foreach (var w in waiting.Where(w => Arrivals >= w.Total).ToList())
+            {
+                w.Done.TrySetResult();
+                waiting.Remove(w);
+            }
+        }
+    }
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureTestServices(s => s.AddSingleton<IStartupFilter>(new ArrivalFilter(this)));
+    }
+
+    sealed class ArrivalFilter(RaceFactory factory) : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            app.Use(async (http, go) =>
+            {
+                var path = http.Request.Path.Value ?? "";
+                if (HttpMethods.IsPost(http.Request.Method) && (path.EndsWith("/hours") || path.EndsWith("/invoice"))) factory.Arrive();
+                await go();
+            });
+            next(app);
+        };
+    }
+}
+
+// Dubbelklikken of twee tabbladen: gelijktijdige verzoeken mogen uren nooit twee keer factureren en nooit hetzelfde nummer geven.
+public class InvoiceRaceTests(RaceFactory factory) : IClassFixture<RaceFactory>
+{
+    // De verzoeken komen binnen terwijl de test zelf de schrijfblokkade van SQLite vasthoudt; pas als ze er allemaal zijn,
+    // laten we los. Zo lopen ze gegarandeerd tegelijk, in plaats van dat we in een lus op toeval hopen.
+    async Task<HttpResponseMessage?[]> TogetherAsync(params Func<Task<HttpResponseMessage>>[] requests)
+    {
+        await using var hold = new SqliteConnection($"Data Source={factory.DatabasePath}");
+        await hold.OpenAsync();
+        await ExecAsync(hold, "BEGIN IMMEDIATE");
+        var arrived = factory.ArrivedAsync(factory.Arrivals + requests.Length);
+        var sent = requests.Select(SafeSend).ToArray();
+        try
+        {
+            // Ruim korter dan de 30 seconden die een verzoek op de blokkade wacht. Komen ze later binnen, dan lopen ze na
+            // elkaar; de uitkomst moet dan precies hetzelfde zijn.
+            await Task.WhenAny(arrived, Task.Delay(TimeSpan.FromSeconds(10)));
+            await Task.Delay(200);
+        }
+        finally
+        {
+            await ExecAsync(hold, "ROLLBACK");
+        }
+        return await Task.WhenAll(sent);
+    }
+
+    static async Task ExecAsync(SqliteConnection connection, string sql)
+    {
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = sql;
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    static Func<Task<HttpResponseMessage>> AddHours(HttpClient c, int invoiceId, int projectId) =>
+        () => c.PostAsJsonAsync($"/api/invoices/{invoiceId}/hours", new { projectId, detailed = false });
+
+    // Precies één verzoek lukt; de ander krijgt een nette melding, geen serverfout en geen time-out.
+    static HttpResponseMessage Winner(HttpResponseMessage?[] results)
+    {
+        Assert.All(results, r => Assert.NotNull(r));
+        foreach (var r in results.Where(r => !r!.IsSuccessStatusCode))
+            Assert.True(r!.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Conflict, $"Het tweede verzoek gaf {(int)r.StatusCode}");
+        return Assert.Single(results, r => r!.IsSuccessStatusCode)!;
+    }
+
+    static async Task AssertNoOpenHoursAsync(HttpClient c, int projectId) =>
+        Assert.Empty((await c.GetFromJsonAsync<List<System.Text.Json.JsonElement>>($"/api/time?projectId={projectId}&open=true"))!);
+
     [Fact]
     public async Task Two_requests_adding_the_same_hours_bill_them_only_once()
     {
         var c = await ReadyAsync(factory, "race-hours");
         var customerId = await CustomerAsync(c);
-        decimal worst = 0;
-        for (var round = 0; round < 8 && worst == 0; round++)
-        {
-            var projectId = await ProjectAsync(c, customerId, 95, $"P{round}");
-            await TimeAsync(c, projectId, 90, "2026-10-01", count: 20); // 30 uur
-            var invoiceId = await InvoiceAsync(c, customerId, "concept", 1, 100);
-            await Task.WhenAll(Enumerable.Range(0, 2).Select(_ =>
-                SafeSend(() => c.PostAsJsonAsync($"/api/invoices/{invoiceId}/hours", new { projectId, detailed = false }))));
-            var billed = HourQuantity(await GetInvoiceAsync(c, invoiceId));
-            if (billed != 30m) worst = billed;
-        }
-        Assert.True(worst == 0, $"30 open uren zijn als {worst} uur gefactureerd");
+
+        // Dubbelklik: twee keer dezelfde uren op dezelfde conceptfactuur.
+        var projectId = await ProjectAsync(c, customerId, 95, "Dubbelklik");
+        await TimeAsync(c, projectId, 90, "2026-10-01", count: 4); // 6 uur
+        var invoiceId = await InvoiceAsync(c, customerId, "concept", 1, 100);
+        Assert.Equal(HttpStatusCode.OK, Winner(await TogetherAsync(AddHours(c, invoiceId, projectId), AddHours(c, invoiceId, projectId))).StatusCode);
+        Assert.Equal(6m, HourQuantity(await GetInvoiceAsync(c, invoiceId)));
+        await AssertNoOpenHoursAsync(c, projectId);
+
+        // Twee tabbladen: dezelfde uren tegelijk op twee verschillende concepten.
+        projectId = await ProjectAsync(c, customerId, 95, "Twee tabbladen");
+        await TimeAsync(c, projectId, 90, "2026-10-01", count: 4);
+        var first = await InvoiceAsync(c, customerId, "concept", 1, 100);
+        var second = await InvoiceAsync(c, customerId, "concept", 1, 100);
+        Winner(await TogetherAsync(AddHours(c, first, projectId), AddHours(c, second, projectId)));
+        Assert.Equal(6m, HourQuantity(await GetInvoiceAsync(c, first)) + HourQuantity(await GetInvoiceAsync(c, second)));
+        await AssertNoOpenHoursAsync(c, projectId);
+
+        // Uren op een concept zetten terwijl je vanaf het project een nieuwe factuur maakt.
+        projectId = await ProjectAsync(c, customerId, 95, "Vanaf het project");
+        await TimeAsync(c, projectId, 90, "2026-10-01", count: 4);
+        invoiceId = await InvoiceAsync(c, customerId, "concept", 1, 100);
+        var winner = Winner(await TogetherAsync(AddHours(c, invoiceId, projectId),
+            () => c.PostAsJsonAsync($"/api/projects/{projectId}/invoice", new { detailed = false })));
+        var billed = HourQuantity(await GetInvoiceAsync(c, invoiceId));
+        if (winner.StatusCode == HttpStatusCode.Created) billed += HourQuantity(await GetInvoiceAsync(c, (await Json(winner)).GetProperty("id").GetInt32()));
+        Assert.Equal(6m, billed);
+        await AssertNoOpenHoursAsync(c, projectId);
     }
 
     [Fact]

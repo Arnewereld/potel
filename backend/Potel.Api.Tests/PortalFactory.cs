@@ -1,14 +1,28 @@
 using System.Net.Http.Json;
+using System.Runtime.CompilerServices;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Potel.Api.Data;
 
 namespace Potel.Api.Tests;
 
+// Testhosts houden appsettings.json niet in de gaten. xUnit start vrijwel alle testklassen tegelijk, dus tientallen hosts
+// (bij een gewone volledige run tot 77), en elke bestandswachter kost een inotify-instantie. Linux geeft er standaard 128 per
+// gebruiker; onder belasting of met een tweede proces erbij raakten ze op en startte een willekeurige host niet meer.
+static class TestHostSetup
+{
+#pragma warning disable CA2255 // Hoort zo: dit moet gebeuren voordat de eerste host start.
+    [ModuleInitializer]
+#pragma warning restore CA2255
+    internal static void WithoutConfigWatchers() => Environment.SetEnvironmentVariable("DOTNET_hostBuilder__reloadConfigOnChange", "false");
+}
+
 // Start de echte API met een eigen, tijdelijke database per testklasse.
 public class PortalFactory : WebApplicationFactory<Program>
 {
     readonly string dbPath = Path.Combine(Path.GetTempPath(), $"potel-test-{Guid.NewGuid():N}.db");
+
+    public string DatabasePath => dbPath;
 
     protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
     {
