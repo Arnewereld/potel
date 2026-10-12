@@ -1046,3 +1046,16 @@ a.btn { text-decoration: none; color: inherit; display: inline-flex; align-items
   .portal-row .grow { flex-basis: 55%; }
 }
 .portal-created { margin-top: 14px; padding: 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); display: grid; gap: 10px; }
+
+/* Urenvoorstellen uit GitHub */
+.gh-list { display: grid; gap: 12px; }
+.gh-suggestion { padding: 14px 16px; display: grid; gap: 10px; box-shadow: none; }
+.gh-fields { display: grid; grid-template-columns: minmax(0, 2fr) minmax(90px, 1fr) auto; gap: 10px; align-items: end; }
+.gh-fields .check-row { padding-bottom: 8px; }
+.gh-commits summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+.gh-commits ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; display: grid; gap: 4px; }
+.gh-commits code { font-size: 12px; }
+@media (max-width: 640px) {
+  .gh-fields { grid-template-columns: 1fr 1fr; }
+  .gh-fields .field:first-child { grid-column: 1 / -1; }
+}

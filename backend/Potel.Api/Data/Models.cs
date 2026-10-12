@@ -565,6 +565,42 @@ public class PortalLink : IWorkspaceOwned
     public bool Works(DateTime utcNow) => RevokedAt is null && (ExpiresAt is not { } end || end > utcNow);
 }
 
+// De koppeling met GitHub van een werkruimte. Het persoonlijke toegangstoken staat versleuteld met ASP.NET Data Protection
+// in de database en gaat nooit terug naar de browser; daar zie je alleen dat het is ingesteld en de laatste 4 tekens.
+public class GitHubSettings : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public string ProtectedToken { get; set; } = "";
+    public string TokenLast4 { get; set; } = "";
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public string? UpdatedBy { get; set; }
+}
+
+// Met welke e-mailadressen een gebruiker commit. Zonder rij gebruiken we het e-mailadres van zijn account.
+public class GitHubAuthor : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int UserId { get; set; }
+    // Eén adres per regel.
+    public string Emails { get; set; } = "";
+}
+
+// Een commit die als uren geboekt of overgeslagen is. Zo komt dezelfde commit nooit twee keer als voorstel.
+public class GitHubCommit : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public string Sha { get; set; } = "";
+    public int ProjectId { get; set; }
+    // De boeking met deze commit; leeg als hij is overgeslagen of als de boeking later is verwijderd.
+    public int? TimeEntryId { get; set; }
+    public bool Skipped { get; set; }
+    public int? UserId { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
 // Automatische herinneringen bij te late facturen: aan of uit, hoeveel dagen na de vervaldatum elke stap komt, en de teksten.
 // Een lege tekst betekent de standaardtekst (Invoicing/MailTemplates.cs), zodat verbeteringen daarin vanzelf meekomen.
 public class ReminderSettings : IWorkspaceOwned

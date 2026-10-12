@@ -571,3 +571,47 @@ export interface PublicPortal {
   invoices?: PortalInvoice[] | null
   expiresAt?: string | null
 }
+
+// Urenvoorstellen uit GitHub. Het token zelf komt nooit naar de browser, alleen de laatste 4 tekens.
+export interface GitHubRules {
+  gapMinutes: number
+  firstCommitMinutes: number
+  roundToMinutes: number
+  maxMinutesPerDay: number
+}
+
+export interface GitHubSettings {
+  token: { last4: string; updatedAt: string; updatedBy?: string | null } | null
+  emails: string[]
+  accountEmail: string
+  rules: GitHubRules
+}
+
+export interface GitHubCommitSuggestion {
+  sha: string
+  message: string
+  time: string
+  url?: string | null
+}
+
+export interface GitHubSuggestion {
+  key: string
+  projectId: number
+  projectName: string
+  repo: string
+  date: string
+  minutes: number
+  description: string
+  commits: GitHubCommitSuggestion[]
+}
+
+export interface GitHubSuggestions {
+  from: string
+  to: string
+  emails: string[]
+  suggestions: GitHubSuggestion[]
+  problems: { project: string; repo: string; message: string }[]
+  truncated: string[]
+  skippedRepos: string[]
+  rules: GitHubRules
+}

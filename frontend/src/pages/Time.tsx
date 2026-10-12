@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Timer, Plus, ChevronLeft, ChevronRight, Lock, Euro, CalendarCheck, Target } from 'lucide-react'
+import { Timer, Plus, ChevronLeft, ChevronRight, Lock, Euro, CalendarCheck, Target, GitCommitHorizontal } from 'lucide-react'
 import { useApi } from '../lib/useApi'
 import type { Project, Settings, TimeEntry } from '../lib/types'
 import { euro, hm, hours, parseDate, toDateInput, weekNumber, weekStart } from '../lib/format'
@@ -8,6 +8,7 @@ import { useOnTimeChanged } from '../lib/timer'
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/ui'
 import { TimerCard } from '../components/TimerCard'
 import { TimeEntryForm } from '../components/TimeEntryForm'
+import { GitHubSuggestionsModal } from '../components/GitHub'
 
 const dayNames = ['ma', 'di', 'wo', 'do', 'vr', 'za', 'zo']
 
@@ -18,6 +19,7 @@ export function TimePage() {
   const { data: projects, reload: reloadProjects } = useApi<Project[]>('/projects')
   const { data: settings } = useApi<Settings>('/settings')
   const [editing, setEditing] = useState<{ entry?: TimeEntry; date?: string; projectId?: number } | null>(null)
+  const [suggesting, setSuggesting] = useState(false)
   const navigate = useNavigate()
 
   useOnTimeChanged(useCallback(() => { reload(true); reloadProjects(true) }, [reload, reloadProjects]))
@@ -63,6 +65,7 @@ export function TimePage() {
             <button className="btn" disabled={isThisWeek} onClick={() => setMonday(weekStart(new Date()))}>Deze week</button>
             <button className="btn" onClick={() => shift(1)} aria-label="Volgende week"><ChevronRight size={16} /></button>
           </div>
+          <button className="btn" onClick={() => setSuggesting(true)}><GitCommitHorizontal size={16} /> Voorstellen uit GitHub</button>
           <button className="btn btn-primary" onClick={() => setEditing({ date: isThisWeek ? today : days[0] })}><Plus size={16} /> Uren boeken</button>
         </>}
       />
@@ -159,6 +162,7 @@ export function TimePage() {
         <TimeEntryForm entry={editing.entry} date={editing.date} projectId={editing.projectId}
           onClose={() => setEditing(null)} onSaved={() => setEditing(null)} />
       )}
+      {suggesting && <GitHubSuggestionsModal day={isThisWeek ? today : days[0]} onClose={() => setSuggesting(false)} />}
     </>
   )
 }

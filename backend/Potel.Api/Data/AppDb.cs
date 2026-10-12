@@ -35,6 +35,9 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
     public DbSet<ReminderSettings> ReminderSettings => Set<ReminderSettings>();
     public DbSet<CustomerPortal> CustomerPortals => Set<CustomerPortal>();
     public DbSet<PortalLink> PortalLinks => Set<PortalLink>();
+    public DbSet<GitHubSettings> GitHubSettings => Set<GitHubSettings>();
+    public DbSet<GitHubAuthor> GitHubAuthors => Set<GitHubAuthor>();
+    public DbSet<GitHubCommit> GitHubCommits => Set<GitHubCommit>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -96,6 +99,13 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         b.Entity<CustomerPortal>().HasIndex(p => p.CustomerId).IsUnique();
         b.Entity<PortalLink>().HasOne<Customer>().WithMany().HasForeignKey(l => l.CustomerId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<PortalLink>().HasIndex(l => l.TokenHash).IsUnique();
+        // GitHub: één token per werkruimte, één rij met adressen per gebruiker, en elke commit hooguit één keer per werkruimte.
+        b.Entity<GitHubSettings>().HasIndex(g => g.WorkspaceId).IsUnique();
+        b.Entity<GitHubAuthor>().HasOne<User>().WithMany().HasForeignKey(a => a.UserId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<GitHubAuthor>().HasIndex(a => a.UserId).IsUnique();
+        b.Entity<GitHubCommit>().HasOne<Project>().WithMany().HasForeignKey(c => c.ProjectId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<GitHubCommit>().HasOne<TimeEntry>().WithMany().HasForeignKey(c => c.TimeEntryId).OnDelete(DeleteBehavior.SetNull);
+        b.Entity<GitHubCommit>().HasIndex(c => new { c.WorkspaceId, c.Sha }).IsUnique();
         FilterByWorkspace(b);
     }
 
@@ -107,6 +117,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         Filter<User>(b); Filter<WorkflowRun>(b); Filter<AccountToken>(b); Filter<MolliePayment>(b);
         Filter<Expense>(b); Filter<ExpenseReceipt>(b); Filter<RecurringInvoice>(b);
         Filter<InvoiceMail>(b); Filter<InvoiceLink>(b); Filter<ReminderSettings>(b); Filter<CustomerPortal>(b); Filter<PortalLink>(b);
+        Filter<GitHubSettings>(b); Filter<GitHubAuthor>(b); Filter<GitHubCommit>(b);
     }
 
     void Filter<T>(ModelBuilder b) where T : class, IWorkspaceOwned

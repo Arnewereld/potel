@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Potel.Api.Data;
 using Potel.Api.Endpoints;
+using Potel.Api.Integrations;
 using Potel.Api.Invoicing;
 using Potel.Api.Payments;
 using Potel.Api.Workflows;
@@ -121,6 +122,12 @@ builder.Services.AddHttpClient<MollieClient>(c =>
     c.Timeout = TimeSpan.FromSeconds(20);
 });
 builder.Services.AddScoped<MollieBilling>();
+// Urenvoorstellen uit GitHub: alleen naar api.github.com, met een tijdslimiet, een maximale grootte en zonder doorverwijzingen.
+builder.Services.AddHttpClient<GitHubClient>(c =>
+{
+    c.Timeout = GitHubClient.Timeout;
+    c.MaxResponseContentBufferSize = GitHubClient.MaxResponseBytes;
+}).ConfigurePrimaryHttpMessageHandler(GitHubClient.CreateHandler);
 // Terugkerende facturen. De planner hieronder zet ze per werkruimte klaar (IWorkspaceJob).
 builder.Services.Configure<InvoicingLimits>(builder.Configuration.GetSection("Invoicing"));
 builder.Services.AddScoped<RecurringInvoiceService>();
@@ -190,7 +197,7 @@ app.UseRateLimiter();
 // Na een verlopen proefperiode, of als een abonnement is afgelopen of niet betaald, kun je nog alles bekijken en exporteren,
 // maar niets meer wijzigen tot je (weer) een abonnement kiest. Wel mag je nog inloggen, je wachtwoord wijzigen of herstellen,
 // je e-mailadres bevestigen (alles onder /api/auth), betalen of opzeggen (/api/billing), gebruikers uitschakelen of
-// verwijderen, een link naar het klantportaal intrekken, de welkomstwizard sluiten en je werkruimte verwijderen.
+// verwijderen, een link naar het klantportaal intrekken, het GitHub-token weghalen, de welkomstwizard sluiten en je werkruimte verwijderen.
 // Openbare pagina's (/api/public) werken gewoon.
 // Al het andere is dicht, ook wat hier later bijkomt.
 static bool WritableAfterTrial(HttpRequest r)
@@ -200,6 +207,7 @@ static bool WritableAfterTrial(HttpRequest r)
     if (r.Path.StartsWithSegments("/api/public")) return true;
     if (r.Path.StartsWithSegments("/api/users", out var user) && user.HasValue && (HttpMethods.IsPut(r.Method) || HttpMethods.IsDelete(r.Method))) return true;
     if (CustomerPortalEndpoints.IsRevoke(r)) return true;
+    if (GitHubEndpoints.IsRemoveToken(r)) return true;
     if (r.Path.StartsWithSegments("/api/workspace", out var rest))
         return (HttpMethods.IsDelete(r.Method) && (!rest.HasValue || rest == "/"))
                || (HttpMethods.IsPost(r.Method) && rest.Equals("/onboarded", StringComparison.OrdinalIgnoreCase));
@@ -231,6 +239,7 @@ api.MapUsers();
 api.MapDashboard();
 api.MapCustomers();
 api.MapCustomerPortal();
+api.MapGitHub();
 api.MapLeads();
 api.MapInvoices();
 api.MapRecurringInvoices();

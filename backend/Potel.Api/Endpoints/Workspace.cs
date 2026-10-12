@@ -221,6 +221,10 @@ public static partial class WorkspaceEndpoints
             await Write("invoiceMails", await db.InvoiceMails.OrderBy(m => m.Id).ToListAsync());
             await Write("reminderSettings", await db.ReminderSettings.FirstOrDefaultAsync());
             await Write("customerPortals", await db.CustomerPortals.OrderBy(p => p.Id).ToListAsync());
+            // Het GitHub-token zelf gaat nooit mee, alleen de laatste 4 tekens.
+            await Write("github", await db.GitHubSettings.FirstOrDefaultAsync());
+            await Write("githubAuthors", await db.GitHubAuthors.OrderBy(a => a.Id).ToListAsync());
+            await Write("githubCommits", await db.GitHubCommits.OrderBy(c => c.Id).ToListAsync());
             await Write("expenses", await db.Expenses.OrderBy(e => e.Id).ToListAsync());
             await Write("leads", await db.Leads.ToListAsync());
             await Write("appointments", await db.Appointments.ToListAsync());
@@ -274,6 +278,9 @@ public static partial class WorkspaceEndpoints
             await db.InvoiceLinks.ExecuteDeleteAsync();
             await db.PortalLinks.ExecuteDeleteAsync();
             await db.CustomerPortals.ExecuteDeleteAsync();
+            await db.GitHubCommits.ExecuteDeleteAsync();
+            await db.GitHubAuthors.ExecuteDeleteAsync();
+            await db.GitHubSettings.ExecuteDeleteAsync();
             db.TimeEntries.RemoveRange(db.TimeEntries);
             db.Invoices.RemoveRange(db.Invoices);
             await db.SaveChangesAsync();

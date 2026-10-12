@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Pencil, Trash2, Clock, Receipt, Info, Plus, GitBranch, Lock, FileText, Euro, Gauge, CalendarClock } from 'lucide-react'
+import { Pencil, Trash2, Clock, Receipt, Info, Plus, GitBranch, GitCommitHorizontal, Lock, FileText, Euro, Gauge, CalendarClock } from 'lucide-react'
 import { useApi } from '../lib/useApi'
 import { api } from '../lib/api'
 import { useTabs, useTabTitle } from '../lib/tabs'
@@ -12,9 +12,13 @@ import { invoiceStatuses, projectStatuses } from '../lib/status'
 import { Badge, Empty, ErrorBox, Loading, Modal, SubTabs } from '../components/ui'
 import { ProjectForm } from '../components/ProjectForm'
 import { TimeEntryForm } from '../components/TimeEntryForm'
+import { GitHubSuggestionsModal } from '../components/GitHub'
 import { MiniStat } from './Time'
 
 type TabId = 'uren' | 'facturen' | 'info'
+
+// Een link naar één repository op github.com, zoals de server die accepteert voor de urenvoorstellen.
+const isGitHubRepo = (url?: string | null) => !!url && /^https:\/\/(www\.)?github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9._-]+\/?$/i.test(url.trim())
 
 export function ProjectDetailPage() {
   const { id } = useParams()
@@ -25,6 +29,7 @@ export function ProjectDetailPage() {
   const [editing, setEditing] = useState(false)
   const [entry, setEntry] = useState<{ entry?: TimeEntry } | null>(null)
   const [invoicing, setInvoicing] = useState(false)
+  const [suggesting, setSuggesting] = useState(false)
   const navigate = useNavigate()
   const { close } = useTabs()
   const toast = useToast()
@@ -65,7 +70,7 @@ export function ProjectDetailPage() {
             <a className="row" onClick={() => navigate(`/klanten/${project.customerId}`)} style={{ cursor: 'pointer' }}>{project.customerName}</a>
             <span>{project.billing === 'uur' ? `${euro(project.hourlyRate)} per uur` : `Vaste prijs ${euro(project.fixedPrice)}`}</span>
             {project.deadline && <span className="row"><CalendarClock size={14} /> Deadline {date(project.deadline)}</span>}
-            {project.repoUrl && <a className="row" href={project.repoUrl} target="_blank" rel="noreferrer"><GitBranch size={14} /> Repository</a>}
+            {/^https?:\/\//i.test(project.repoUrl ?? '') && <a className="row" href={project.repoUrl!} target="_blank" rel="noreferrer"><GitBranch size={14} /> Repository</a>}
           </div>
         </div>
         <div className="row">
@@ -100,7 +105,13 @@ export function ProjectDetailPage() {
 
       {tab === 'uren' && (
         <div className="card">
-          <div className="card-head"><h3>Boekingen</h3><button className="btn btn-sm btn-primary" onClick={() => setEntry({})}><Plus size={14} /> Uren boeken</button></div>
+          <div className="card-head">
+            <h3>Boekingen</h3>
+            <div className="row" style={{ gap: 8 }}>
+              {isGitHubRepo(project.repoUrl) && <button className="btn btn-sm" onClick={() => setSuggesting(true)}><GitCommitHorizontal size={14} /> Voorstellen uit GitHub</button>}
+              <button className="btn btn-sm btn-primary" onClick={() => setEntry({})}><Plus size={14} /> Uren boeken</button>
+            </div>
+          </div>
           {!entries?.length ? <Empty icon={<Clock size={22} />} title="Nog geen uren op dit project" /> : (
             <div className="table-wrap" style={{ marginTop: 10 }}>
               <table>
@@ -160,6 +171,7 @@ export function ProjectDetailPage() {
       {editing && <ProjectForm project={project} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); reload(true) }} />}
       {entry && <TimeEntryForm entry={entry.entry} projectId={project.id} onClose={() => setEntry(null)} onSaved={() => setEntry(null)} />}
       {invoicing && <InvoiceHoursModal project={project} onClose={() => setInvoicing(false)} />}
+      {suggesting && <GitHubSuggestionsModal projectId={project.id} onClose={() => setSuggesting(false)} />}
     </>
   )
 }

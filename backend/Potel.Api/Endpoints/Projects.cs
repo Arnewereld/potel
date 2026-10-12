@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Potel.Api.Data;
+using Potel.Api.Integrations;
 
 namespace Potel.Api.Endpoints;
 
@@ -98,7 +99,9 @@ public static class ProjectEndpoints
         return q.OrderBy(t => t.Date).ThenBy(t => t.Id).ToListAsync();
     }
 
-    static string? Validate(AppDb db, Project input)
+    // Bij wijzigen geeft de aanroeper de opgeslagen repository-link mee: een oude link die niet aan de regels voldoet,
+    // houdt het opslaan van de rest van het project niet tegen zolang hij niet verandert.
+    static string? Validate(AppDb db, Project input, string? storedRepoUrl = null)
     {
         if (string.IsNullOrWhiteSpace(input.Name)) return "Naam is verplicht";
         if (!db.Customers.Any(c => c.Id == input.CustomerId)) return "Kies een klant";
@@ -107,8 +110,24 @@ public static class ProjectEndpoints
         if (input.HourlyRate < 0 || input.FixedPrice < 0 || input.BudgetHours < 0) return "Bedragen en uren kunnen niet negatief zijn";
         // Zo past een factuurregel van dit project altijd (zie Money.MaxAmount).
         if (input.HourlyRate > Money.MaxAmount || input.FixedPrice > Money.MaxAmount) return "Dat bedrag is te groot";
+        if (storedRepoUrl is not null && CleanRepoUrl(input.RepoUrl) == storedRepoUrl) return null;
+        return RepoUrlProblem(input.RepoUrl);
+    }
+
+    // De repository-link: leeg, of een gewone https-link. Een link naar github.com moet precies naar één repository wijzen
+    // (https://github.com/eigenaar/naam), want daar haalt Potel de commits voor de urenvoorstellen op.
+    public static string? RepoUrlProblem(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return null;
+        url = url.Trim();
+        if (url.Length > 300 || !Uri.TryCreate(url, UriKind.Absolute, out var u) || u.Scheme is not ("https" or "http") || !string.IsNullOrEmpty(u.UserInfo))
+            return "Vul bij repository een gewone link in die begint met https://, of laat het veld leeg.";
+        if (GitHubRepo.LooksLikeGitHub(url) && GitHubRepo.Parse(url) is null)
+            return "Een GitHub-link moet naar één repository wijzen, zoals https://github.com/eigenaar/repository.";
         return null;
     }
+
+    static string? CleanRepoUrl(string? url) => string.IsNullOrWhiteSpace(url) ? null : url.Trim();
 
     public static void MapProjects(this RouteGroupBuilder api)
     {
@@ -128,7 +147,7 @@ public static class ProjectEndpoints
             {
                 Name = input.Name.Trim(), CustomerId = input.CustomerId, Status = input.Status, Billing = input.Billing,
                 HourlyRate = input.HourlyRate, FixedPrice = input.FixedPrice, BudgetHours = input.BudgetHours, Color = input.Color,
-                RepoUrl = input.RepoUrl, Description = input.Description, Deadline = input.Deadline,
+                RepoUrl = CleanRepoUrl(input.RepoUrl), Description = input.Description, Deadline = input.Deadline,
             };
             db.Projects.Add(p);
             db.Log("project", $"Project {p.Name} gestart");
@@ -140,11 +159,11 @@ public static class ProjectEndpoints
         {
             var p = await db.Projects.FindAsync(id);
             if (p is null) return Results.NotFound();
-            if (Validate(db, input) is { } error) return Results.BadRequest(new { error });
+            if (Validate(db, input, p.RepoUrl) is { } error) return Results.BadRequest(new { error });
             if (p.Status != input.Status) db.Log("project", $"Project {p.Name}: {p.Status} → {input.Status}");
             p.Name = input.Name.Trim(); p.CustomerId = input.CustomerId; p.Status = input.Status; p.Billing = input.Billing;
             p.HourlyRate = input.HourlyRate; p.FixedPrice = input.FixedPrice; p.BudgetHours = input.BudgetHours; p.Color = input.Color;
-            p.RepoUrl = input.RepoUrl; p.Description = input.Description; p.Deadline = input.Deadline;
+            p.RepoUrl = CleanRepoUrl(input.RepoUrl); p.Description = input.Description; p.Deadline = input.Deadline;
             await db.SaveChangesAsync();
             return Results.Ok(p);
         });
