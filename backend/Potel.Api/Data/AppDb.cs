@@ -30,6 +30,9 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
     public DbSet<ExpenseReceipt> ExpenseReceipts => Set<ExpenseReceipt>();
     public DbSet<RecurringInvoice> RecurringInvoices => Set<RecurringInvoice>();
     public DbSet<RecurringInvoiceLine> RecurringInvoiceLines => Set<RecurringInvoiceLine>();
+    public DbSet<InvoiceMail> InvoiceMails => Set<InvoiceMail>();
+    public DbSet<InvoiceLink> InvoiceLinks => Set<InvoiceLink>();
+    public DbSet<ReminderSettings> ReminderSettings => Set<ReminderSettings>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -74,6 +77,15 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         b.Entity<RecurringInvoice>().HasMany(r => r.Lines).WithOne().HasForeignKey(l => l.RecurringInvoiceId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<RecurringInvoice>().HasIndex(r => new { r.Active, r.NextRunDate });
         b.Entity<Invoice>().HasIndex(i => new { i.RecurringInvoiceId, i.RecurringPeriodStart }).IsUnique();
+        // Mails en links horen bij een factuur en gaan mee als die weggaat (alleen een concept of voorbeeld kan weg).
+        b.Entity<InvoiceMail>().HasOne<Invoice>().WithMany().HasForeignKey(m => m.InvoiceId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<InvoiceMail>().HasIndex(m => m.InvoiceId);
+        b.Entity<InvoiceMail>().HasIndex(m => new { m.InvoiceId, m.Step }).IsUnique()
+            .HasFilter($"\"Automatic\" = 1 AND \"Status\" IN ('{MailStatus.Sending}', '{MailStatus.Sent}')")
+            .HasDatabaseName("IX_InvoiceMails_OneAutomaticPerStep");
+        b.Entity<InvoiceLink>().HasOne<Invoice>().WithMany().HasForeignKey(l => l.InvoiceId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<InvoiceLink>().HasIndex(l => l.TokenHash).IsUnique();
+        b.Entity<ReminderSettings>().HasIndex(r => r.WorkspaceId).IsUnique();
         FilterByWorkspace(b);
     }
 
@@ -84,6 +96,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         Filter<Settings>(b); Filter<CustomModule>(b); Filter<CustomRecord>(b); Filter<Workflow>(b); Filter<Activity>(b);
         Filter<User>(b); Filter<WorkflowRun>(b); Filter<AccountToken>(b); Filter<MolliePayment>(b);
         Filter<Expense>(b); Filter<ExpenseReceipt>(b); Filter<RecurringInvoice>(b);
+        Filter<InvoiceMail>(b); Filter<InvoiceLink>(b); Filter<ReminderSettings>(b);
     }
 
     void Filter<T>(ModelBuilder b) where T : class, IWorkspaceOwned

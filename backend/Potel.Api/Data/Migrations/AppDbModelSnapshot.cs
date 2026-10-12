@@ -238,6 +238,9 @@ namespace Potel.Api.Data.Migrations
                     b.Property<string>("Phone")
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("RemindersOff")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("VatNumber")
                         .HasColumnType("TEXT");
 
@@ -399,6 +402,9 @@ namespace Potel.Api.Data.Migrations
                     b.Property<string>("Reference")
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("RemindersOff")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime?>("SentAt")
                         .HasColumnType("TEXT");
 
@@ -466,6 +472,102 @@ namespace Potel.Api.Data.Migrations
                     b.HasIndex("InvoiceId");
 
                     b.ToTable("InvoiceLines");
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.InvoiceLink", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("InvoiceId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("LastOpenedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Opens")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InvoiceId");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.ToTable("InvoiceLinks");
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.InvoiceMail", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("Automatic")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("InvoiceId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Note")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("SentAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SentBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Step")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("To")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InvoiceId");
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.HasIndex("InvoiceId", "Step")
+                        .IsUnique()
+                        .HasDatabaseName("IX_InvoiceMails_OneAutomaticPerStep")
+                        .HasFilter("\"Automatic\" = 1 AND \"Status\" IN ('bezig', 'verstuurd')");
+
+                    b.ToTable("InvoiceMails");
                 });
 
             modelBuilder.Entity("Potel.Api.Data.Lead", b =>
@@ -761,6 +863,62 @@ namespace Potel.Api.Data.Migrations
                     b.HasIndex("RecurringInvoiceId");
 
                     b.ToTable("RecurringInvoiceLines");
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.ReminderSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("FinalBody")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("FinalDays")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("FinalSubject")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FirstBody")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("FirstDays")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("FirstSubject")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("InvoiceBody")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("InvoiceSubject")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LastNotice")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SecondBody")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SecondDays")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SecondSubject")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WorkspaceId")
+                        .IsUnique();
+
+                    b.ToTable("ReminderSettings");
                 });
 
             modelBuilder.Entity("Potel.Api.Data.Settings", b =>
@@ -1269,6 +1427,24 @@ namespace Potel.Api.Data.Migrations
                 {
                     b.HasOne("Potel.Api.Data.Invoice", null)
                         .WithMany("Lines")
+                        .HasForeignKey("InvoiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.InvoiceLink", b =>
+                {
+                    b.HasOne("Potel.Api.Data.Invoice", null)
+                        .WithMany()
+                        .HasForeignKey("InvoiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.InvoiceMail", b =>
+                {
+                    b.HasOne("Potel.Api.Data.Invoice", null)
+                        .WithMany()
                         .HasForeignKey("InvoiceId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();

@@ -455,7 +455,7 @@ function RunDialog({ nodes, onClose, onRun }: { nodes: WorkflowNode[]; onClose: 
   const { data: invoices } = useApi<Invoice[]>('/invoices')
   const [leadId, setLeadId] = useState(0)
   const [invoiceId, setInvoiceId] = useState(0)
-  const wantsInvoice = nodes.some(n => n.type === 'trigger.paid' || (n.type === 'action.status' && n.config?.target === 'invoice'))
+  const wantsInvoice = nodes.some(n => n.type === 'trigger.paid' || n.type === 'trigger.overdue' || (n.type === 'action.status' && n.config?.target === 'invoice'))
 
   return (
     <Modal title="Werkstroom uitvoeren" onClose={onClose} footer={<>

@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Potel.Api.Data;
 using Potel.Api.Endpoints;
+using Potel.Api.Workflows;
 
 namespace Potel.Api.Invoicing;
 
@@ -14,7 +15,8 @@ public record RecurringResult(RecurringOutcome Outcome, Invoice? Invoice = null,
 // Maakt facturen van terugkerende facturen: per periode precies één, ook na een herstart of als twee rondes tegelijk lopen.
 // Dat bewaken drie dingen samen: een WriteLock (één schrijver tegelijk), de controle dat de volgende periode nog dezelfde is
 // als waarvoor we begonnen, en de unieke index op terugkerende factuur en begin van de periode.
-public class RecurringInvoiceService(AppDb db, BusinessClock clock, IOptions<InvoicingLimits> options, ILogger<RecurringInvoiceService> logger)
+public class RecurringInvoiceService(AppDb db, BusinessClock clock, IOptions<InvoicingLimits> options, IOptions<WorkflowLimits> mailLimits,
+    InvoiceMailer mailer, AppUrls urls, IHttpContextAccessor http, ILogger<RecurringInvoiceService> logger)
 {
     readonly InvoicingLimits limits = options.Value;
 
@@ -141,17 +143,56 @@ public class RecurringInvoiceService(AppDb db, BusinessClock clock, IOptions<Inv
             await tx.CommitAsync();
         }
 
-        var fallback = t.Action == RecurringActions.Send ? await SendAsync(inv, t) : null;
-        return new(RecurringOutcome.Created, inv, fallback);
+        if (t.Action != RecurringActions.Send) return new(RecurringOutcome.Created, inv);
+        var fallback = await SendAsync(inv.Id, t);
+        return new(RecurringOutcome.Created, await db.Invoices.AsNoTracking().FirstAsync(i => i.Id == inv.Id), fallback);
     }
 
-    // "Direct versturen": kan pas als Potel facturen zelf kan mailen. Tot die tijd blijft het een concept, met de reden in het logboek.
-    async Task<string?> SendAsync(Invoice inv, RecurringInvoice t)
+    // "Direct versturen": de factuur krijgt een nummer en gaat per e-mail naar de klant. Kan dat niet (geen mailserver, geen
+    // bevestigd e-mailadres van de beheerder, geen geldig adres bij de klant, ontbrekende factuurgegevens of de daglimiet is
+    // op), dan blijft hij een concept en staat in het logboek waarom. Geeft die reden terug, of null als hij verstuurd is.
+    async Task<string?> SendAsync(int invoiceId, RecurringInvoice t)
     {
-        const string reason = "Potel kan facturen nog niet zelf per e-mail versturen";
-        db.Log("factuur", $"Terugkerende factuur \"{t.Name}\": de factuur staat als concept klaar en is niet verstuurd. {reason}.");
+        // Bij "Nu aanmaken" mag het adres in ontwikkelmodus van het verzoek komen; op de achtergrond alleen uit App:BaseUrl.
+        var baseUrl = http.HttpContext?.Request is { } request ? urls.Base(request) : urls.Configured;
+        var reason = await mailer.BlockerAsync(baseUrl);
+        string? number = null;
+        if (reason is null)
+        {
+            db.ChangeTracker.Clear();
+            await using var tx = await WriteLock.BeginAsync(db);
+            var inv = await InvoiceMailer.WithAll(db).FirstAsync(i => i.Id == invoiceId);
+            // Eerst kijken of de mail weg kan; pas dan krijgt de factuur een nummer.
+            if (InvoiceMailer.CustomerEmail(inv.Customer) is null) reason = InvoiceMailer.NoEmail;
+            else if (await MailQuota.CheckAsync(db, mailLimits.Value) is var quota && quota != QuotaResult.Ok)
+                reason = MailQuota.Message(quota, mailLimits.Value.EmailsPerDay(await MailQuota.PlanAsync(db)));
+            else
+            {
+                var (sendProblem, _) = await InvoiceEndpoints.ChangeStatusAsync(db, clock, inv, InvoiceStatus.Sent);
+                if (sendProblem is not null) reason = sendProblem.Error;
+                else
+                {
+                    await db.SaveChangesAsync();
+                    await tx.CommitAsync();
+                    number = inv.Number;
+                }
+            }
+        }
+        if (reason is not null)
+        {
+            db.ChangeTracker.Clear();
+            db.Log("factuur", $"Terugkerende factuur \"{t.Name}\": de factuur staat als concept klaar en is niet verstuurd. {reason}");
+            await db.SaveChangesAsync();
+            return reason;
+        }
+        var mail = await mailer.SendAsync(invoiceId, MailSteps.Invoice, automatic: true, baseUrl);
+        if (mail.Outcome == SendOutcome.Sent) return null;
+        // Het nummer is er al; de factuur ligt vast. Dan moet de mail er alsnog met de hand achteraan.
+        db.ChangeTracker.Clear();
+        var why = mail.Message ?? "De mail ging niet weg.";
+        db.Log("factuur", $"Terugkerende factuur \"{t.Name}\": factuur {number} is verstuurd, maar de e-mail ging niet weg. {why} Mail hem zelf vanuit de factuur.");
         await db.SaveChangesAsync();
-        return reason;
+        return $"Factuur {number} is verstuurd, maar de e-mail ging niet weg. {why}";
     }
 
     // De factuur voor één periode: de regels met de periode ingevuld, de leverperiode en de betaaltermijn uit de instellingen.

@@ -42,16 +42,34 @@ public static partial class InvoiceEndpoints
     static string Join(List<string> items) => items.Count == 1 ? items[0] : $"{string.Join(", ", items[..^1])} en {items[^1]}";
 
     // Verzonden facturen voorbij de vervaldatum gaan op verlopen. Een creditnota hoeft niemand te betalen en verloopt nooit,
-    // en een factuur die met creditnota's helemaal is tegengeboekt ook niet.
-    public static async Task MarkOverdue(AppDb db, BusinessClock clock)
+    // en een factuur die met creditnota's helemaal is tegengeboekt ook niet. Met een engine starten daarna de werkstromen met
+    // de trigger "Factuur te laat", alleen voor echte facturen (geen voorbeelddata).
+    public static async Task MarkOverdue(AppDb db, BusinessClock clock, WorkflowEngine? engine = null)
     {
         var today = clock.Today;
-        var overdue = (await db.Invoices.Include(i => i.Lines).Include(i => i.Credits).ThenInclude(c => c.Lines)
-                .Where(i => i.Status == InvoiceStatus.Sent && i.DueDate < today && i.CreditForInvoiceId == null).ToListAsync())
+        var overdue = (await db.Invoices.AsNoTracking().Include(i => i.Lines).Include(i => i.Customer).Include(i => i.Credits).ThenInclude(c => c.Lines)
+                .Where(i => i.Status == InvoiceStatus.Sent && i.DueDate < today && i.CreditForInvoiceId == null).AsSplitQuery().ToListAsync())
             .Where(i => !i.IsCredit && !i.FullyCredited).ToList();
         if (overdue.Count == 0) return;
-        foreach (var i in overdue) { i.Status = InvoiceStatus.Overdue; db.Log("factuur", $"{Label(i)} is verlopen"); }
+        var late = new List<Invoice>();
+        foreach (var i in overdue)
+        {
+            // Alleen wie de status echt omzet, logt en start de werkstroom. Twee verzoeken tegelijk doen het dus samen één keer.
+            if (await db.Invoices.Where(x => x.Id == i.Id && x.Status == InvoiceStatus.Sent)
+                    .ExecuteUpdateAsync(x => x.SetProperty(v => v.Status, InvoiceStatus.Overdue)) != 1) continue;
+            i.Status = InvoiceStatus.Overdue;
+            db.Log("factuur", $"{Label(i)} is verlopen");
+            late.Add(i);
+        }
         await db.SaveChangesAsync();
+        if (engine is null) return;
+        foreach (var i in late.Where(i => !i.IsDemo && i.Customer?.IsDemo != true))
+        {
+            var ctx = new Dictionary<string, string>();
+            WorkflowContext.AddInvoice(ctx, i);
+            ctx["invoice.open"] = WorkflowContext.Money(i.OpenAmount);
+            await engine.TriggerAsync("trigger.overdue", ctx, $"Factuur {i.Number} is te laat");
+        }
     }
 
     // Het volgende nummer in de reeks van het jaar van de factuurdatum, per werkruimte en zonder gaten: 2026-0001, 2026-0002, ...
@@ -247,9 +265,9 @@ public static partial class InvoiceEndpoints
         var g = api.MapGroup("/invoices");
 
         // Concepten bovenaan, daarna de verstuurde facturen van nieuw naar oud.
-        g.MapGet("/", async (AppDb db, BusinessClock clock) =>
+        g.MapGet("/", async (AppDb db, BusinessClock clock, WorkflowEngine engine) =>
         {
-            await MarkOverdue(db, clock);
+            await MarkOverdue(db, clock, engine);
             return await Full(db).AsNoTracking()
                 .OrderBy(i => i.Status != InvoiceStatus.Draft).ThenBy(i => i.IsDemo).ThenByDescending(i => i.Number).ThenByDescending(i => i.Id).ToListAsync();
         });
@@ -351,7 +369,7 @@ public static partial class InvoiceEndpoints
                 await tx.CommitAsync();
                 if (becamePaid) await TriggerPaid(db, engine, inv);
             }
-            await MarkOverdue(db, clock);
+            await MarkOverdue(db, clock, engine);
             return Results.Ok(await Full(db).AsNoTracking().FirstAsync(i => i.Id == id));
         });
 

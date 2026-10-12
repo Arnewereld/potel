@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Potel.Api.Data;
 using Potel.Api.Invoicing;
+using Potel.Api.Workflows;
 
 namespace Potel.Api.Endpoints;
 
@@ -32,7 +33,7 @@ public static class RecurringInvoiceEndpoints
     public const string LockedError = "Deze terugkerende factuur heeft al facturen gemaakt. De klant, de startdatum en hoe vaak hij komt liggen daarom vast. Wil je iets anders? Stop deze en maak een nieuwe.";
     public const string DemoError = "Dit is een voorbeeld uit de welkomstwizard; die maakt geen echte facturen. Maak een eigen terugkerende factuur voor een echte klant.";
     public const string DemoCustomerError = "Dit is een voorbeeldklant. Voor voorbeeldklanten maakt Potel geen facturen. Kies een echte klant.";
-    public const string SendNotPossible = "Direct versturen kan nog niet: Potel kan facturen nog niet zelf per e-mail versturen. Kies \"Concept klaarzetten\".";
+    public const string SendNotPossible = "Direct versturen kan pas als er een mailserver is ingesteld. Kies \"Concept klaarzetten\", of stel eerst een mailserver in.";
     static readonly decimal[] VatRates = [21, 9, 0];
 
     static string CustomerName(Customer? c) => c is null ? "" : string.IsNullOrWhiteSpace(c.Company) ? c.Name : c.Company;
@@ -73,7 +74,7 @@ public static class RecurringInvoiceEndpoints
     }
 
     // Controleert de invoer en zet hem op de terugkerende factuur. De klant moet in de eigen werkruimte bestaan.
-    static async Task<string?> ApplyAsync(AppDb db, RecurringInvoice t, RecurringInput input, bool locked)
+    static async Task<string?> ApplyAsync(AppDb db, RecurringInvoice t, RecurringInput input, bool locked, bool canEmail)
     {
         var customer = await db.Customers.FirstOrDefaultAsync(c => c.Id == input.CustomerId);
         if (customer is null) return "Kies een klant uit je eigen werkruimte.";
@@ -101,7 +102,7 @@ public static class RecurringInvoiceEndpoints
         var total = Money.Totals(lines.Select(l => new InvoiceLine { Quantity = l.Quantity, UnitPrice = l.UnitPrice, VatRate = l.VatRate })).Total;
         if (total < 0) return "Het totaal is negatief. Een terugkerende factuur moet een bedrag hebben dat de klant betaalt.";
         if (locked && (t.CustomerId != input.CustomerId || t.StartDate.Date != input.StartDate.Date || t.Interval != interval)) return LockedError;
-        if (action == RecurringActions.Send) return SendNotPossible;
+        if (action == RecurringActions.Send && !canEmail) return SendNotPossible;
 
         t.Name = name == "" ? $"{lines[0].Description!.Trim()}" : name;
         if (t.Name.Length > 200) t.Name = t.Name[..200].Trim();
@@ -148,7 +149,7 @@ public static class RecurringInvoiceEndpoints
             var existing = id is { } rid ? await Full(db).AsNoTracking().FirstOrDefaultAsync(t => t.Id == rid) : null;
             // Het voorbeeld uit de welkomstwizard mag zijn voorbeeldklant houden.
             var t = new RecurringInvoice { IsDemo = existing?.IsDemo ?? false };
-            var error = await ApplyAsync(db, t, input with { Action = RecurringActions.Draft }, locked: false);
+            var error = await ApplyAsync(db, t, input with { Action = RecurringActions.Draft }, locked: false, canEmail: true);
             if (error is not null) return Results.Ok(new RecurringPreview([], 0, [], error));
             var sameGrid = existing is not null && existing.StartDate == t.StartDate && existing.Interval == t.Interval;
             RecurringPeriods.Schedule(t, sameGrid ? existing!.NextPeriodStart : t.StartDate);
@@ -159,10 +160,10 @@ public static class RecurringInvoiceEndpoints
             return Results.Ok(new RecurringPreview(periods, RecurringPeriods.DueCount(t, clock.Today, max), lines, BacklogError(t, clock.Today, max)));
         });
 
-        g.MapPost("/", async (AppDb db, BusinessClock clock, IOptions<InvoicingLimits> limits, RecurringInvoiceService service, RecurringInput input) =>
+        g.MapPost("/", async (AppDb db, BusinessClock clock, IOptions<InvoicingLimits> limits, RecurringInvoiceService service, IEmailSender email, RecurringInput input) =>
         {
             var t = new RecurringInvoice();
-            if (await ApplyAsync(db, t, input, locked: false) is { } error) return Results.BadRequest(new { error });
+            if (await ApplyAsync(db, t, input, locked: false, email.Configured) is { } error) return Results.BadRequest(new { error });
             RecurringPeriods.Schedule(t, t.StartDate);
             if (BacklogError(t, clock.Today, Math.Max(1, limits.Value.MaxCatchUpPeriods)) is { } backlog) return Results.BadRequest(new { error = backlog });
             db.RecurringInvoices.Add(t);
@@ -173,7 +174,7 @@ public static class RecurringInvoiceEndpoints
             return Results.Created($"/api/recurring-invoices/{t.Id}", await OneAsync(db, t.Id));
         }).RequireAuthorization(p => p.RequireRole(Roles.Admin));
 
-        g.MapPut("/{id:int}", async (AppDb db, BusinessClock clock, IOptions<InvoicingLimits> limits, RecurringInvoiceService service, int id, RecurringInput input) =>
+        g.MapPut("/{id:int}", async (AppDb db, BusinessClock clock, IOptions<InvoicingLimits> limits, RecurringInvoiceService service, IEmailSender email, int id, RecurringInput input) =>
         {
             await using (var tx = await WriteLock.BeginAsync(db))
             {
@@ -181,7 +182,7 @@ public static class RecurringInvoiceEndpoints
                 if (t is null) return Results.NotFound();
                 var locked = Locked(t, await db.Invoices.CountAsync(i => i.RecurringInvoiceId == id));
                 db.RecurringInvoiceLines.RemoveRange(t.Lines);
-                if (await ApplyAsync(db, t, input, locked) is { } error) return Results.BadRequest(new { error });
+                if (await ApplyAsync(db, t, input, locked, email.Configured) is { } error) return Results.BadRequest(new { error });
                 // Zolang er niets gemaakt is, begint hij gewoon bij de (nieuwe) startdatum. Daarna loopt hij door bij de volgende periode.
                 RecurringPeriods.Schedule(t, locked ? t.NextPeriodStart : t.StartDate);
                 if (!locked && BacklogError(t, clock.Today, Math.Max(1, limits.Value.MaxCatchUpPeriods)) is { } backlog) return Results.BadRequest(new { error = backlog });

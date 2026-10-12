@@ -7,7 +7,7 @@ namespace Potel.Api.Workflows;
 // De gegevens die door een werkstroom stromen, als platte sleutels zoals "lead.name".
 public static partial class WorkflowContext
 {
-    static string Money(decimal d) => d.ToString("0.00", CultureInfo.InvariantCulture);
+    public static string Money(decimal d) => d.ToString("0.00", CultureInfo.InvariantCulture);
 
     public static void AddLead(Dictionary<string, string> ctx, Lead l)
     {

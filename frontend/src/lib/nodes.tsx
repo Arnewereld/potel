@@ -1,4 +1,4 @@
-import { Zap, Mail, ListTodo, Tag, Clock, GitBranch, Receipt, Globe, CalendarClock, MousePointerClick, UserPlus, BadgeEuro, Users, type LucideIcon } from 'lucide-react'
+import { Zap, Mail, ListTodo, Tag, Clock, GitBranch, Receipt, Globe, CalendarClock, MousePointerClick, UserPlus, BadgeEuro, Users, AlarmClock, type LucideIcon } from 'lucide-react'
 
 export interface NodeField {
   key: string
@@ -30,6 +30,7 @@ export const nodeTypes: NodeType[] = [
   { type: 'trigger.lead', label: 'Nieuwe lead', group: 'Triggers', color: '#ff6d5a', icon: Zap, description: 'Als er een lead wordt toegevoegd' },
   { type: 'trigger.customer', label: 'Nieuwe klant', group: 'Triggers', color: '#ff6d5a', icon: Users, description: 'Als er een klant wordt toegevoegd' },
   { type: 'trigger.paid', label: 'Factuur betaald', group: 'Triggers', color: '#ff6d5a', icon: BadgeEuro, description: 'Als een factuur op betaald gaat' },
+  { type: 'trigger.overdue', label: 'Factuur te laat', group: 'Triggers', color: '#ff6d5a', icon: AlarmClock, description: 'Als de vervaldatum van een factuur voorbij is' },
   {
     type: 'trigger.schedule', label: 'Schema', group: 'Triggers', color: '#ff6d5a', icon: CalendarClock, description: 'Elk uur, elke dag of elke week',
     fields: [
@@ -86,7 +87,7 @@ export const nodeTypes: NodeType[] = [
     type: 'logic.if', label: 'Als / dan', group: 'Logica', color: '#8a8aa0', icon: GitBranch, description: 'Ga verder via Ja of Nee',
     fields: [
       { key: 'field', label: 'Veld', type: 'select', default: 'lead.value', options: [
-        'lead.value', 'lead.status', 'lead.source', 'lead.email', 'lead.company', 'customer.city', 'customer.email', 'invoice.total', 'invoice.status',
+        'lead.value', 'lead.status', 'lead.source', 'lead.email', 'lead.company', 'customer.city', 'customer.email', 'invoice.total', 'invoice.open', 'invoice.status',
       ].map(v => ({ value: v, label: v })) },
       { key: 'operator', label: 'Is', type: 'select', default: '>', options: [
         { value: '>', label: 'groter dan' }, { value: '>=', label: 'groter of gelijk' }, { value: '<', label: 'kleiner dan' }, { value: '<=', label: 'kleiner of gelijk' },
@@ -97,7 +98,7 @@ export const nodeTypes: NodeType[] = [
   },
 ]
 
-export const nodeType = (type: string) => nodeTypes.find(n => n.type === type) ?? nodeTypes[5]!
+export const nodeType = (type: string) => nodeTypes.find(n => n.type === type) ?? nodeTypes.find(n => n.type === 'action.email')!
 
 // Blokken die gegevens naar buiten sturen. Een werkstroom met zo'n blok maakt of wijzigt alleen een beheerder
 // (de server controleert dit ook, zie WorkflowEndpoints.AdminOnlyBlocks).
@@ -116,5 +117,5 @@ export const defaultConfig = (type: string) =>
 export const variables = [
   'lead.name', 'lead.company', 'lead.email', 'lead.phone', 'lead.value', 'lead.status', 'lead.source',
   'customer.name', 'customer.company', 'customer.email', 'customer.city',
-  'invoice.number', 'invoice.total', 'invoice.status', 'invoice.dueDate',
+  'invoice.number', 'invoice.total', 'invoice.open', 'invoice.status', 'invoice.dueDate',
 ]

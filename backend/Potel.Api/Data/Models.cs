@@ -147,6 +147,8 @@ public class Customer : IWorkspaceOwned, IDemoData
     public string Country { get; set; } = Countries.Netherlands;
     public string? VatNumber { get; set; }
     public string? Notes { get; set; }
+    // Geen automatische herinneringen aan deze klant.
+    public bool RemindersOff { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
@@ -292,6 +294,8 @@ public class Invoice : IWorkspaceOwned, IDemoData
     // databasekoppeling: die zou de hele tabel met facturen laten herbouwen. Verwijderen van de terugkerende factuur maakt dit leeg.
     public int? RecurringInvoiceId { get; set; }
     public DateTime? RecurringPeriodStart { get; set; }
+    // Geen automatische herinneringen voor deze factuur. Mag ook na versturen nog aan of uit: het staat niet op de factuur.
+    public bool RemindersOff { get; set; }
     // De gegevens van jou en je klant zoals ze bij versturen waren. Een verstuurde factuur toont deze, niet de huidige.
     public InvoiceParty? Seller { get; set; }
     public InvoiceParty? Buyer { get; set; }
@@ -463,6 +467,87 @@ public class RecurringInvoiceLine
     public string Unit { get; set; } = "maand";
     public decimal UnitPrice { get; set; }
     public decimal VatRate { get; set; } = 21;
+}
+
+// Wat een mail over een factuur is: de factuur zelf (0) of een van de drie herinneringen bij een te late factuur.
+public static class MailSteps
+{
+    public const int Invoice = 0;
+    public const int First = 1;
+    public const int Second = 2;
+    public const int Final = 3;
+
+    public static string Label(int step) => step switch
+    {
+        First => "Herinnering",
+        Second => "Tweede herinnering",
+        Final => "Aanmaning",
+        _ => "Factuur",
+    };
+}
+
+public static class MailStatus
+{
+    public const string Sending = "bezig";
+    public const string Sent = "verstuurd";
+    public const string Failed = "mislukt";
+    public const string Skipped = "overgeslagen";
+}
+
+// Elke mail over een factuur: wanneer, welke stap en aan wie. Ook wat niet weg kon, met de reden.
+// Een automatische herinnering staat er per stap hooguit één keer als "bezig" of "verstuurd" (unieke index), zodat
+// twee rondes tegelijk dezelfde herinnering nooit twee keer sturen.
+public class InvoiceMail : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int InvoiceId { get; set; }
+    public int Step { get; set; }
+    public string To { get; set; } = "";
+    public string Subject { get; set; } = "";
+    public string Status { get; set; } = MailStatus.Sending;
+    public string? Note { get; set; }
+    public bool Automatic { get; set; }
+    // Wie hem handmatig verstuurde.
+    public string? SentBy { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? SentAt { get; set; }
+}
+
+// Een openbare link naar één verstuurde factuur, voor in de mail. Het token zelf staat alleen in de mail; hier bewaren we
+// alleen de SHA-256-hash. Intrekken maakt de link meteen onbruikbaar.
+public class InvoiceLink : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int InvoiceId { get; set; }
+    [JsonIgnore] public string TokenHash { get; set; } = "";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? RevokedAt { get; set; }
+    public DateTime? LastOpenedAt { get; set; }
+    public int Opens { get; set; }
+}
+
+// Automatische herinneringen bij te late facturen: aan of uit, hoeveel dagen na de vervaldatum elke stap komt, en de teksten.
+// Een lege tekst betekent de standaardtekst (Invoicing/MailTemplates.cs), zodat verbeteringen daarin vanzelf meekomen.
+public class ReminderSettings : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public bool Enabled { get; set; }
+    public int FirstDays { get; set; } = 7;
+    public int SecondDays { get; set; } = 14;
+    public int FinalDays { get; set; } = 28;
+    public string? InvoiceSubject { get; set; }
+    public string? InvoiceBody { get; set; }
+    public string? FirstSubject { get; set; }
+    public string? FirstBody { get; set; }
+    public string? SecondSubject { get; set; }
+    public string? SecondBody { get; set; }
+    public string? FinalSubject { get; set; }
+    public string? FinalBody { get; set; }
+    // De laatste melding in het logboek dat herinneringen niet weg konden (dag en reden), zodat die hooguit één keer per dag komt.
+    [JsonIgnore] public string? LastNotice { get; set; }
 }
 
 public static class ProjectStatus

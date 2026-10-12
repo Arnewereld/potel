@@ -689,6 +689,32 @@ a.btn { text-decoration: none; color: inherit; display: inline-flex; align-items
 .row-actions .icon-btn:hover { color: var(--primary); }
 .nowrap { white-space: nowrap; }
 
+/* ---------- Factuur: e-mail en herinneringen ---------- */
+.mail-log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; font-size: 13px; }
+.mail-log li { border-top: 1px solid var(--border); padding-top: 10px; }
+.mail-log li:first-child { border-top: 0; padding-top: 0; }
+.placeholder-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 13px; }
+.placeholder-list code { font-size: 12px; background: var(--panel-3); border-radius: 6px; padding: 1px 6px; }
+
+/* ---------- Openbare factuurpagina (link in de mail) ---------- */
+.public-invoice { min-height: 100vh; background: var(--bg); padding: 24px 16px 48px; }
+.public-invoice-inner { max-width: 820px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+.public-invoice-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.public-invoice .invoice-paper { position: static; min-height: 0; }
+.public-invoice-foot { text-align: center; font-size: 12px; }
+@media (max-width: 640px) {
+  .public-invoice { padding: 16px 16px 32px; }
+  .public-invoice .invoice-paper { padding: 28px 16px 20px; font-size: 12px; }
+  .public-invoice .paper-parties { grid-template-columns: 1fr; gap: 14px; }
+  .public-invoice .paper-parties > div:last-child { text-align: left; }
+  .public-invoice .paper-table td.nowrap { white-space: normal; }
+  .public-invoice .paper-table th, .public-invoice .paper-table td { padding-left: 3px; padding-right: 3px; }
+}
+@media print {
+  .public-invoice { padding: 0; background: #fff; min-height: 0; }
+  .public-invoice-inner { max-width: none; display: block; }
+}
+
 /* ---------- Factuur: papier ---------- */
 .invoice-paper {
   --ink: #1d1d2b; --soft: #6b6b80; --line: #ebebf2;

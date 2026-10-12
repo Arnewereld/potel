@@ -7,7 +7,7 @@ import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useTabs, useTabTitle } from '../lib/tabs'
 import { useToast } from '../lib/toast'
-import type { Customer, Invoice, InvoiceLine, Project, RecurringInvoice, Settings, VatRegime } from '../lib/types'
+import type { Customer, Invoice, InvoiceLine, InvoiceMailInfo, MailServerStatus, MailStep, Project, RecurringInvoice, Settings, VatRegime } from '../lib/types'
 import { date, euro, hours, invoiceTotals, lineAmount, toDateInput } from '../lib/format'
 import { invoiceStatuses } from '../lib/status'
 import {
@@ -15,6 +15,7 @@ import {
 } from '../lib/invoice'
 import { Badge, ErrorBox, Field, Loading, Modal, PageHeader } from '../components/ui'
 import { InvoicePaper } from '../components/InvoicePaper'
+import { MailDialog, MailPanel } from '../components/InvoiceMail'
 
 type Draft = Omit<Invoice, 'id'> & { id?: number }
 
@@ -45,6 +46,12 @@ export function InvoiceEditorPage() {
   const { data: next } = useApi<{ number: string }>(draft && draft.status === 'concept' ? '/invoices/next-number' : null)
   // De terugkerende factuur die deze factuur maakte, voor de link terug.
   const { data: recurring } = useApi<RecurringInvoice>(draft?.recurringInvoiceId ? `/recurring-invoices/${draft.recurringInvoiceId}` : null)
+  // Kan Potel zelf mailen? Anders opent een mail in je eigen mailprogramma.
+  const { data: mailStatus } = useApi<MailServerStatus>('/invoices/mail-status')
+  // Wat er over deze factuur gemaild is; alleen voor een verstuurde, echte factuur.
+  const { data: mailInfo, reload: reloadMails } = useApi<InvoiceMailInfo>(!isNew && draft && draft.status !== 'concept' && !draft.demo ? `/invoices/${id}/mails` : null)
+  // Vanuit de lijst met "Herinnering sturen" staat de herinnering meteen klaar, zodra bekend is welke stap de volgende is.
+  const [mailing, setMailing] = useState<{ step: MailStep | null; reminder: boolean } | null>(() => params.get('herinnering') ? { step: null, reminder: true } : null)
   const { retarget, close } = useTabs()
   const navigate = useNavigate()
   const toast = useToast()
@@ -86,6 +93,7 @@ export function InvoiceEditorPage() {
   const creditNotes = draft.creditNotes ?? []
   const fullyCredited = !credit && !!draft.fullyCredited
   const demo = !!draft.demo
+  const canMail = mailStatus?.canSend === true && readOnly && !demo
   // Bij versturen wordt de factuurdatum vandaag en schuift de vervaldatum mee, zodat de betaaltermijn gelijk blijft.
   const termDays = Math.max(0, Math.round((new Date(`${draft.dueDate}T00:00:00`).getTime() - new Date(`${draft.issueDate}T00:00:00`).getTime()) / 86400000))
 
@@ -142,6 +150,7 @@ export function InvoiceEditorPage() {
     try {
       const saved = await api.post<Invoice>(`/invoices/${id}/status`, { status, paidAt })
       setDraft(fromServer(saved))
+      reloadMails(true)
       toast(`${invoiceTitle(saved)} is ${invoiceStatuses.find(s => s.id === saved.status)?.label.toLowerCase()}`)
       return saved
     } catch (e) {
@@ -221,7 +230,10 @@ export function InvoiceEditorPage() {
             <button className="btn" onClick={() => window.print()}><Printer size={15} /> PDF</button>
             {!readOnly && <button className="btn" onClick={() => save()} disabled={saving || (!dirty && !isNew)}><Save size={15} /> Opslaan</button>}
             {!readOnly && !isNew && <button className="btn btn-primary" disabled={saving} onClick={() => setDialog('send')}><Send size={15} /> Versturen</button>}
-            {draft.status === 'verlopen' && !fullyCredited && <a className="btn" href={reminderMail({ ...draft, id: Number(id) }, customer, company)}><BellRing size={15} /> Herinnering</a>}
+            {canMail && !fullyCredited && <button className="btn" onClick={() => setMailing({ step: 0, reminder: false })}><Mail size={15} /> Mailen</button>}
+            {draft.status === 'verlopen' && !fullyCredited && (canMail
+              ? <button className="btn" onClick={() => setMailing({ step: mailInfo?.nextStep || 1, reminder: true })}><BellRing size={15} /> Herinnering sturen</button>
+              : <a className="btn" href={reminderMail({ ...draft, id: Number(id) }, customer, company)}><BellRing size={15} /> Herinnering</a>)}
             {(draft.status === 'verzonden' || draft.status === 'verlopen') && !fullyCredited && <button className="btn btn-success" onClick={() => setDialog('paid')}><CheckCircle2 size={15} /> {credit ? 'Verrekend' : 'Betaald'}</button>}
           </>}
         />
@@ -371,6 +383,15 @@ export function InvoiceEditorPage() {
               )}
             </fieldset>
           </div>
+          {readOnly && !demo && mailInfo && (
+            <MailPanel
+              invoiceId={Number(id)}
+              info={mailInfo}
+              onChange={() => reloadMails(true)}
+              onCustomer={() => customer && navigate(`/klanten/${customer.id}`)}
+              onSettings={() => navigate('/instellingen?tab=email')}
+            />
+          )}
         </div>
 
         <InvoicePaper invoice={draft} customer={customer} company={company} />
@@ -385,6 +406,8 @@ export function InvoiceEditorPage() {
           issueDate={sendDate}
           dueDate={credit ? null : addDays(sendDate, termDays)}
           email={customer?.email}
+          canMail={mailStatus?.canSend === true && !demo}
+          onMail={() => { setDialog(null); setMailing({ step: 0, reminder: false }) }}
           mailHref={inv => sendMail(inv, customer, company)}
           onSend={() => setStatus('verzonden')}
           onSettings={() => navigate('/instellingen')}
@@ -394,6 +417,9 @@ export function InvoiceEditorPage() {
       )}
       {dialog === 'paid' && (
         <PaidDialog total={credit ? totals.total : draft.openAmount ?? totals.total} onClose={() => setDialog(null)} onConfirm={paidAt => { setDialog(null); setStatus('betaald', paidAt) }} />
+      )}
+      {mailing && canMail && (mailing.step !== null || mailInfo) && (
+        <MailDialog invoiceId={Number(id)} step={mailing.step ?? mailInfo?.nextStep ?? 1} reminder={mailing.reminder} onClose={() => setMailing(null)} onSent={() => reloadMails(true)} />
       )}
     </>
   )
@@ -405,7 +431,7 @@ const fromServer = (inv: Invoice): Draft => ({
 })
 
 // Eerst versturen (dan krijgt de factuur zijn nummer en ligt hij vast), daarna de PDF maken en mailen.
-function SendDialog({ title, missing, problem, number, issueDate, dueDate, email, mailHref, onSend, onSettings, onCustomer, onClose }: {
+function SendDialog({ title, missing, problem, number, issueDate, dueDate, email, canMail, onMail, mailHref, onSend, onSettings, onCustomer, onClose }: {
   title: string
   missing: string[]
   problem: string | null
@@ -413,6 +439,9 @@ function SendDialog({ title, missing, problem, number, issueDate, dueDate, email
   issueDate: string
   dueDate: string | null
   email?: string | null
+  // Potel kan zelf mailen: dan mail je de factuur meteen met een link, zonder PDF als bijlage.
+  canMail: boolean
+  onMail: () => void
   mailHref: (inv: Invoice) => string
   onSend: () => Promise<Invoice | null>
   onSettings: () => void
@@ -431,6 +460,18 @@ function SendDialog({ title, missing, problem, number, issueDate, dueDate, email
     setBusy(false)
     if (inv) setSent(inv)
   }
+
+  if (sent && canMail) return (
+    <Modal title={`${invoiceTitle(sent)} is verstuurd`} onClose={onClose} footer={<>
+      <button className="btn" onClick={onClose}>Later</button>
+      <button className="btn btn-primary" onClick={onMail}><Mail size={15} /> Per e-mail versturen</button>
+    </>}>
+      <p style={{ marginTop: 0 }}>
+        Hij heeft nu een nummer en ligt vast. Mail hem meteen naar je klant{email ? ` (${email})` : ''}: die krijgt een persoonlijke link waarmee hij de factuur kan bekijken, printen en als PDF opslaan.
+        Je ziet de mail eerst en kunt de tekst nog aanpassen.
+      </p>
+    </Modal>
+  )
 
   if (sent) return (
     <Modal title={`${invoiceTitle(sent)} is verstuurd`} onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Klaar</button>}>
@@ -467,7 +508,7 @@ function SendDialog({ title, missing, problem, number, issueDate, dueDate, email
           Bij versturen krijgt hij {number ? `nummer ${number}` : 'het volgende nummer'} en de factuurdatum van vandaag, {date(issueDate)}
           {dueDate ? `, met vervaldatum ${date(dueDate)}` : ''}. We leggen dan ook jouw gegevens en die van je klant vast.
           Daarna kun je hem niet meer aanpassen of verwijderen; een fout herstel je met een creditnota.
-          Daarna maak je de PDF en mail je hem.
+          {' '}{canMail ? 'Daarna kun je hem meteen mailen.' : 'Daarna maak je de PDF en mail je hem.'}
         </p>
       )}
     </Modal>

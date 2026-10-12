@@ -6,7 +6,7 @@ import { useApi } from '../lib/useApi'
 import { useAuth } from '../lib/auth'
 import { useTabs, useTabTitle } from '../lib/tabs'
 import { useToast } from '../lib/toast'
-import type { Customer, RecurringInvoice, RecurringLine, RecurringPreview, Settings, VatRegime } from '../lib/types'
+import type { Customer, MailServerStatus, RecurringInvoice, RecurringLine, RecurringPreview, Settings, VatRegime } from '../lib/types'
 import { date, euro, invoiceTotals, lineAmount, toDateInput } from '../lib/format'
 import { invoiceStatuses } from '../lib/status'
 import { defaultRegime, regimeProblem, units, vatRegimes, zeroVat } from '../lib/invoice'
@@ -62,9 +62,12 @@ function useRecurringActions(onChanged: (t: RecurringInvoice) => void) {
     try {
       const res = await api.post<{ invoiceId: number; status: string; fallbackReason?: string | null; recurring: RecurringInvoice }>(`/recurring-invoices/${t.id}/run`)
       onChanged(res.recurring)
-      toast(res.fallbackReason
-        ? `De factuur staat als concept klaar en is niet verstuurd. ${res.fallbackReason}.`
-        : res.status === 'concept' ? `Conceptfactuur voor ${t.nextPeriod.label} staat klaar` : `Factuur voor ${t.nextPeriod.label} is verstuurd`)
+      // Kon hij niet weg, dan zegt de server waarom; staat hij al op verzonden, dan ging alleen de mail mis.
+      const reason = res.fallbackReason ? `${res.fallbackReason}${/[.!?]$/.test(res.fallbackReason) ? '' : '.'}` : null
+      toast(reason
+        ? res.status === 'concept' ? `De factuur staat als concept klaar en is niet verstuurd. ${reason}` : reason
+        : res.status === 'concept' ? `Conceptfactuur voor ${t.nextPeriod.label} staat klaar` : `Factuur voor ${t.nextPeriod.label} is verstuurd en gemaild`,
+        reason ? 'error' : undefined)
       navigate(`/facturen/${res.invoiceId}`)
     } catch (e) {
       toast((e as Error).message, 'error')
@@ -141,6 +144,7 @@ export function RecurringEditorPage() {
   const admin = user.role === 'beheerder'
   const { data: customers } = useApi<Customer[]>('/customers')
   const { data: settings } = useApi<Settings>('/settings')
+  const { data: mailStatus } = useApi<MailServerStatus>('/invoices/mail-status')
   const { data: template, setData: setTemplate, error } = useApi<RecurringInvoice>(isNew ? null : `/recurring-invoices/${id}`)
   // Wat je aan het bewerken bent. Zolang je niets wijzigt, is het de terugkerende factuur zoals hij op de server staat.
   const [edit, setEdit] = useState<Form | null>(null)
@@ -187,8 +191,8 @@ export function RecurringEditorPage() {
   const demo = !!template?.demo
   const regimeError = regimeProblem(form.vatRegime, customer)
   const regimeInfo = vatRegimes.find(r => r.id === form.vatRegime)
-  // Direct versturen kan nog niet; een bestaande die er toch op staat, laten we zien zoals hij is.
-  const sendPossible = false
+  // Direct versturen kan alleen als Potel zelf kan mailen; een bestaande die er toch op staat, laten we zien zoals hij is.
+  const sendPossible = mailStatus?.canSend === true
 
   const update = (patch: Partial<Form>) => { setEdit({ ...form, ...patch }); setDirty(true) }
   const updateLine = (idx: number, patch: Partial<RecurringLine>) => update({ lines: form.lines.map((l, i) => (i === idx ? { ...l, ...patch } : l)) })
@@ -320,7 +324,8 @@ export function RecurringEditorPage() {
                 </Field>
                 <p className="muted" style={{ fontSize: 13, margin: 0, gridColumn: '1 / -1' }}>
                   {recurringActions.find(a => a.id === form.action)?.help}
-                  {!sendPossible && ' Direct versturen kan nog niet: Potel kan facturen nog niet zelf per e-mail versturen.'}
+                  {mailStatus && !sendPossible && ` Direct versturen kan nu niet. ${mailStatus.problem ?? ''}`}
+                  {form.action === 'versturen' && ' Kan een factuur niet weg, bijvoorbeeld omdat de klant geen e-mailadres heeft, dan blijft hij als concept klaarstaan en zie je in het logboek waarom.'}
                 </p>
               </div>
 

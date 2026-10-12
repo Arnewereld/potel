@@ -10,6 +10,8 @@ export interface Customer {
   country?: string | null
   vatNumber?: string | null
   notes?: string | null
+  // Geen automatische betalingsherinneringen voor deze klant.
+  remindersOff?: boolean
   createdAt?: string
 }
 
@@ -139,6 +141,60 @@ export interface RecurringInvoice {
   demo: boolean
   createdAt: string
   invoices?: RecurringInvoiceRef[] | null
+}
+
+// Mail over een factuur: de factuur zelf (stap 0) of een herinnering (1 t/m 3).
+export type MailStep = 0 | 1 | 2 | 3
+export type MailStatus = 'bezig' | 'verstuurd' | 'mislukt' | 'overgeslagen'
+
+export interface InvoiceMail {
+  id: number
+  step: MailStep
+  label: string
+  to: string
+  subject?: string | null
+  status: MailStatus
+  note?: string | null
+  automatic: boolean
+  sentBy?: string | null
+  createdAt: string
+  sentAt?: string | null
+}
+
+export interface InvoiceMailInfo {
+  mails: InvoiceMail[]
+  activeLinks: number
+  lastOpenedAt?: string | null
+  remindersEnabled: boolean
+  remindersOff: boolean
+  customerRemindersOff: boolean
+  nextReminder?: { step: MailStep; label: string; date: string } | null
+  nextStep: MailStep
+}
+
+export interface MailPreview { step: MailStep; label: string; to?: string | null; subject: string; body: string; problem?: string | null; consumer: boolean }
+
+// Kan Potel zelf mailen? Zo niet, dan opent een mail in je eigen mailprogramma.
+export interface MailServerStatus { canSend: boolean; problem?: string | null; remindersEnabled: boolean }
+
+export interface MailText { subject: string; body: string }
+
+export interface ReminderSettings {
+  enabled: boolean
+  firstDays: number
+  secondDays: number
+  finalDays: number
+  texts: { invoice: MailText; first: MailText; second: MailText; final: MailText }
+  defaults: { invoice: MailText; first: MailText; second: MailText; final: MailText }
+  placeholders: string[]
+  canSend: boolean
+  problem?: string | null
+}
+
+// Wat de openbare factuurpagina krijgt: alleen wat op de factuur staat, plus logo en kleur.
+export interface PublicInvoice {
+  invoice: Omit<Invoice, 'id' | 'customerId'> & { isCredit: boolean; openAmount: number; fullyCredited: boolean }
+  brand: { logoDataUrl?: string | null; brandColor: string }
 }
 
 export interface RecurringPreview { periods: RecurringPeriod[]; dueNow: number; lines: string[]; error?: string | null }

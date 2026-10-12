@@ -75,6 +75,10 @@ export function CustomerForm({ customer, onClose, onSaved }: {
             placeholder={isNetherlands(country) ? 'Bijv. NL001234567B01' : inEu(country) ? 'Nodig voor btw verlegd, bijv. DE123456789' : 'Optioneel'} />
         </Field>
         <Field label="Notities" full><textarea value={form.notes ?? ''} onChange={set('notes')} /></Field>
+        <label className="row field-full" style={{ gap: 8 }}>
+          <input type="checkbox" checked={!!form.remindersOff} onChange={e => setForm(f => ({ ...f, remindersOff: e.target.checked }))} />
+          Geen automatische betalingsherinneringen naar deze klant
+        </label>
       </form>
     </Modal>
   )

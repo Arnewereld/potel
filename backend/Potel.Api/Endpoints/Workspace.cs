@@ -218,6 +218,8 @@ public static partial class WorkspaceEndpoints
             await Write("timeEntries", await db.TimeEntries.ToListAsync());
             await Write("invoices", await db.Invoices.Include(i => i.Lines).ToListAsync());
             await Write("recurringInvoices", await db.RecurringInvoices.Include(r => r.Lines).ToListAsync());
+            await Write("invoiceMails", await db.InvoiceMails.OrderBy(m => m.Id).ToListAsync());
+            await Write("reminderSettings", await db.ReminderSettings.FirstOrDefaultAsync());
             await Write("expenses", await db.Expenses.OrderBy(e => e.Id).ToListAsync());
             await Write("leads", await db.Leads.ToListAsync());
             await Write("appointments", await db.Appointments.ToListAsync());
@@ -267,10 +269,13 @@ public static partial class WorkspaceEndpoints
             // Volgorde maakt uit vanwege de koppelingen tussen tabellen. Bonnetjes direct in de database, zonder ze eerst in te lezen.
             await db.ExpenseReceipts.ExecuteDeleteAsync();
             await db.Expenses.ExecuteDeleteAsync();
+            await db.InvoiceMails.ExecuteDeleteAsync();
+            await db.InvoiceLinks.ExecuteDeleteAsync();
             db.TimeEntries.RemoveRange(db.TimeEntries);
             db.Invoices.RemoveRange(db.Invoices);
             await db.SaveChangesAsync();
             db.RecurringInvoices.RemoveRange(db.RecurringInvoices);
+            db.ReminderSettings.RemoveRange(db.ReminderSettings);
             db.Projects.RemoveRange(db.Projects);
             db.Appointments.RemoveRange(db.Appointments);
             db.Leads.RemoveRange(db.Leads);

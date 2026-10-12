@@ -5,7 +5,7 @@ import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useToast } from '../lib/toast'
 import { useAuth } from '../lib/auth'
-import type { Invoice, InvoiceStatus, RecurringInvoice, Settings } from '../lib/types'
+import type { Invoice, InvoiceStatus, MailServerStatus, RecurringInvoice, Settings } from '../lib/types'
 import { date, euro, invoiceTotals, toDateInput } from '../lib/format'
 import { invoiceStatuses } from '../lib/status'
 import { daysUntil, invoiceTitle, isCredit, openAmount, reminderMail } from '../lib/invoice'
@@ -19,6 +19,7 @@ type Filter = 'alle' | InvoiceStatus | 'terugkerend'
 export function InvoicesPage() {
   const { data, error, loading, reload } = useApi<Invoice[]>('/invoices')
   const { data: settings } = useApi<Settings>('/settings')
+  const { data: mailStatus } = useApi<MailServerStatus>('/invoices/mail-status')
   const { data: recurring, reload: reloadRecurring } = useApi<RecurringInvoice[]>('/recurring-invoices')
   const [params] = useSearchParams()
   const [filter, setFilter] = useState<Filter>(params.get('tab') === 'terugkerend' ? 'terugkerend' : 'alle')
@@ -146,7 +147,10 @@ export function InvoicesPage() {
                         </td>
                         <td className="row-actions" onClick={e => e.stopPropagation()}>
                           {unpaid && <button className="icon-btn" title={isCredit(i) ? 'Markeer als verrekend' : 'Markeer als betaald'} onClick={() => markPaid(i)}><CheckCircle2 size={16} /></button>}
-                          {i.status === 'verlopen' && unpaid && settings && <a className="icon-btn" title="Herinnering mailen" href={reminderMail(i, i.customer, settings)}><BellRing size={16} /></a>}
+                          {i.status === 'verlopen' && unpaid && (mailStatus?.canSend && !i.demo
+                            // Potel kan zelf mailen: in de factuur zie je de herinnering eerst en kies je de stap.
+                            ? <button className="icon-btn" title="Herinnering sturen" onClick={() => navigate(`/facturen/${i.id}?herinnering=1`)}><BellRing size={16} /></button>
+                            : settings && <a className="icon-btn" title="Herinnering mailen" href={reminderMail(i, i.customer, settings)}><BellRing size={16} /></a>)}
                           {!isCredit(i) && <button className="icon-btn" title="Kopie maken als nieuw concept" onClick={() => duplicate(i)}><Copy size={16} /></button>}
                         </td>
                       </tr>

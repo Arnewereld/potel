@@ -69,9 +69,12 @@ public static class WorkflowEndpoints
             }
             if (req.InvoiceId is { } iid)
             {
-                if (await db.Invoices.Include(i => i.Lines).Include(i => i.Customer).FirstOrDefaultAsync(i => i.Id == iid) is not { } inv)
+                if (await db.Invoices.Include(i => i.Lines).Include(i => i.Customer).Include(i => i.Credits).ThenInclude(c => c.Lines).AsSplitQuery()
+                        .FirstOrDefaultAsync(i => i.Id == iid) is not { } inv)
                     return Results.BadRequest(new { error = "Deze factuur bestaat niet (meer)" });
                 WorkflowContext.AddInvoice(ctx, inv);
+                // Zoals bij de trigger "Factuur te laat": wat er na creditnota's nog open staat.
+                ctx["invoice.open"] = WorkflowContext.Money(inv.OpenAmount);
             }
 
             // De motor start niets in een werkruimte met een verlopen proef, ook als dit verzoek er toch doorheen komt.

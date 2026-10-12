@@ -264,21 +264,7 @@ public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSend
         await db.SaveChangesAsync();
     }
 
-    // Telt een e-mail mee voor de daglimiet van deze werkruimte. Onwaar als de limiet voor vandaag al bereikt is.
-    // In één update, zodat twee runs tegelijk samen niet over de limiet heen kunnen.
-    async Task<bool> ReserveEmailAsync(int limit)
-    {
-        if (limit <= 0) return false;
-        var today = DateTime.UtcNow.Date;
-        var id = db.TenantId;
-        return await db.Workspaces
-            .Where(w => w.Id == id && (w.EmailDay != today || w.EmailsSent < limit))
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(w => w.EmailsSent, w => w.EmailDay == today ? w.EmailsSent + 1 : 1)
-                .SetProperty(w => w.EmailDay, today)) == 1;
-    }
-
-    // Hetzelfde voor webhooks.
+    // Telt een webhook mee voor de daglimiet van deze werkruimte, net als e-mail (MailQuota).
     async Task<bool> ReserveWebhookAsync(int limit)
     {
         if (limit <= 0) return false;
@@ -289,18 +275,6 @@ public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSend
             .ExecuteUpdateAsync(s => s
                 .SetProperty(w => w.WebhooksSent, w => w.WebhookDay == today ? w.WebhooksSent + 1 : 1)
                 .SetProperty(w => w.WebhookDay, today)) == 1;
-    }
-
-    // Telt mee voor een daglimiet van het hele platform, zoals alle e-mail uit proefwerkruimtes samen.
-    async Task<bool> ReservePlatformAsync(string key, int limit)
-    {
-        if (limit <= 0) return false;
-        var today = DateTime.UtcNow.Date;
-        return await db.PlatformCounters
-            .Where(c => c.Key == key && (c.Day != today || c.Count < limit))
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(c => c.Count, c => c.Day == today ? c.Count + 1 : 1)
-                .SetProperty(c => c.Day, today)) == 1;
     }
 
     async Task<Outcome> ExecuteNodeAsync(GraphNode node, Dictionary<string, string> ctx, CancellationToken ct)
@@ -358,9 +332,9 @@ public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSend
                 var workspace = await db.Workspaces.FindAsync(db.TenantId);
                 var plan = workspace?.Plan ?? Plans.Trial;
                 var limit = limits.EmailsPerDay(plan);
-                if (!await ReserveEmailAsync(limit))
+                if (!await MailQuota.ReserveWorkspaceAsync(db, limit))
                     return new Outcome { Status = "let op", Message = $"Niet verstuurd naar {to}: je werkruimte heeft vandaag de daglimiet van {limit} e-mails bereikt. Morgen kan het weer." };
-                if (plan == Plans.Trial && !await ReservePlatformAsync(PlatformCounter.TrialEmails, limits.EmailsPerDayAllTrials))
+                if (plan == Plans.Trial && !await MailQuota.ReservePlatformAsync(db, PlatformCounter.TrialEmails, limits.EmailsPerDayAllTrials))
                     return new Outcome { Status = "let op", Message = $"Niet verstuurd naar {to}: tijdens de proefperiode kan er vandaag geen e-mail meer uit. Morgen kan het weer, of kies een abonnement." };
                 // Van het adres van het platform, met de bedrijfsnaam als afzender; antwoorden gaan naar de werkruimte zelf.
                 var settings = await db.Settings.OrderBy(x => x.Id).FirstOrDefaultAsync();

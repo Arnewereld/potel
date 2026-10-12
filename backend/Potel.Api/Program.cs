@@ -80,6 +80,11 @@ builder.Services.AddRateLimiter(o =>
     o.AddPolicy("mollie", http => RateLimitPartition.GetFixedWindowLimiter(
         http.Connection.RemoteIpAddress?.ToString() ?? "onbekend",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = webhooksPerMinute, Window = TimeSpan.FromMinutes(1) }));
+    // De openbare factuurpagina (link in een mail): per IP-adres begrensd, zodat niemand tokens kan blijven raden.
+    var publicPerMinute = builder.Configuration.GetValue("RateLimit:PublicInvoicePerMinute", 30);
+    o.AddPolicy("public", http => RateLimitPartition.GetFixedWindowLimiter(
+        http.Connection.RemoteIpAddress?.ToString() ?? "onbekend",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = publicPerMinute, Window = TimeSpan.FromMinutes(1) }));
 });
 
 // Sleutels voor de inlogcookies bewaren, zodat gebruikers ingelogd blijven na een herstart of update.
@@ -114,7 +119,12 @@ builder.Services.AddScoped<MollieBilling>();
 // Terugkerende facturen. De planner hieronder zet ze per werkruimte klaar (IWorkspaceJob).
 builder.Services.Configure<InvoicingLimits>(builder.Configuration.GetSection("Invoicing"));
 builder.Services.AddScoped<RecurringInvoiceService>();
+// Facturen en herinneringen mailen, met een openbare link naar de factuur. De planner stuurt de automatische herinneringen.
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<InvoiceMailer>();
+builder.Services.AddScoped<ReminderService>();
 builder.Services.AddScoped<IWorkspaceJob, RecurringInvoiceJob>();
+builder.Services.AddScoped<IWorkspaceJob, ReminderJob>();
 if (builder.Configuration.GetValue("Workflows:Scheduler", true))
     builder.Services.AddHostedService<WorkflowScheduler>();
 
@@ -156,6 +166,13 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+// De openbare factuurpagina hoort niet in zoekmachines en geeft zijn adres niet door aan andere sites.
+app.Use(async (http, next) =>
+{
+    if (http.Request.Path.StartsWithSegments(InvoiceMailer.LinkPath)) InvoiceMailEndpoints.NoIndex(http.Response);
+    await next();
+});
+
 // Als de frontend gebouwd is (npm run build) staat hij in wwwroot en serveert de API hem mee.
 app.UseDefaultFiles();
 app.UseStaticFiles();
@@ -167,10 +184,13 @@ app.UseRateLimiter();
 // Na een verlopen proefperiode, of als een abonnement is afgelopen of niet betaald, kun je nog alles bekijken en exporteren,
 // maar niets meer wijzigen tot je (weer) een abonnement kiest. Wel mag je nog inloggen, je wachtwoord wijzigen of herstellen,
 // je e-mailadres bevestigen (alles onder /api/auth), betalen of opzeggen (/api/billing), gebruikers uitschakelen of
-// verwijderen, de welkomstwizard sluiten en je werkruimte verwijderen. Al het andere is dicht, ook wat hier later bijkomt.
+// verwijderen, de welkomstwizard sluiten en je werkruimte verwijderen. Openbare pagina's (/api/public) werken gewoon.
+// Al het andere is dicht, ook wat hier later bijkomt.
 static bool WritableAfterTrial(HttpRequest r)
 {
     if (r.Path.StartsWithSegments("/api/auth") || r.Path.StartsWithSegments("/api/platform") || r.Path.StartsWithSegments("/api/billing")) return true;
+    // Openbare pagina's zonder inloggen, zoals een factuur via de link in een mail; ook als je toevallig ingelogd bent.
+    if (r.Path.StartsWithSegments("/api/public")) return true;
     if (r.Path.StartsWithSegments("/api/users", out var user) && user.HasValue && (HttpMethods.IsPut(r.Method) || HttpMethods.IsDelete(r.Method))) return true;
     if (r.Path.StartsWithSegments("/api/workspace", out var rest))
         return (HttpMethods.IsDelete(r.Method) && (!rest.HasValue || rest == "/"))
@@ -205,6 +225,7 @@ api.MapCustomers();
 api.MapLeads();
 api.MapInvoices();
 api.MapRecurringInvoices();
+api.MapInvoiceMail();
 api.MapExpenses();
 api.MapTax();
 api.MapAppointments();

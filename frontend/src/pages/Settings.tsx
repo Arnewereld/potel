@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Settings as SettingsIcon, Save, Building, Target, Palette, CreditCard, UserCog, Download, Trash2, Check, Mail } from 'lucide-react'
+import { Settings as SettingsIcon, Save, Building, Target, Palette, CreditCard, UserCog, Download, Trash2, Check, Mail, BellRing, RotateCcw } from 'lucide-react'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useToast } from '../lib/toast'
@@ -8,13 +8,14 @@ import { useAuth } from '../lib/auth'
 import { useWorkspace } from '../lib/workspace'
 import { plans, product, type Plan } from '../lib/plans'
 import { contactEmail, usePlatformInfo } from '../lib/platform'
-import type { Settings, VatRegime } from '../lib/types'
+import type { MailText, ReminderSettings, Settings, VatRegime } from '../lib/types'
+import { mailPlaceholders, reminderSteps } from '../lib/mail'
 import { date, euro, toDateInput } from '../lib/format'
 import { ErrorBox, Field, Loading, Modal, PageHeader, SubTabs } from '../components/ui'
 import { BrandFields } from '../components/BrandFields'
 import { InvoicePaper } from '../components/InvoicePaper'
 
-type Tab = 'bedrijf' | 'huisstijl' | 'abonnement' | 'account'
+type Tab = 'bedrijf' | 'huisstijl' | 'email' | 'abonnement' | 'account'
 
 export function SettingsPage() {
   const { data, error, loading, setData } = useApi<Settings>('/settings')
@@ -68,6 +69,7 @@ export function SettingsPage() {
       <SubTabs<Tab> value={tab} onChange={t => setParams({ tab: t }, { replace: true })} tabs={[
         { id: 'bedrijf', label: 'Bedrijf', icon: <Building size={14} /> },
         { id: 'huisstijl', label: 'Huisstijl', icon: <Palette size={14} /> },
+        { id: 'email', label: 'E-mail en herinneringen', icon: <BellRing size={14} /> },
         { id: 'abonnement', label: 'Abonnement', icon: <CreditCard size={14} /> },
         { id: 'account', label: 'Account', icon: <UserCog size={14} /> },
       ]} />
@@ -132,9 +134,147 @@ export function SettingsPage() {
         </div>
       )}
 
+      {tab === 'email' && <Reminders admin={admin} />}
       {tab === 'abonnement' && <Subscription admin={admin} />}
       {tab === 'account' && <Account admin={admin} />}
     </form>
+  )
+}
+
+type TextKey = keyof ReminderSettings['texts']
+
+// Bronnen voor wat de wet zegt over herinneringen, aanmaningen en incassokosten.
+const reminderSources = [
+  { label: 'Ondernemersplein: betalingstermijn, incassokosten en wettelijke rente', url: 'https://ondernemersplein.overheid.nl/wetten-en-regels/betalingstermijn-incassokosten-en-wettelijke-rente/' },
+  { label: 'Ondernemersplein: stappenplan als je klant niet betaalt', url: 'https://ondernemersplein.overheid.nl/geldzaken-en-belastingen/cashflow/stappenplan-klant-betaalt-factuur-niet/' },
+  { label: 'Rijksoverheid: hoogte van de incassokosten', url: 'https://www.rijksoverheid.nl/onderwerpen/schulden/vraag-en-antwoord/hoogte-incassokosten' },
+]
+
+// Automatische betalingsherinneringen en de teksten van de mails over facturen. Staat los van het formulier met je
+// bedrijfsgegevens, en heeft daarom een eigen knop om op te slaan.
+function Reminders({ admin }: { admin: boolean }) {
+  const { data, error, setData } = useApi<ReminderSettings>('/reminders')
+  const [edit, setEdit] = useState<ReminderSettings | null>(null)
+  const [busy, setBusy] = useState(false)
+  const toast = useToast()
+
+  if (error) return <ErrorBox message={error} />
+  if (!data) return <Loading />
+  const form = edit ?? data
+  const dirty = JSON.stringify(form) !== JSON.stringify(data)
+  const set = (patch: Partial<ReminderSettings>) => setEdit({ ...form, ...patch })
+  const setText = (key: TextKey, patch: Partial<MailText>) => set({ texts: { ...form.texts, [key]: { ...form.texts[key], ...patch } } })
+
+  const save = async () => {
+    setBusy(true)
+    try {
+      const saved = await api.put<ReminderSettings>('/reminders', {
+        enabled: form.enabled, firstDays: form.firstDays, secondDays: form.secondDays, finalDays: form.finalDays,
+        invoice: form.texts.invoice, first: form.texts.first, second: form.texts.second, final: form.texts.final,
+      })
+      setData(saved)
+      setEdit(null)
+      toast('Instellingen voor e-mail en herinneringen opgeslagen')
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const buttons = admin && (
+    <div className="row wrap field-full" style={{ gap: 8 }}>
+      <button type="button" className="btn btn-primary" disabled={busy || !dirty} onClick={save}><Save size={15} /> Opslaan</button>
+      {dirty && <button type="button" className="btn" onClick={() => setEdit(null)}>Wijzigingen weggooien</button>}
+    </div>
+  )
+
+  const texts: { key: TextKey; label: string; help: string }[] = [
+    { key: 'invoice', label: 'Factuur', help: 'De mail waarmee je een verstuurde factuur naar je klant mailt.' },
+    ...reminderSteps.map(r => ({ key: r.key, label: r.label, help: r.help })),
+  ]
+
+  return (
+    // Enter in een veld slaat niet per ongeluk de bedrijfsgegevens op (die staan in het formulier eromheen).
+    <div onKeyDown={e => { if (e.key === 'Enter' && (e.target as HTMLElement).tagName === 'INPUT') e.preventDefault() }}>
+      {!admin && <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>Alleen een beheerder kan herinneringen aanzetten of de teksten aanpassen.</p>}
+      {!form.canSend && (
+        <div className="notice">
+          Potel kan nu zelf geen e-mail versturen. {form.problem} Tot die tijd opent Potel een mail in je eigen mailprogramma,
+          en gaan er geen automatische herinneringen weg.
+        </div>
+      )}
+      <div className="grid grid-1-1">
+        <div className="card">
+          <div className="card-head"><h3><BellRing size={16} /> Automatische herinneringen</h3></div>
+          <div className="card-body form-grid">
+            <label className="row field-full" style={{ gap: 8 }}>
+              <input type="checkbox" checked={form.enabled} disabled={!admin} onChange={e => set({ enabled: e.target.checked })} />
+              Stuur automatisch een herinnering als een factuur te laat is
+            </label>
+            {reminderSteps.map(r => (
+              <Field key={r.step} label={`${r.label}: dagen na de vervaldatum`}>
+                <input type="number" min={1} max={365} value={form[r.days]} disabled={!admin} onChange={e => set({ [r.days]: Number(e.target.value) })} />
+              </Field>
+            ))}
+            <div className="muted field-full" style={{ fontSize: 13 }}>
+              <p style={{ marginTop: 0 }}>
+                Elke stap gaat één keer, op volgorde en niet voor 8 uur 's ochtends. Zet je herinneringen aan bij een factuur die al lang open staat,
+                dan begint Potel met de vriendelijke herinnering en houdt het dezelfde tijd tussen de stappen aan.
+                Een betaalde of helemaal gecrediteerde factuur krijgt geen herinnering meer. Is een deel gecrediteerd, dan noemt de mail alleen wat nog open staat.
+                Per klant en per factuur kun je herinneringen uitzetten.
+              </p>
+              <p>
+                <strong>Wat de wet zegt.</strong> Is je klant een particulier, dan moet je in de aanmaning 14 dagen de tijd geven om te betalen en noemen welke
+                incassokosten er daarna komen. Is je klant een bedrijf, dan heb je na de vervaldatum recht op de wettelijke handelsrente en op minstens € 40 incassokosten.
+                Potel noemt kosten en rente alleen in de aanmaning, zodat de eerste herinneringen vriendelijk blijven, en rekent de incassokosten uit volgens de wettelijke staffel.
+                Een klant zonder bedrijfsnaam en btw-nummer telt als particulier.
+              </p>
+              <p style={{ marginBottom: 0 }}>
+                Meer weten?{' '}
+                {reminderSources.map((src, i) => <span key={src.url}><a href={src.url} target="_blank" rel="noreferrer">{src.label}</a>{i < reminderSources.length - 1 ? ', ' : '.'}</span>)}
+              </p>
+            </div>
+            {buttons}
+          </div>
+        </div>
+        <div className="card">
+          <div className="card-head"><h3><Mail size={16} /> Woorden die Potel invult</h3></div>
+          <div className="card-body">
+            <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+              Gebruik deze woorden tussen accolades in je teksten. Potel vult ze per factuur in. Laat je {'{link}'} weg, dan zetten we de link onderaan de mail.
+            </p>
+            <ul className="placeholder-list">
+              {mailPlaceholders.map(p => <li key={p.code}><code>{p.code}</code> {p.text}</li>)}
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-head"><h3><Mail size={16} /> Teksten van de mails</h3></div>
+        <div className="card-body">
+          {texts.map(t => {
+            const text = form.texts[t.key]
+            const standard = data.defaults[t.key]
+            const isDefault = text.subject === standard.subject && text.body === standard.body
+            return (
+              <div key={t.key} className="form-grid" style={{ marginBottom: 22 }}>
+                <div className="row between wrap field-full" style={{ gap: 8 }}>
+                  <div><strong>{t.label}</strong><div className="muted" style={{ fontSize: 13 }}>{t.help}</div></div>
+                  {admin && !isDefault && (
+                    <button type="button" className="btn btn-sm" onClick={() => setText(t.key, standard)}><RotateCcw size={14} /> Standaardtekst</button>
+                  )}
+                </div>
+                <Field label="Onderwerp" full><input value={text.subject} maxLength={200} disabled={!admin} onChange={e => setText(t.key, { subject: e.target.value })} /></Field>
+                <Field label="Tekst" full><textarea rows={t.key === 'final' ? 14 : 11} value={text.body} maxLength={5000} disabled={!admin} onChange={e => setText(t.key, { body: e.target.value })} /></Field>
+              </div>
+            )
+          })}
+          {buttons}
+        </div>
+      </div>
+    </div>
   )
 }
 
