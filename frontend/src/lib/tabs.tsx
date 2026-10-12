@@ -33,6 +33,7 @@ export function defaultTitle(fullPath: string) {
   if (path === '/facturen') return 'Facturen'
   if (path === '/facturen/nieuw') return 'Nieuwe factuur'
   if (path.startsWith('/facturen/')) return 'Factuur'
+  if (path === '/kosten') return 'Kosten'
   if (path === '/werkstromen') return 'Werkstromen'
   if (path.startsWith('/werkstromen/')) return 'Werkstroom'
   if (path === '/modules') return 'Eigen modules'

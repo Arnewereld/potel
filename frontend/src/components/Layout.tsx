@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, CalendarDays, Users, Target, Receipt, Workflow, Blocks, X, Search,
-  ChevronsLeft, ChevronsRight, Moon, Sun, Plus, ShieldCheck, LogOut, KeyRound, Timer, FolderKanban, Settings, Square, Crown,
+  ChevronsLeft, ChevronsRight, Moon, Sun, Plus, ShieldCheck, LogOut, KeyRound, Timer, FolderKanban, Settings, Square, Crown, Wallet,
 } from 'lucide-react'
 import { clock, useTimer } from '../lib/timer'
 import { useWorkspace } from '../lib/workspace'
@@ -22,6 +22,7 @@ const nav = [
   { to: '/uren', label: 'Uren', icon: Timer },
   { to: '/projecten', label: 'Projecten', icon: FolderKanban },
   { to: '/facturen', label: 'Facturen', icon: Receipt },
+  { to: '/kosten', label: 'Kosten', icon: Wallet },
   { to: '/planning', label: 'Planning', icon: CalendarDays },
   { to: '/klanten', label: 'Klanten', icon: Users },
   { to: '/leads', label: 'Leads', icon: Target },
@@ -97,11 +98,11 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
 
         <nav className="nav">
           <div className="nav-label">Werk</div>
-          {navLinks(nav.slice(0, 5))}
+          {navLinks(nav.slice(0, 6))}
           <div className="nav-label">Klanten en sales</div>
-          {navLinks(nav.slice(5, 7))}
+          {navLinks(nav.slice(6, 8))}
           <div className="nav-label">Systeem</div>
-          {navLinks(nav.slice(7))}
+          {navLinks(nav.slice(8))}
 
           {workspace?.platformAdmin && (
             <NavLink to="/platform" className="nav-item" title="Platform">

@@ -183,6 +183,36 @@ public static class Seed
             foreach (var e in linked) { e.InvoiceId = inv.Id; e.InvoiceLineId = inv.Lines[0].Id; }
         }
 
+        // Kosten van een freelance developer: elke maand dezelfde abonnementen en een paar losse aankopen, met de btw zoals op de bon.
+        // Buitenlandse leveranciers rekenen geen btw; die is naar jou verlegd (GitHub en Frontend Masters van buiten de EU, Hetzner en JetBrains uit de EU).
+        var expenses = new List<Expense>();
+        void Spend(DateTime date, string supplier, string description, string category, decimal amount, decimal? rate,
+            string? reverseFrom = null, Project? project = null)
+        {
+            if (date > today) return;
+            expenses.Add(new Expense
+            {
+                IsDemo = true, Date = date, Supplier = supplier, Description = description, Category = category, Amount = amount, VatRate = rate,
+                VatAmount = Expense.VatFor(amount, rate, reverseFrom is not null), ReverseCharge = reverseFrom is not null, SupplierRegion = reverseFrom,
+                ProjectId = project?.Id, CustomerId = project?.CustomerId,
+            });
+        }
+        for (var m = 1; m <= today.Month; m++)
+        {
+            var month = new DateTime(today.Year, m, 1);
+            Spend(month, "Spaces Utrecht", "Flexplek coworking", ExpenseCategories.Office, 249m, 21);
+            Spend(month.AddDays(2), "GitHub, Inc.", "GitHub Team en Copilot", ExpenseCategories.Software, 23m, 21, SupplierRegions.OutsideEu);
+            Spend(month.AddDays(4), "Hetzner Online GmbH", "VPS voor de Exact-koppeling", ExpenseCategories.Hosting, 18.10m, 21, SupplierRegions.Eu, projects[0]);
+            Spend(month.AddDays(19), "Odido Zakelijk", "Mobiel abonnement", ExpenseCategories.Phone, 30.25m, 21);
+        }
+        Spend(new DateTime(today.Year, 1, 8), "JetBrains s.r.o.", "All Products Pack, jaarlicentie", ExpenseCategories.Software, 289m, 21, SupplierRegions.Eu);
+        Spend(new DateTime(today.Year, 2, 12), "Coolblue", "MacBook Pro 14 inch", ExpenseCategories.Hardware, 2899m, 21);
+        Spend(new DateTime(today.Year, 3, 3), "TransIP", "Domeinnaam pixelwerk.dev, 1 jaar", ExpenseCategories.Hosting, 18.15m, 21);
+        Spend(new DateTime(today.Year, 4, 16), "Frontend Masters", "Jaarabonnement cursussen", ExpenseCategories.Training, 390m, 21, SupplierRegions.OutsideEu);
+        Spend(new DateTime(today.Year, 6, 9), "NS", "Treinkaartjes sprint review in Rotterdam", ExpenseCategories.Travel, 31.60m, 9, project: projects[1]);
+        Spend(new DateTime(today.Year, 9, 24), "Techorama NL", "Conferentieticket", ExpenseCategories.Training, 605m, 21);
+        db.Expenses.AddRange(expenses);
+
         db.Leads.AddRange(
             new Lead { IsDemo = true, Name = "Lisa Visser", Company = "Visser Media", Email = "lisa@vissermedia.nl", Value = 6500, Status = "nieuw", Source = "Website", Notes = "Nieuwe website met headless CMS" },
             new Lead { IsDemo = true, Name = "Tom Hendriks", Company = "Hendriks Installatie", Value = 18000, Status = "contact", Source = "LinkedIn", Notes = "Klantportaal waar klanten storingen melden" },

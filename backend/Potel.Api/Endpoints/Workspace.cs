@@ -1,11 +1,14 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Claims;
+using System.Text.Json;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Http.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Potel.Api.Data;
 using Potel.Api.Payments;
 
@@ -162,12 +165,15 @@ public static partial class WorkspaceEndpoints
             var workflows = await db.Workflows.Where(w => w.IsDemo).Select(w => w.Id).ToListAsync();
             db.WorkflowRuns.RemoveRange(db.WorkflowRuns.Where(r => workflows.Contains(r.WorkflowId)));
             db.Workflows.RemoveRange(db.Workflows.Where(w => w.IsDemo));
+            // Voorbeeldkosten gaan weg, behalve als je er zelf een bonnetje bij zette: die uitgave is dan van jou en telt voortaan mee.
+            await db.Expenses.Where(e => e.IsDemo && db.ExpenseReceipts.Any(r => r.ExpenseId == e.Id)).ExecuteUpdateAsync(x => x.SetProperty(e => e.IsDemo, false));
+            db.Expenses.RemoveRange(db.Expenses.Where(e => e.IsDemo));
             await db.SaveChangesAsync();
-            db.Projects.RemoveRange(db.Projects.Where(p => p.IsDemo && !db.TimeEntries.Any(t => t.ProjectId == p.Id)));
+            db.Projects.RemoveRange(db.Projects.Where(p => p.IsDemo && !db.TimeEntries.Any(t => t.ProjectId == p.Id) && !db.Expenses.Any(e => e.ProjectId == p.Id)));
             db.CustomModules.RemoveRange(db.CustomModules.Where(m => m.IsDemo && !db.CustomRecords.Any(r => r.ModuleId == m.Id)));
             await db.SaveChangesAsync();
             var customers = await db.Customers
-                .Where(c => c.IsDemo && !db.Invoices.Any(i => i.CustomerId == c.Id) && !db.Projects.Any(p => p.CustomerId == c.Id))
+                .Where(c => c.IsDemo && !db.Invoices.Any(i => i.CustomerId == c.Id) && !db.Projects.Any(p => p.CustomerId == c.Id) && !db.Expenses.Any(e => e.CustomerId == c.Id))
                 .Select(c => c.Id).ToListAsync();
             await db.Appointments.Where(a => a.CustomerId != null && customers.Contains(a.CustomerId.Value)).ExecuteUpdateAsync(x => x.SetProperty(a => a.CustomerId, (int?)null));
             await db.Leads.Where(l => l.CustomerId != null && customers.Contains(l.CustomerId.Value)).ExecuteUpdateAsync(x => x.SetProperty(l => l.CustomerId, (int?)null));
@@ -179,26 +185,62 @@ public static partial class WorkspaceEndpoints
             return Results.NoContent();
         }).RequireAuthorization(p => p.RequireRole(Roles.Admin));
 
-        // Al je gegevens in één JSON-bestand, bijvoorbeeld voor je administratie of om over te stappen.
-        g.MapGet("/export", async (AppDb db) =>
+        // Al je gegevens in één JSON-bestand, bijvoorbeeld voor je administratie of om over te stappen, met de bonnetjes als base64.
+        // Het bestand wordt in stukjes geschreven en de bonnetjes één voor één gelezen, zodat er nooit alles tegelijk in het geheugen staat.
+        g.MapGet("/export", async (AppDb db, HttpContext http, IOptions<JsonOptions> json) =>
         {
-            var data = new
+            var options = json.Value.SerializerOptions;
+            http.Response.ContentType = "application/json; charset=utf-8";
+            http.Response.Headers.ContentDisposition = $"attachment; filename=\"potel-export-{DateTime.UtcNow:yyyy-MM-dd}.json\"";
+            // Via de PipeWriter, want de serializer schrijft anders synchroon naar de response.
+            var body = http.Response.BodyWriter;
+            await using var w = new Utf8JsonWriter(body, new JsonWriterOptions { Indented = true, Encoder = options.Encoder });
+            async Task Flush()
             {
-                exportedAt = DateTime.UtcNow,
-                workspace = await db.Workspaces.FindAsync(db.TenantId),
-                settings = await db.Settings.FirstOrDefaultAsync(),
-                customers = await db.Customers.ToListAsync(),
-                projects = await db.Projects.ToListAsync(),
-                timeEntries = await db.TimeEntries.ToListAsync(),
-                invoices = await db.Invoices.Include(i => i.Lines).ToListAsync(),
-                leads = await db.Leads.ToListAsync(),
-                appointments = await db.Appointments.ToListAsync(),
-                modules = await db.CustomModules.ToListAsync(),
-                records = await db.CustomRecords.ToListAsync(),
-                workflows = await db.Workflows.ToListAsync(),
-                users = (await db.Users.ToListAsync()).Select(UserDto.From),
-            };
-            return Results.Json(data, contentType: "application/json", statusCode: 200);
+                w.Flush();
+                await body.FlushAsync();
+            }
+            async Task Write<T>(string name, T value)
+            {
+                w.WritePropertyName(name);
+                JsonSerializer.Serialize(w, value, options);
+                await Flush();
+            }
+
+            w.WriteStartObject();
+            await Write("exportedAt", DateTime.UtcNow);
+            await Write("workspace", await db.Workspaces.FindAsync(db.TenantId));
+            await Write("settings", await db.Settings.FirstOrDefaultAsync());
+            await Write("customers", await db.Customers.ToListAsync());
+            await Write("projects", await db.Projects.ToListAsync());
+            await Write("timeEntries", await db.TimeEntries.ToListAsync());
+            await Write("invoices", await db.Invoices.Include(i => i.Lines).ToListAsync());
+            await Write("expenses", await db.Expenses.OrderBy(e => e.Id).ToListAsync());
+            await Write("leads", await db.Leads.ToListAsync());
+            await Write("appointments", await db.Appointments.ToListAsync());
+            await Write("modules", await db.CustomModules.ToListAsync());
+            await Write("records", await db.CustomRecords.ToListAsync());
+            await Write("workflows", await db.Workflows.ToListAsync());
+            await Write("users", (await db.Users.ToListAsync()).Select(UserDto.From));
+            w.WritePropertyName("receipts");
+            w.WriteStartArray();
+            foreach (var id in await db.ExpenseReceipts.OrderBy(r => r.Id).Select(r => r.Id).ToListAsync())
+            {
+                var r = await db.ExpenseReceipts.AsNoTracking().FirstAsync(x => x.Id == id);
+                w.WriteStartObject();
+                w.WriteNumber("expenseId", r.ExpenseId);
+                w.WriteString("fileName", r.FileName);
+                w.WriteString("contentType", r.ContentType);
+                w.WriteNumber("size", r.Size);
+                w.WriteString("uploadedAt", r.UploadedAt);
+                w.WriteBase64String("data", r.Data);
+                w.WriteEndObject();
+                await Flush();
+            }
+            w.WriteEndArray();
+            w.WriteEndObject();
+            await Flush();
+            return Results.Empty;
         }).RequireAuthorization(p => p.RequireRole(Roles.Admin));
 
         // Verwijdert de hele werkruimte met alle gegevens. Alleen een beheerder, met wachtwoord.
@@ -219,7 +261,9 @@ public static partial class WorkspaceEndpoints
             if (await db.Workspaces.FindAsync(db.TenantId) is { } current && !await billing.StopBeforeDeleteAsync(current))
                 return Results.Json(new { error = "Je abonnement kon niet worden opgezegd, dus je werkruimte is nog niet verwijderd. Probeer het over een paar minuten opnieuw." }, statusCode: StatusCodes.Status502BadGateway);
 
-            // Volgorde maakt uit vanwege de koppelingen tussen tabellen.
+            // Volgorde maakt uit vanwege de koppelingen tussen tabellen. Bonnetjes direct in de database, zonder ze eerst in te lezen.
+            await db.ExpenseReceipts.ExecuteDeleteAsync();
+            await db.Expenses.ExecuteDeleteAsync();
             db.TimeEntries.RemoveRange(db.TimeEntries);
             db.Invoices.RemoveRange(db.Invoices);
             await db.SaveChangesAsync();

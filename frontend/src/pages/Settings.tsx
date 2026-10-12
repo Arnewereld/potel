@@ -292,11 +292,8 @@ function Account({ admin }: { admin: boolean }) {
 
   const exportData = async () => {
     try {
-      const data = await api.get<unknown>('/workspace/export')
-      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }))
-      const a = Object.assign(document.createElement('a'), { href: url, download: `${product.name.toLowerCase()}-export-${toDateInput(new Date())}.json` })
-      a.click()
-      URL.revokeObjectURL(url)
+      // Met bonnetjes kan het bestand groot zijn; de browser slaat het op zoals de server het stuurt.
+      await api.download('/workspace/export', `${product.name.toLowerCase()}-export-${toDateInput(new Date())}.json`)
     } catch (e) {
       toast((e as Error).message, 'error')
     }
@@ -345,7 +342,7 @@ function Account({ admin }: { admin: boolean }) {
       <div className="card">
         <div className="card-head"><h3><Download size={16} /> Gegevens exporteren</h3></div>
         <div className="card-body">
-          <p className="muted" style={{ marginTop: 0 }}>Download al je klanten, projecten, uren, facturen, leads en werkstromen als één JSON-bestand.</p>
+          <p className="muted" style={{ marginTop: 0 }}>Download al je klanten, projecten, uren, facturen, kosten met bonnetjes, leads en werkstromen als één JSON-bestand.</p>
           <button type="button" className="btn" onClick={exportData}><Download size={15} /> Exporteren</button>
         </div>
       </div>

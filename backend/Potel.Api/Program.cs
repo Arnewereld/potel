@@ -199,6 +199,7 @@ api.MapDashboard();
 api.MapCustomers();
 api.MapLeads();
 api.MapInvoices();
+api.MapExpenses();
 api.MapAppointments();
 api.MapModules();
 api.MapWorkflows();

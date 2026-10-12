@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Users, Target, Receipt, CornerDownLeft, Plus, LayoutDashboard, CalendarDays, Workflow, Timer, FolderKanban, Settings } from 'lucide-react'
+import { Search, Users, Target, Receipt, CornerDownLeft, Plus, LayoutDashboard, CalendarDays, Workflow, Timer, FolderKanban, Settings, Wallet } from 'lucide-react'
 import { api } from '../lib/api'
 
 interface Hit { type: string; id: number; title: string; subtitle?: string | null }
@@ -12,6 +12,7 @@ const quick: Item[] = [
   { key: 'q-proj', label: 'Projecten', icon: <FolderKanban size={16} />, to: '/projecten' },
   { key: 'q-plan', label: 'Planning', icon: <CalendarDays size={16} />, to: '/planning' },
   { key: 'q-inv', label: 'Nieuwe factuur', icon: <Plus size={16} />, to: '/facturen/nieuw' },
+  { key: 'q-kost', label: 'Kosten', icon: <Wallet size={16} />, to: '/kosten' },
   { key: 'q-cus', label: 'Klanten', icon: <Users size={16} />, to: '/klanten' },
   { key: 'q-lead', label: 'Leads', icon: <Target size={16} />, to: '/leads' },
   { key: 'q-wf', label: 'Werkstromen', icon: <Workflow size={16} />, to: '/werkstromen' },

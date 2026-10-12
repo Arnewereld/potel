@@ -291,3 +291,35 @@ export interface Dashboard {
   vat: { label: string; amount: number; revenue: number; dueDate: string | null; kor: boolean }
   projects: Project[]
 }
+
+export type ExpenseCategory = 'hardware' | 'software' | 'hosting' | 'opleiding' | 'reiskosten' | 'telefoon' | 'kantoor' | 'overig'
+
+export interface ReceiptInfo {
+  fileName: string
+  contentType: string
+  size: number
+  uploadedAt: string
+}
+
+export interface Expense {
+  id: number
+  date: string
+  supplier: string
+  description?: string | null
+  category: ExpenseCategory
+  // Wat je betaalde, inclusief btw. Bij verlegde btw is dit het bedrag zonder btw.
+  amount: number
+  // null is "geen btw".
+  vatRate: number | null
+  vatAmount: number
+  amountExclVat: number
+  reverseCharge: boolean
+  supplierRegion?: 'eu' | 'buiten-eu' | null
+  projectId?: number | null
+  projectName?: string | null
+  customerId?: number | null
+  customerName?: string | null
+  demo: boolean
+  receipt?: ReceiptInfo | null
+  createdAt: string
+}

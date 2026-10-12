@@ -6,7 +6,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
+async function send(method: string, url: string, body?: unknown): Promise<Response> {
   const res = await fetch(`/api${url}`, {
     method,
     headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
@@ -24,8 +24,22 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
     } catch { /* geen JSON */ }
     throw new ApiError(message, res.status)
   }
+  return res
+}
+
+async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
+  const res = await send(method, url, body)
   if (res.status === 204) return undefined as T
   return res.json()
+}
+
+// Haalt een bestand op en laat de browser het opslaan, met dezelfde foutmeldingen als de rest van de API.
+async function download(url: string, fileName: string) {
+  const res = await send('GET', url)
+  const href = URL.createObjectURL(await res.blob())
+  const a = Object.assign(document.createElement('a'), { href, download: fileName })
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(href), 1000)
 }
 
 export const api = {
@@ -33,4 +47,5 @@ export const api = {
   post: <T>(url: string, body?: unknown) => request<T>('POST', url, body ?? {}),
   put: <T>(url: string, body: unknown) => request<T>('PUT', url, body),
   del: (url: string, body?: unknown) => request<void>('DELETE', url, body),
+  download,
 }

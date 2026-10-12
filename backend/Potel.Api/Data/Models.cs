@@ -472,6 +472,89 @@ public class Settings : IWorkspaceOwned
     public string BrandColor { get; set; } = "#ff6d5a";
 }
 
+// Soorten zakelijke kosten, met de naam zoals we hem tonen (ook in de export voor je boekhouder).
+public static class ExpenseCategories
+{
+    public const string Hardware = "hardware";
+    public const string Software = "software";
+    public const string Hosting = "hosting";
+    public const string Training = "opleiding";
+    public const string Travel = "reiskosten";
+    public const string Phone = "telefoon";
+    public const string Office = "kantoor";
+    public const string Other = "overig";
+    public static readonly string[] All = [Hardware, Software, Hosting, Training, Travel, Phone, Office, Other];
+
+    public static string Label(string category) => category switch
+    {
+        Hardware => "Hardware",
+        Software => "Software en abonnementen",
+        Hosting => "Hosting en domeinen",
+        Training => "Opleiding",
+        Travel => "Reiskosten",
+        Phone => "Telefoon en internet",
+        Office => "Kantoor",
+        _ => "Overig",
+    };
+}
+
+// Waar een leverancier zit als de btw naar jou is verlegd: binnen de EU (rubriek 4b) of daarbuiten (rubriek 4a).
+public static class SupplierRegions
+{
+    public const string Eu = "eu";
+    public const string OutsideEu = "buiten-eu";
+    public static readonly string[] All = [Eu, OutsideEu];
+}
+
+// Een zakelijke uitgave met de btw erop. Amount is wat je betaalde. Bij btw verlegd staat er geen btw op de rekening:
+// dan is Amount het bedrag zonder btw en is VatAmount de Nederlandse btw die je zelf aangeeft en weer aftrekt.
+public class Expense : IWorkspaceOwned, IDemoData
+{
+    // Btw-tarieven voor een uitgave; null is "geen btw".
+    public static readonly decimal[] VatRates = [21, 9, 0];
+
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
+    public DateTime Date { get; set; } = DateTime.UtcNow.Date;
+    public string Supplier { get; set; } = "";
+    public string? Description { get; set; }
+    public string Category { get; set; } = ExpenseCategories.Other;
+    public decimal Amount { get; set; }
+    public decimal? VatRate { get; set; } = 21;
+    public decimal VatAmount { get; set; }
+    // "Btw verlegd naar mij": een buitenlandse leverancier rekende geen btw. Dan staat hier waar hij zit.
+    public bool ReverseCharge { get; set; }
+    public string? SupplierRegion { get; set; }
+    public int? ProjectId { get; set; }
+    public int? CustomerId { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    // Het bedrag zonder btw. Bij btw verlegd betaalde je al geen btw.
+    [NotMapped] public decimal AmountExclVat => ReverseCharge ? Amount : Amount - VatAmount;
+    [NotMapped] public bool Demo => IsDemo;
+
+    // De btw zoals een kassabon hem uitrekent: uit het bedrag inclusief btw, of bij btw verlegd erbovenop. Op centen, half van nul af.
+    public static decimal VatFor(decimal amount, decimal? rate, bool reverseCharge) => rate is not > 0
+        ? 0
+        : Money.Round(reverseCharge ? amount * rate.Value / 100 : amount * rate.Value / (100 + rate.Value));
+}
+
+// Het bonnetje bij een uitgave (PNG, JPEG, WebP of PDF), in de database van de werkruimte. Los van de uitgave,
+// zodat een lijst met kosten de bestanden niet meeleest.
+public class ExpenseReceipt : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int ExpenseId { get; set; }
+    public string FileName { get; set; } = "";
+    // Bepaald aan de inhoud van het bestand, nooit aan wat de browser zegt.
+    public string ContentType { get; set; } = "";
+    public int Size { get; set; }
+    [JsonIgnore] public byte[] Data { get; set; } = [];
+    public DateTime UploadedAt { get; set; } = DateTime.UtcNow;
+}
+
 public class Appointment : IWorkspaceOwned, IDemoData
 {
     public int Id { get; set; }
