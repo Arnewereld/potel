@@ -287,8 +287,8 @@ export interface Dashboard {
     byDay: { date: string; minutes: number }[]
   }
   unbilled: { minutes: number; value: number }
-  // Met de KOR doe je geen btw-aangifte; dan is er geen datum.
-  vat: { label: string; amount: number; revenue: number; dueDate: string | null; kor: boolean }
+  // De btw-aangifte van dit kwartaal: positief is te betalen, negatief terug te vragen. Met de KOR is er geen datum.
+  vat: { label: string; year: number; quarter: number; amount: number; revenue: number; dueDate: string | null; kor: boolean }
   projects: Project[]
 }
 
@@ -322,4 +322,50 @@ export interface Expense {
   demo: boolean
   receipt?: ReceiptInfo | null
   createdAt: string
+}
+
+export interface VatRubric {
+  code: string
+  title: string
+  base: number
+  // null bij een rubriek zonder btw-kolom (1e en 3b).
+  vat: number | null
+}
+
+export interface VatSource {
+  kind: 'factuur' | 'kosten'
+  id: number
+  date: string
+  name: string
+  number?: string | null
+  rubric: string
+  base: number
+  vat: number
+}
+
+export interface VatReturn {
+  year: number
+  quarter: number
+  label: string
+  from: string
+  to: string
+  dueDate: string
+  regime: VatRegime
+  kor: boolean
+  // Of je de btw op je kosten mag aftrekken (niet met de KOR of vrijgestelde omzet).
+  deduction: boolean
+  rubrics: VatRubric[]
+  due: number
+  deductible: number
+  // Positief is te betalen, negatief terug te vragen.
+  total: number
+  revenue: number
+  outsideEu: number
+  exempt: number
+  korRevenue: number
+  icp: { vatNumber: string; customer: string; country: string; amount: number }[]
+  sources: VatSource[]
+  demoData: boolean
+  includesDemo: boolean
+  pending?: { year: number; quarter: number; label: string; dueDate: string } | null
 }

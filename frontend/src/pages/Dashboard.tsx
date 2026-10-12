@@ -51,8 +51,10 @@ export function DashboardPage() {
         <Stat icon={<Clock size={20} />} accent="var(--yellow)" label="Openstaand" value={euro(data.outstanding)}
           sub={data.overdue > 0 ? <span style={{ color: 'var(--red)' }}><AlertTriangle size={11} /> {data.overdue} verlopen</span> : 'Niets verlopen'}
           onClick={() => navigate('/facturen')} />
-        <Stat icon={<Landmark size={20} />} accent="var(--purple)" label={`Btw ${data.vat.label}`} value={euro(data.vat.amount)}
-          sub={data.vat.kor || !data.vat.dueDate ? 'KOR: je doet geen btw-aangifte' : `Aangifte vóór ${date(data.vat.dueDate)}`} />
+        <Stat icon={<Landmark size={20} />} accent="var(--purple)" label={`Btw ${data.vat.label}`} value={euro(Math.abs(data.vat.amount))}
+          sub={data.vat.kor || !data.vat.dueDate ? 'KOR: je doet geen btw-aangifte'
+            : `${data.vat.amount < 0 ? 'Terug te vragen' : 'Te betalen'}, aangifte uiterlijk ${date(data.vat.dueDate)}`}
+          onClick={() => navigate('/btw-aangifte')} />
       </div>
 
       <div className="grid grid-2-1 mt">

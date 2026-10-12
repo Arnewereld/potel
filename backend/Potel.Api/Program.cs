@@ -200,6 +200,7 @@ api.MapCustomers();
 api.MapLeads();
 api.MapInvoices();
 api.MapExpenses();
+api.MapTax();
 api.MapAppointments();
 api.MapModules();
 api.MapWorkflows();

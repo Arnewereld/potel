@@ -29,11 +29,9 @@ public static class DashboardEndpoints
             var projects = await ProjectEndpoints.ListAsync(db);
             var unbilledMinutes = projects.Sum(p => p.MinutesUnbilled);
 
-            // Btw over de facturen van dit kwartaal; de aangifte moet uiterlijk een maand na het kwartaal binnen zijn.
+            // De btw-aangifte van dit kwartaal, met dezelfde som als de pagina Btw-aangifte.
             // Met de KOR doe je geen btw-aangifte, dus dan is er ook geen datum.
-            var quarter = (today.Month - 1) / 3;
-            var quarterStart = new DateTime(today.Year, quarter * 3 + 1, 1);
-            var quarterInvoices = invoices.Where(i => i.Status != InvoiceStatus.Draft && i.IssueDate >= quarterStart && i.IssueDate < quarterStart.AddMonths(3)).ToList();
+            var vatReturn = await VatReturn.CalculateAsync(db, clock, today.Year, VatReturn.QuarterOf(today));
             var months = Enumerable.Range(0, 6).Select(i => monthStart.AddMonths(i - 5)).ToList();
             // Ontvangen: betaalde facturen, min verrekende creditnota's. Een creditnota op een factuur die nooit betaald is
             // (omdat hij helemaal gecrediteerd is) telt niet mee; die factuur telde ook niet mee.
@@ -69,11 +67,14 @@ public static class DashboardEndpoints
                 unbilled = new { minutes = unbilledMinutes, value = projects.Sum(p => p.UnbilledValue) },
                 vat = new
                 {
-                    label = $"Q{quarter + 1} {today.Year}",
-                    amount = quarterInvoices.Sum(i => i.Totals.Vat),
-                    revenue = quarterInvoices.Sum(i => i.Totals.Subtotal),
-                    kor = settings.VatRegime == VatRegimes.Kor,
-                    dueDate = settings.VatRegime == VatRegimes.Kor ? null : quarterStart.AddMonths(4).AddDays(-1).ToString("yyyy-MM-dd"),
+                    label = vatReturn.Label,
+                    year = vatReturn.Year,
+                    quarter = vatReturn.Quarter,
+                    // Te betalen (positief) of terug te vragen (negatief): rubriek 5a min 5b.
+                    amount = vatReturn.Total,
+                    revenue = vatReturn.Revenue,
+                    kor = vatReturn.Kor,
+                    dueDate = vatReturn.Kor ? null : vatReturn.DueDate.ToString("yyyy-MM-dd"),
                 },
                 projects = projects.Where(p => p.Status == "actief").OrderByDescending(p => p.LastEntry).Take(6),
                 upcoming = await db.Appointments.Where(a => a.End >= clock.Now && !a.Done).OrderBy(a => a.Start).Take(5).ToListAsync(),
