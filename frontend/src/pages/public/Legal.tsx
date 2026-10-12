@@ -216,6 +216,7 @@ export function PrivacyPage() {
           <li>Onze boekhouder: voor onze administratie</li>
         </ul>
         <p>Met elk van deze partijen hebben we afspraken gemaakt, zodat ze je gegevens alleen voor ons gebruiken. Aan de overheid geven we gegevens alleen als de wet ons daartoe verplicht.</p>
+        <p>Koppel je zelf GitHub, dan vragen we namens jou je commits op bij GitHub (in de Verenigde Staten). Daarvoor gebruiken we de token en de e-mailadressen voor commits die je bij Instellingen invult. Dat doen we alleen als jij op "Voorstellen uit GitHub" klikt, en je kunt de koppeling altijd weer verwijderen.</p>
       </Article>
       <Article n={6} title="Buiten de Europese Unie">
         <p>We bewaren je gegevens in de Europese Economische Ruimte (EER). Gebruiken we toch een partij buiten de EER, dan alleen met passende waarborgen, zoals de standaardcontractbepalingen van de Europese Commissie.</p>

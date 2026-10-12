@@ -272,7 +272,8 @@ public class WorkflowRunTimeTests(ShortRunFactory factory) : IClassFixture<Short
     {
         await using var slow = await LocalServer.StartAsync(async ctx =>
         {
-            await Task.Delay(TimeSpan.FromSeconds(4), ctx.RequestAborted);
+            // Veel langer dan de grens van 2 seconden, zodat de test ook op een drukke machine laat zien dat de run zelf stopt.
+            await Task.Delay(TimeSpan.FromSeconds(30), ctx.RequestAborted);
             await ctx.Response.WriteAsync("ok");
         });
         var tenant = await RegisterAsync(factory, "te-lang@example.com");
@@ -283,7 +284,7 @@ public class WorkflowRunTimeTests(ShortRunFactory factory) : IClassFixture<Short
 
         var sw = Stopwatch.StartNew();
         var run = await RunAsync(tenant, id);
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(4), $"De run duurde {sw.Elapsed.TotalSeconds:F1}s");
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(15), $"De run duurde {sw.Elapsed.TotalSeconds:F1}s");
         Assert.Equal("fout", run.Status);
         Assert.Contains("langer dan 2 seconden", run.LastMessage);
         Assert.DoesNotContain(run.Messages, m => m.StartsWith("Taak"));

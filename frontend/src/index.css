@@ -148,6 +148,7 @@ kbd {
   background: var(--primary-soft); color: var(--primary); border: 1px solid rgba(255, 109, 90, 0.25);
 }
 .page-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.page-actions select { width: auto; }
 
 .card {
   background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
