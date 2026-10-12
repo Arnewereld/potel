@@ -369,3 +369,39 @@ export interface VatReturn {
   includesDemo: boolean
   pending?: { year: number; quarter: number; label: string; dueDate: string } | null
 }
+
+export interface TaxIndication {
+  available: boolean
+  profit: number
+  hoursMet: boolean
+  starter: boolean
+  selfEmployedDeduction: number
+  starterDeduction: number
+  profitAfterDeductions: number
+  // null als het percentage voor dat jaar nog niet vaststaat.
+  smePercentage: number | null
+  smeExemption: number
+  taxableProfit: number
+  notes: string[]
+  sources: string[]
+}
+
+export interface AnnualOverview {
+  year: number
+  revenue: number
+  costs: number
+  result: number
+  // Of je btw aftrekt; zo niet (KOR of vrijgesteld), dan zijn de kosten met btw.
+  deduction: boolean
+  costsByCategory: { category: ExpenseCategory; label: string; amount: number; count: number }[]
+  months: { month: string; revenue: number; costs: number }[]
+  hours: { minutes: number; billableMinutes: number; nonBillableMinutes: number; criterion: number; met: boolean }
+  indication: TaxIndication
+  invoices: number
+  expenses: number
+  // Hardware van € 450 of meer: die schrijf je af in plaats van in één keer.
+  investments: number
+  demoData: boolean
+  hoursSource: string
+  depreciationSource: string
+}

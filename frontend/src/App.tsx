@@ -20,6 +20,7 @@ import { InvoicesPage } from './pages/Invoices'
 import { InvoiceEditorPage } from './pages/InvoiceEditor'
 import { ExpensesPage } from './pages/Expenses'
 import { VatReturnPage } from './pages/VatReturn'
+import { AnnualPage } from './pages/Annual'
 import { PlanningPage } from './pages/Planning'
 import { WorkflowsPage } from './pages/Workflows'
 import { WorkflowEditorPage } from './pages/WorkflowEditor'
@@ -83,6 +84,7 @@ function AppRoutes({ location }: { location: string }) {
       <Route path="/facturen/:id" element={<InvoiceEditorPage />} />
       <Route path="/kosten" element={<ExpensesPage />} />
       <Route path="/btw-aangifte" element={<VatReturnPage />} />
+      <Route path="/jaaroverzicht" element={<AnnualPage />} />
       <Route path="/werkstromen" element={<WorkflowsPage />} />
       <Route path="/werkstromen/:id" element={<WorkflowEditorPage />} />
       <Route path="/modules" element={<ModulesPage />} />

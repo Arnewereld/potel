@@ -534,6 +534,10 @@ public class Expense : IWorkspaceOwned, IDemoData
     [NotMapped] public decimal AmountExclVat => ReverseCharge ? Amount : Amount - VatAmount;
     [NotMapped] public bool Demo => IsDemo;
 
+    // Wat de uitgave van je winst afhaalt. Trek je geen btw af (KOR of vrijgestelde omzet), dan hoort de btw bij de kosten,
+    // ook de verlegde btw die je zelf afdraagt. Dezelfde regel staat in frontend/src/lib/expenses.ts.
+    public decimal CostForProfit(bool deduction) => deduction ? AmountExclVat : Amount + (ReverseCharge ? VatAmount : 0);
+
     // De btw zoals een kassabon hem uitrekent: uit het bedrag inclusief btw, of bij btw verlegd erbovenop. Op centen, half van nul af.
     public static decimal VatFor(decimal amount, decimal? rate, bool reverseCharge) => rate is not > 0
         ? 0

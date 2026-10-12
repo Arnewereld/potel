@@ -165,6 +165,153 @@ public static class VatReturn
     }
 }
 
+public record CategoryCost(string Category, string Label, decimal Amount, int Count);
+public record MonthTotals(string Month, decimal Revenue, decimal Costs);
+public record HoursSummary(int Minutes, int BillableMinutes, int NonBillableMinutes, int Criterion, bool Met);
+
+// Een indicatie van de ondernemersaftrek en de MKB-winstvrijstelling, met de bedragen uit TaxYears.
+public record TaxIndication(
+    bool Available, decimal Profit, bool HoursMet, bool Starter, decimal SelfEmployedDeduction, decimal StarterDeduction,
+    decimal ProfitAfterDeductions, decimal? SmePercentage, decimal SmeExemption, decimal TaxableProfit, List<string> Notes, string[] Sources);
+
+public record AnnualDto(
+    int Year, decimal Revenue, decimal Costs, decimal Result, bool Deduction, List<CategoryCost> CostsByCategory, List<MonthTotals> Months,
+    HoursSummary Hours, TaxIndication Indication, int Invoices, int Expenses, int Investments, bool DemoData,
+    string HoursSource, string DepreciationSource);
+
+// Het jaaroverzicht voor de aangifte inkomstenbelasting: omzet, kosten, resultaat, uren en een indicatie van de aftrekposten.
+// Zonder concepten en voorbeelddata. Een indicatie, geen belastingadvies.
+public static class AnnualOverview
+{
+    public record Data(AnnualDto Summary, List<Invoice> Invoices, List<Expense> Expenses, HashSet<int> ReceiptIds);
+
+    public static async Task<Data> CalculateAsync(AppDb db, int year, bool starter)
+    {
+        var from = new DateTime(year, 1, 1);
+        var to = new DateTime(year, 12, 31);
+        var settings = await SettingsEndpoints.GetAsync(db);
+        var deduction = settings.VatRegime is not (VatRegimes.Kor or VatRegimes.Exempt);
+
+        // Omzet op factuurdatum, zonder btw. Creditnota's hebben negatieve regels en trekken dus vanzelf af.
+        var invoices = await db.Invoices.AsNoTracking().Include(i => i.Lines).Include(i => i.Customer).Include(i => i.CreditFor)
+            .Where(i => i.Status != InvoiceStatus.Draft && !i.IsDemo && i.IssueDate >= from && i.IssueDate <= to)
+            .OrderBy(i => i.IssueDate).ThenBy(i => i.Id).AsSplitQuery().ToListAsync();
+        var expenses = await db.Expenses.AsNoTracking().Where(e => !e.IsDemo && e.Date >= from && e.Date <= to)
+            .OrderBy(e => e.Date).ThenBy(e => e.Id).ToListAsync();
+        // Alle uren tellen voor het urencriterium, ook die je niet factureert.
+        var hours = await db.TimeEntries.AsNoTracking().Where(t => !t.IsDemo && t.Date >= from && t.Date <= to)
+            .Select(t => new { t.Minutes, t.Billable }).ToListAsync();
+
+        var revenue = invoices.Sum(i => i.Totals.Subtotal);
+        var costs = expenses.Sum(e => e.CostForProfit(deduction));
+        var result = revenue - costs;
+        var byCategory = ExpenseCategories.All
+            .Select(c => new CategoryCost(c, ExpenseCategories.Label(c), expenses.Where(e => e.Category == c).Sum(e => e.CostForProfit(deduction)), expenses.Count(e => e.Category == c)))
+            .Where(c => c.Count > 0).ToList();
+        var months = Enumerable.Range(1, 12).Select(m => new MonthTotals($"{year}-{m:00}",
+            invoices.Where(i => i.IssueDate.Month == m).Sum(i => i.Totals.Subtotal),
+            expenses.Where(e => e.Date.Month == m).Sum(e => e.CostForProfit(deduction)))).ToList();
+        var minutes = hours.Sum(h => h.Minutes);
+        var billable = hours.Where(h => h.Billable).Sum(h => h.Minutes);
+        var hoursSummary = new HoursSummary(minutes, billable, minutes - billable, TaxYears.HoursCriterion, minutes >= TaxYears.HoursCriterion * 60);
+        var investments = expenses.Count(e => e.Category == ExpenseCategories.Hardware && e.CostForProfit(deduction) >= TaxYears.DepreciationThreshold);
+        var demoData = await db.Invoices.AnyAsync(i => i.IsDemo) || await db.Expenses.AnyAsync(e => e.IsDemo) || await db.TimeEntries.AnyAsync(t => t.IsDemo);
+
+        var summary = new AnnualDto(year, revenue, costs, result, deduction, byCategory, months, hoursSummary,
+            Indicate(TaxYears.For(year), year, result, hoursSummary, starter), invoices.Count, expenses.Count, investments, demoData,
+            TaxYears.HoursSource, TaxYears.DepreciationSource);
+        var ids = expenses.Select(e => e.Id).ToList();
+        var receiptIds = (await db.ExpenseReceipts.Where(r => ids.Contains(r.ExpenseId)).Select(r => r.ExpenseId).ToListAsync()).ToHashSet();
+        return new Data(summary, invoices, expenses, receiptIds);
+    }
+
+    // Zelfstandigenaftrek (met het urencriterium, niet hoger dan de winst behalve voor starters), startersaftrek
+    // en daarna de MKB-winstvrijstelling over de winst na ondernemersaftrek; bij verlies maakt die het verlies kleiner.
+    public static TaxIndication Indicate(TaxYear? t, int year, decimal profit, HoursSummary hours, bool starter)
+    {
+        var notes = new List<string>();
+        if (t is null)
+        {
+            notes.Add($"Voor {year} hebben we de bedragen nog niet. Daarom staat hier geen indicatie.");
+            return new TaxIndication(false, profit, hours.Met, starter, 0, 0, profit, null, 0, profit, notes, []);
+        }
+        if (!hours.Met)
+            notes.Add($"Je hebt {Thousands(hours.Minutes / 60)} van de {Thousands(TaxYears.HoursCriterion)} uur. Zonder het urencriterium krijg je geen zelfstandigenaftrek en geen startersaftrek.");
+        var selfEmployed = hours.Met ? t.SelfEmployedDeduction : 0;
+        if (!starter && selfEmployed > Math.Max(0, profit))
+        {
+            selfEmployed = Math.Max(0, profit);
+            notes.Add("De zelfstandigenaftrek is niet hoger dan je winst, behalve als je starter bent.");
+        }
+        var starterDeduction = hours.Met && starter ? t.StarterDeduction ?? 0 : 0;
+        var after = profit - selfEmployed - starterDeduction;
+        var sme = t.SmeProfitExemption is { } pct ? Money.Round(after * pct / 100) : 0;
+        if (t.Note is not null) notes.Add(t.Note);
+        notes.Add("Heb je aan het begin van het jaar de AOW-leeftijd, dan is de zelfstandigenaftrek de helft.");
+        notes.Add("Andere aftrekposten, zoals afschrijvingen, investeringsaftrek en de meewerkaftrek, tellen hier niet mee.");
+        return new TaxIndication(true, profit, hours.Met, starter, selfEmployed, starterDeduction, after, t.SmeProfitExemption, sme, after - sme, notes, t.Sources);
+    }
+
+    // Eén CSV-bestand voor je boekhouder: de samenvatting, de facturen en de kosten. UTF-8 met BOM, puntkomma's en
+    // Nederlandse bedragen, zodat Excel het meteen goed opent.
+    public static byte[] Csv(Data data, string company)
+    {
+        var s = data.Summary;
+        var sb = new System.Text.StringBuilder();
+        void Line(params string[] cells) => sb.Append(string.Join(';', cells)).Append("\r\n");
+
+        Line(CsvText($"Jaaroverzicht {s.Year}"), CsvText(company));
+        Line(CsvText("Zonder concepten en voorbeelddata. Bedragen in euro."));
+        Line();
+        Line("Samenvatting");
+        Line("Omschrijving", "Bedrag");
+        Line("Omzet zonder btw", CsvNumber(s.Revenue));
+        Line(s.Deduction ? "Kosten zonder btw" : "Kosten met btw (je trekt geen btw af)", CsvNumber(s.Costs));
+        foreach (var c in s.CostsByCategory) Line(CsvText($"Kosten {c.Label.ToLowerInvariant()}"), CsvNumber(c.Amount));
+        Line("Resultaat voor belasting", CsvNumber(s.Result));
+        Line("Uren totaal", CsvNumber(s.Hours.Minutes / 60m));
+        Line("Uren factureerbaar", CsvNumber(s.Hours.BillableMinutes / 60m));
+        Line("Uren niet factureerbaar", CsvNumber(s.Hours.NonBillableMinutes / 60m));
+        Line();
+        Line("Facturen");
+        Line("Nummer", "Datum", "Klant", "Btw-nummer klant", "Land", "Btw-regeling", "Bedrag zonder btw", "Btw", "Totaal", "Status", "Creditnota voor");
+        foreach (var i in data.Invoices)
+        {
+            var t = i.Totals;
+            var customer = i.Buyer?.Name ?? (string.IsNullOrWhiteSpace(i.Customer?.Company) ? i.Customer?.Name : i.Customer.Company);
+            Line(CsvText(i.Number), CsvDate(i.IssueDate), CsvText(customer), CsvText(i.Buyer?.VatNumber ?? i.Customer?.VatNumber),
+                CsvText(Countries.Normalize(i.Buyer?.Country ?? i.Customer?.Country)), CsvText(i.VatRegime),
+                CsvNumber(t.Subtotal), CsvNumber(t.Vat), CsvNumber(t.Total), CsvText(i.Status), CsvText(i.CreditFor?.Number));
+        }
+        Line();
+        Line("Kosten");
+        Line("Datum", "Leverancier", "Omschrijving", "Categorie", "Bedrag", "Btw-tarief", "Btw", "Bedrag zonder btw", "Btw verlegd", "Leverancier zit", "Bonnetje");
+        foreach (var e in data.Expenses)
+            Line(CsvDate(e.Date), CsvText(e.Supplier), CsvText(e.Description), CsvText(ExpenseCategories.Label(e.Category)), CsvNumber(e.Amount),
+                e.VatRate is { } r ? CsvNumber(r) : "geen", CsvNumber(e.VatAmount), CsvNumber(e.AmountExclVat), e.ReverseCharge ? "ja" : "nee",
+                e.SupplierRegion == SupplierRegions.Eu ? "EU" : e.SupplierRegion == SupplierRegions.OutsideEu ? "buiten de EU" : "",
+                data.ReceiptIds.Contains(e.Id) ? "ja" : "nee");
+
+        return [.. System.Text.Encoding.UTF8.GetPreamble(), .. System.Text.Encoding.UTF8.GetBytes(sb.ToString())];
+    }
+
+    // Tekst in een cel. Begint hij met een teken waarmee een spreadsheet een formule start, dan zetten we er een apostrof voor.
+    public static string CsvText(string? s)
+    {
+        s ??= "";
+        if (s.Length > 0 && s[0] is '=' or '+' or '-' or '@' or '\t' or '\r') s = "'" + s;
+        return s.IndexOfAny([';', '"', '\n', '\r']) >= 0 ? $"\"{s.Replace("\"", "\"\"")}\"" : s;
+    }
+
+    // Bedragen met een komma en zonder duizendtallen, los van de taalinstellingen van de server.
+    public static string CsvNumber(decimal d) => Money.Round(d).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture).Replace('.', ',');
+
+    // 1225 als "1.225", los van de taalinstellingen van de server.
+    static string Thousands(int n) => n.ToString("#,0", System.Globalization.CultureInfo.InvariantCulture).Replace(',', '.');
+
+    public static string CsvDate(DateTime d) => d.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture);
+}
+
 public static class TaxEndpoints
 {
     public static void MapTax(this RouteGroupBuilder api)
@@ -179,6 +326,25 @@ public static class TaxEndpoints
             var q = quarter ?? VatReturn.QuarterOf(today);
             if (y is < 2000 or > 2100 || q is < 1 or > 4) return Results.BadRequest(new { error = "Kies een kwartaal van 1 tot en met 4 en een geldig jaar." });
             return Results.Ok(await VatReturn.CalculateAsync(db, clock, y, q, demo == true));
+        });
+
+        // Het jaaroverzicht; zonder jaar het lopende jaar. Starter geeft de startersaftrek mee in de indicatie.
+        g.MapGet("/annual", async (AppDb db, BusinessClock clock, int? year, bool? starter) =>
+        {
+            var y = year ?? clock.Today.Year;
+            if (y is < 2000 or > 2100) return Results.BadRequest(new { error = "Kies een geldig jaar." });
+            return Results.Ok((await AnnualOverview.CalculateAsync(db, y, starter == true)).Summary);
+        });
+
+        // Hetzelfde overzicht als CSV voor je boekhouder, met alle facturen en kosten van dat jaar.
+        g.MapGet("/annual.csv", async (AppDb db, BusinessClock clock, HttpContext http, int? year) =>
+        {
+            var y = year ?? clock.Today.Year;
+            if (y is < 2000 or > 2100) return Results.BadRequest(new { error = "Kies een geldig jaar." });
+            var data = await AnnualOverview.CalculateAsync(db, y, starter: false);
+            var company = (await SettingsEndpoints.GetAsync(db)).CompanyName;
+            http.Response.Headers.CacheControl = "private, no-store";
+            return Results.File(AnnualOverview.Csv(data, company), "text/csv; charset=utf-8", $"jaaroverzicht-{y}.csv");
         });
     }
 }

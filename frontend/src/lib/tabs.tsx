@@ -35,6 +35,7 @@ export function defaultTitle(fullPath: string) {
   if (path.startsWith('/facturen/')) return 'Factuur'
   if (path === '/kosten') return 'Kosten'
   if (path === '/btw-aangifte') return 'Btw-aangifte'
+  if (path === '/jaaroverzicht') return 'Jaaroverzicht'
   if (path === '/werkstromen') return 'Werkstromen'
   if (path.startsWith('/werkstromen/')) return 'Werkstroom'
   if (path === '/modules') return 'Eigen modules'
