@@ -1,22 +1,29 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Receipt, Plus, Search, CheckCircle2, Copy, BellRing, AlertTriangle, FileClock, Send, Euro } from 'lucide-react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Receipt, Plus, Search, CheckCircle2, Copy, BellRing, AlertTriangle, FileClock, Send, Euro, Repeat } from 'lucide-react'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useToast } from '../lib/toast'
-import type { Invoice, InvoiceStatus, Settings } from '../lib/types'
+import { useAuth } from '../lib/auth'
+import type { Invoice, InvoiceStatus, RecurringInvoice, Settings } from '../lib/types'
 import { date, euro, invoiceTotals, toDateInput } from '../lib/format'
 import { invoiceStatuses } from '../lib/status'
 import { daysUntil, invoiceTitle, isCredit, openAmount, reminderMail } from '../lib/invoice'
 import { Badge, Empty, ErrorBox, Loading, PageHeader, SubTabs } from '../components/ui'
 import { MiniStat } from './Time'
+import { RecurringList } from './RecurringInvoices'
 
-type Filter = 'alle' | InvoiceStatus
+// Terugkerend is geen status maar de lijst met terugkerende facturen; te openen met /facturen?tab=terugkerend.
+type Filter = 'alle' | InvoiceStatus | 'terugkerend'
 
 export function InvoicesPage() {
   const { data, error, loading, reload } = useApi<Invoice[]>('/invoices')
   const { data: settings } = useApi<Settings>('/settings')
-  const [filter, setFilter] = useState<Filter>('alle')
+  const { data: recurring, reload: reloadRecurring } = useApi<RecurringInvoice[]>('/recurring-invoices')
+  const [params] = useSearchParams()
+  const [filter, setFilter] = useState<Filter>(params.get('tab') === 'terugkerend' ? 'terugkerend' : 'alle')
+  const { user } = useAuth()
+  const showRecurring = filter === 'terugkerend'
   const [q, setQ] = useState('')
   const navigate = useNavigate()
   const toast = useToast()
@@ -65,10 +72,12 @@ export function InvoicesPage() {
       <PageHeader
         icon={<Receipt size={20} />}
         title="Facturen"
-        subtitle={`${filtered.length} facturen · ${euro(total(filtered))}`}
+        subtitle={showRecurring ? `${recurring?.length ?? 0} terugkerende facturen` : `${filtered.length} facturen · ${euro(total(filtered))}`}
         actions={<>
-          <div className="search-input"><Search size={16} /><input placeholder="Zoek nummer, klant of referentie…" value={q} onChange={e => setQ(e.target.value)} /></div>
-          <button className="btn btn-primary" onClick={() => navigate('/facturen/nieuw')}><Plus size={16} /> Nieuwe factuur</button>
+          <div className="search-input"><Search size={16} /><input placeholder={showRecurring ? 'Zoek naam, klant of referentie…' : 'Zoek nummer, klant of referentie…'} value={q} onChange={e => setQ(e.target.value)} /></div>
+          {showRecurring
+            ? user.role === 'beheerder' && <button className="btn btn-primary" onClick={() => navigate('/facturen/terugkerend/nieuw')}><Plus size={16} /> Nieuwe terugkerende factuur</button>
+            : <button className="btn btn-primary" onClick={() => navigate('/facturen/nieuw')}><Plus size={16} /> Nieuwe factuur</button>}
         </>}
       />
 
@@ -88,12 +97,15 @@ export function InvoicesPage() {
       <SubTabs<Filter> value={filter} onChange={setFilter} tabs={[
         { id: 'alle', label: 'Alle', count: invoices.length },
         ...invoiceStatuses.map(s => ({ id: s.id, label: s.label, count: by(s.id).length })),
+        { id: 'terugkerend', label: 'Terugkerend', count: recurring?.length, icon: <Repeat size={14} /> },
       ]} />
+
+      {showRecurring && recurring && <RecurringList list={recurring} query={q} reload={() => reloadRecurring(true)} />}
 
       {error && <ErrorBox message={error} onRetry={() => reload()} />}
       {loading && !data && <Loading />}
 
-      {data && (
+      {data && !showRecurring && (
         <div className="card">
           {filtered.length === 0 ? (
             <Empty icon={<Receipt size={22} />} title="Geen facturen" text={q ? 'Probeer een andere zoekterm.' : 'Hier staan nog geen facturen.'}
@@ -115,6 +127,7 @@ export function InvoicesPage() {
                           {isCredit(i) && <span className="badge badge-purple" style={{ marginLeft: 8 }}>credit</span>}
                           {credited && <span className="badge badge-purple" style={{ marginLeft: 8 }}>{i.fullyCredited ? 'gecrediteerd' : 'deels gecrediteerd'}</span>}
                           {i.demo && <span className="badge badge-gray" style={{ marginLeft: 8 }}>voorbeeld</span>}
+                          {i.recurringInvoiceId != null && <span className="muted" title="Gemaakt door een terugkerende factuur" style={{ marginLeft: 8 }}><Repeat size={13} /></span>}
                           {i.reference && <div className="cell-sub">{i.reference}</div>}
                         </td>
                         <td><div>{i.customer?.company || i.customer?.name}</div>{i.customer?.company && <div className="cell-sub">{i.customer.name}</div>}</td>

@@ -92,11 +92,56 @@ export interface Invoice {
   fullyCredited?: boolean
   // Voorbeeldfactuur uit de welkomstwizard: altijd te verwijderen.
   demo?: boolean
+  // Gemaakt door een terugkerende factuur, voor de periode die op recurringPeriodStart begint.
+  recurringInvoiceId?: number | null
+  recurringPeriodStart?: string | null
   seller?: InvoiceParty | null
   buyer?: InvoiceParty | null
   totals?: InvoiceTotals
   lines: InvoiceLine[]
 }
+
+export type RecurringInterval = 'maand' | 'kwartaal' | 'jaar'
+export type RecurringPeriodRule = 'vooraf' | 'achteraf'
+export type RecurringAction = 'concept' | 'versturen'
+
+export interface RecurringLine { id?: number; description: string; quantity: number; unit: string; unitPrice: number; vatRate: number }
+
+// Een periode van een terugkerende factuur: wat hij factureert en op welke dag de factuur komt.
+export interface RecurringPeriod { from: string; to: string; runDate: string; label: string }
+
+export interface RecurringInvoiceRef { id: number; number: string | null; status: InvoiceStatus; periodStart?: string | null; period?: string | null; total: number }
+
+export interface RecurringInvoice {
+  id: number
+  name: string
+  customerId: number
+  customerName?: string | null
+  vatRegime: VatRegime
+  interval: RecurringInterval
+  periodRule: RecurringPeriodRule
+  action: RecurringAction
+  startDate: string
+  endDate?: string | null
+  nextPeriodStart: string
+  // Leeg als de einddatum voorbij is.
+  nextRunDate?: string | null
+  nextPeriod?: RecurringPeriod | null
+  active: boolean
+  state: 'actief' | 'gepauzeerd' | 'afgelopen'
+  reference?: string | null
+  notes?: string | null
+  lines: RecurringLine[]
+  totals: InvoiceTotals
+  invoiceCount: number
+  // Na de eerste factuur liggen klant, startdatum en interval vast.
+  locked: boolean
+  demo: boolean
+  createdAt: string
+  invoices?: RecurringInvoiceRef[] | null
+}
+
+export interface RecurringPreview { periods: RecurringPeriod[]; dueNow: number; lines: string[]; error?: string | null }
 
 export interface Appointment {
   id: number

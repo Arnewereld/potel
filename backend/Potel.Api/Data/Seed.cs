@@ -183,6 +183,20 @@ public static class Seed
             foreach (var e in linked) { e.InvoiceId = inv.Id; e.InvoiceLineId = inv.Lines[0].Id; }
         }
 
+        // Een terugkerende factuur om te laten zien hoe dat werkt. Als voorbeeld maakt hij nooit echte facturen.
+        var hosting = new RecurringInvoice
+        {
+            IsDemo = true, Name = "Hosting en onderhoud webshop", CustomerId = customers[0].Id, Interval = RecurringIntervals.Monthly,
+            PeriodRule = RecurringPeriodRules.InAdvance, StartDate = thisMonth, Notes = Endpoints.SettingsEndpoints.DefaultNote,
+            Lines =
+            [
+                new RecurringInvoiceLine { Description = "Hosting webshop {maand} {jaar}", Quantity = 1, Unit = "maand", UnitPrice = 49, Position = 0 },
+                new RecurringInvoiceLine { Description = "Onderhoud en beveiligingsupdates {periode}", Quantity = 1, Unit = "maand", UnitPrice = 100, Position = 1 },
+            ],
+        };
+        Invoicing.RecurringPeriods.Schedule(hosting, hosting.StartDate);
+        db.RecurringInvoices.Add(hosting);
+
         // Kosten van een freelance developer: elke maand dezelfde abonnementen en een paar losse aankopen, met de btw zoals op de bon.
         // Buitenlandse leveranciers rekenen geen btw; die is naar jou verlegd (GitHub en Frontend Masters van buiten de EU, Hetzner en JetBrains uit de EU).
         var expenses = new List<Expense>();

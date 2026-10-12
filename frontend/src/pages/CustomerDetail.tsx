@@ -1,14 +1,16 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Pencil, Trash2, Mail, Phone, MapPin, Receipt, CalendarDays, StickyNote, User, Plus, FolderKanban } from 'lucide-react'
+import { Pencil, Trash2, Mail, Phone, MapPin, Receipt, CalendarDays, StickyNote, User, Plus, FolderKanban, Repeat } from 'lucide-react'
 import { useApi } from '../lib/useApi'
 import { api } from '../lib/api'
 import { useTabs, useTabTitle } from '../lib/tabs'
 import { useToast } from '../lib/toast'
-import type { Appointment, Customer, Invoice, Project } from '../lib/types'
+import { useAuth } from '../lib/auth'
+import type { Appointment, Customer, Invoice, Project, RecurringInvoice } from '../lib/types'
 import { date, dateTime, euro, initials, invoiceTotals } from '../lib/format'
 import { colorFor, invoiceStatuses, kindColor } from '../lib/status'
 import { isNetherlands } from '../lib/invoice'
+import { recurringIntervals, recurringStates } from '../lib/recurring'
 import { Badge, Empty, ErrorBox, Loading, SubTabs } from '../components/ui'
 import { CustomerForm } from '../components/CustomerForm'
 import { ProjectForm } from '../components/ProjectForm'
@@ -22,6 +24,8 @@ export function CustomerDetailPage() {
   const { data: invoices } = useApi<Invoice[]>('/invoices')
   const { data: appointments } = useApi<Appointment[]>('/appointments')
   const { data: projects } = useApi<Project[]>(`/projects?customerId=${id}`)
+  const { data: recurring } = useApi<RecurringInvoice[]>(`/recurring-invoices?customerId=${id}`)
+  const { user } = useAuth()
   const [newProject, setNewProject] = useState(false)
   const [tab, setTab] = useState<TabId>('overzicht')
   const [editing, setEditing] = useState(false)
@@ -130,7 +134,36 @@ export function CustomerDetailPage() {
         </div>
       </>)}
 
-      {tab === 'facturen' && (
+      {tab === 'facturen' && (<>
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-head">
+            <h3><Repeat size={16} /> Terugkerende facturen</h3>
+            {user.role === 'beheerder' && <button className="btn btn-sm" onClick={() => navigate(`/facturen/terugkerend/nieuw?klant=${customer.id}`)}><Plus size={14} /> Terugkerende factuur</button>}
+          </div>
+          {(recurring ?? []).length === 0 ? (
+            <div className="card-body muted" style={{ fontSize: 13 }}>Factureer je deze klant elke maand, elk kwartaal of elk jaar hetzelfde? Maak een terugkerende factuur, dan zet Potel hem vanzelf klaar.</div>
+          ) : (
+            <div className="table-wrap" style={{ marginTop: 10 }}>
+              <table>
+                <thead><tr><th>Naam</th><th>Hoe vaak</th><th>Volgende factuur</th><th>Status</th><th className="num">Per keer</th></tr></thead>
+                <tbody>
+                  {recurring!.map(t => {
+                    const st = recurringStates[t.state]
+                    return (
+                      <tr key={t.id} className="clickable" onClick={() => navigate(`/facturen/terugkerend/${t.id}`)}>
+                        <td>{t.name}</td>
+                        <td className="muted">{recurringIntervals.find(i => i.id === t.interval)?.label}</td>
+                        <td className="muted">{t.state === 'actief' && t.nextPeriod ? `${date(t.nextPeriod.runDate)} (${t.nextPeriod.label})` : st.label}</td>
+                        <td><Badge tone={st.tone}>{st.label}</Badge></td>
+                        <td className="num">{euro(t.totals.total)}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
         <div className="card">
           <div className="card-head"><h3>Facturen</h3><button className="btn btn-sm btn-primary" onClick={() => navigate(`/facturen/nieuw?klant=${customer.id}`)}><Plus size={14} /> Factuur</button></div>
           {mine.length === 0 ? <Empty icon={<Receipt size={22} />} title="Nog geen facturen" /> : (
@@ -153,7 +186,7 @@ export function CustomerDetailPage() {
             </div>
           )}
         </div>
-      )}
+      </>)}
 
       {tab === 'planning' && (
         <div className="card">

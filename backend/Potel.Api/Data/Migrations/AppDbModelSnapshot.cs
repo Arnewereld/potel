@@ -390,6 +390,12 @@ namespace Potel.Api.Data.Migrations
                     b.Property<DateTime?>("PaidAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("RecurringInvoiceId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("RecurringPeriodStart")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Reference")
                         .HasColumnType("TEXT");
 
@@ -416,6 +422,9 @@ namespace Potel.Api.Data.Migrations
                     b.HasIndex("CustomerId");
 
                     b.HasIndex("WorkspaceId");
+
+                    b.HasIndex("RecurringInvoiceId", "RecurringPeriodStart")
+                        .IsUnique();
 
                     b.HasIndex("WorkspaceId", "Number")
                         .IsUnique();
@@ -646,6 +655,112 @@ namespace Potel.Api.Data.Migrations
                     b.HasIndex("WorkspaceId");
 
                     b.ToTable("Projects");
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.RecurringInvoice", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Active")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("CustomerId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("EndDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Interval")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsDemo")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("NextPeriodStart")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("NextRunDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PeriodRule")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Reference")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("StartDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("VatRegime")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.HasIndex("Active", "NextRunDate");
+
+                    b.ToTable("RecurringInvoices");
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.RecurringInvoiceLine", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("Quantity")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("RecurringInvoiceId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Unit")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("UnitPrice")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("VatRate")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RecurringInvoiceId");
+
+                    b.ToTable("RecurringInvoiceLines");
                 });
 
             modelBuilder.Entity("Potel.Api.Data.Settings", b =>
@@ -1170,6 +1285,26 @@ namespace Potel.Api.Data.Migrations
                     b.Navigation("Customer");
                 });
 
+            modelBuilder.Entity("Potel.Api.Data.RecurringInvoice", b =>
+                {
+                    b.HasOne("Potel.Api.Data.Customer", "Customer")
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Customer");
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.RecurringInvoiceLine", b =>
+                {
+                    b.HasOne("Potel.Api.Data.RecurringInvoice", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("RecurringInvoiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Potel.Api.Data.TimeEntry", b =>
                 {
                     b.HasOne("Potel.Api.Data.Invoice", null)
@@ -1193,6 +1328,11 @@ namespace Potel.Api.Data.Migrations
                 {
                     b.Navigation("Credits");
 
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.RecurringInvoice", b =>
+                {
                     b.Navigation("Lines");
                 });
 #pragma warning restore 612, 618

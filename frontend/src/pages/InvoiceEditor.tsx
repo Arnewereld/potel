@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
-  Receipt, Plus, Trash2, Printer, Save, Building, ChevronUp, ChevronDown, Send, CheckCircle2, Copy, Undo2, BellRing, Clock, Mail, Lock,
+  Receipt, Plus, Trash2, Printer, Save, Building, ChevronUp, ChevronDown, Send, CheckCircle2, Copy, Undo2, BellRing, Clock, Mail, Lock, Repeat,
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useTabs, useTabTitle } from '../lib/tabs'
 import { useToast } from '../lib/toast'
-import type { Customer, Invoice, InvoiceLine, Project, Settings, VatRegime } from '../lib/types'
+import type { Customer, Invoice, InvoiceLine, Project, RecurringInvoice, Settings, VatRegime } from '../lib/types'
 import { date, euro, hours, invoiceTotals, lineAmount, toDateInput } from '../lib/format'
 import { invoiceStatuses } from '../lib/status'
 import {
@@ -43,6 +43,8 @@ export function InvoiceEditorPage() {
   const { data: projects, reload: reloadProjects } = useApi<Project[]>(draft?.customerId ? `/projects?customerId=${draft.customerId}` : null)
   // Het nummer dat deze factuur bij versturen krijgt. Hij krijgt dan de datum van die dag, dus ook het nummer van dit jaar.
   const { data: next } = useApi<{ number: string }>(draft && draft.status === 'concept' ? '/invoices/next-number' : null)
+  // De terugkerende factuur die deze factuur maakte, voor de link terug.
+  const { data: recurring } = useApi<RecurringInvoice>(draft?.recurringInvoiceId ? `/recurring-invoices/${draft.recurringInvoiceId}` : null)
   const { retarget, close } = useTabs()
   const navigate = useNavigate()
   const toast = useToast()
@@ -240,6 +242,14 @@ export function InvoiceEditorPage() {
                 {!credit && !fullyCredited && ' Klopt er iets niet? Maak dan een creditnota en zo nodig een nieuwe factuur.'}
               </span>
               {!credit && !fullyCredited && <button className="btn btn-sm" onClick={() => copy('credit')}><Undo2 size={14} /> Creditnota maken</button>}
+            </div>
+          )}
+          {draft.recurringInvoiceId != null && (
+            <div className="notice">
+              <Repeat size={13} /> Gemaakt door de terugkerende factuur{' '}
+              <a onClick={() => navigate(`/facturen/terugkerend/${draft.recurringInvoiceId}`)} style={{ cursor: 'pointer' }}>{recurring ? `"${recurring.name}"` : 'van deze klant'}</a>
+              {draft.deliveryFrom ? `, voor de periode ${date(draft.deliveryFrom)}${draft.deliveryTo ? ` t/m ${date(draft.deliveryTo)}` : ''}` : ''}.
+              {!readOnly && ' Kijk hem na en verstuur hem als alles klopt.'}
             </div>
           )}
           {!credit && creditNotes.length > 0 && (

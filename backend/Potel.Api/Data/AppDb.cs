@@ -28,6 +28,8 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
     public DbSet<MolliePayment> MolliePayments => Set<MolliePayment>();
     public DbSet<Expense> Expenses => Set<Expense>();
     public DbSet<ExpenseReceipt> ExpenseReceipts => Set<ExpenseReceipt>();
+    public DbSet<RecurringInvoice> RecurringInvoices => Set<RecurringInvoice>();
+    public DbSet<RecurringInvoiceLine> RecurringInvoiceLines => Set<RecurringInvoiceLine>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -66,6 +68,12 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         // Hooguit één bonnetje per uitgave, en het gaat mee als de uitgave weggaat.
         b.Entity<ExpenseReceipt>().HasOne<Expense>().WithMany().HasForeignKey(r => r.ExpenseId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<ExpenseReceipt>().HasIndex(r => r.ExpenseId).IsUnique();
+        // Terugkerende facturen: per klant, met hun regels. Elke periode wordt hooguit één factuur, ook als de planner
+        // twee keer tegelijk draait of na een herstart opnieuw begint. Gaat de terugkerende factuur weg, dan blijven de facturen staan.
+        b.Entity<RecurringInvoice>().HasOne(r => r.Customer).WithMany().HasForeignKey(r => r.CustomerId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<RecurringInvoice>().HasMany(r => r.Lines).WithOne().HasForeignKey(l => l.RecurringInvoiceId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<RecurringInvoice>().HasIndex(r => new { r.Active, r.NextRunDate });
+        b.Entity<Invoice>().HasIndex(i => new { i.RecurringInvoiceId, i.RecurringPeriodStart }).IsUnique();
         FilterByWorkspace(b);
     }
 
@@ -75,7 +83,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         Filter<Customer>(b); Filter<Lead>(b); Filter<Invoice>(b); Filter<Appointment>(b); Filter<Project>(b); Filter<TimeEntry>(b);
         Filter<Settings>(b); Filter<CustomModule>(b); Filter<CustomRecord>(b); Filter<Workflow>(b); Filter<Activity>(b);
         Filter<User>(b); Filter<WorkflowRun>(b); Filter<AccountToken>(b); Filter<MolliePayment>(b);
-        Filter<Expense>(b); Filter<ExpenseReceipt>(b);
+        Filter<Expense>(b); Filter<ExpenseReceipt>(b); Filter<RecurringInvoice>(b);
     }
 
     void Filter<T>(ModelBuilder b) where T : class, IWorkspaceOwned

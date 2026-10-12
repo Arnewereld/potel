@@ -82,7 +82,7 @@ public static partial class InvoiceEndpoints
     }
 
     // Past de btw-regeling bij de klant? Binnen Nederland wordt btw voor IT-werk nooit verlegd.
-    static string? RegimeError(string regime, Customer c) => regime switch
+    public static string? RegimeError(string regime, Customer c) => regime switch
     {
         VatRegimes.ReverseCharge when !Countries.InEu(c.Country) || Countries.IsNetherlands(c.Country) =>
             "Btw verlegd kan alleen voor een zakelijke klant in een ander EU-land. Een klant in Nederland betaalt gewoon btw. Zit je klant in een ander EU-land? Vul dan het land in bij de klant.",

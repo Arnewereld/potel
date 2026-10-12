@@ -3,6 +3,7 @@ using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Potel.Api.Data;
+using Potel.Api.Invoicing;
 
 namespace Potel.Api.Workflows;
 
@@ -10,12 +11,16 @@ namespace Potel.Api.Workflows;
 // Werkruimtes lopen naast elkaar (hooguit ParallelWorkspaces tegelijk), zodat een trage werkstroom bij de een
 // de ander niet ophoudt. Elke run krijgt een eigen scope met de juiste werkruimte, en een fout in één run of
 // werkruimte stopt de rest niet. Werkruimtes met een verlopen proef slaat de planner over.
-public class WorkflowScheduler(IServiceScopeFactory scopes, IOptions<WorkflowLimits> options, ILogger<WorkflowScheduler> logger) : BackgroundService
+// Daarnaast doet hij per werkruimte het vaste werk rond facturen (IWorkspaceJob), hooguit eens per CheckEveryMinutes.
+public class WorkflowScheduler(IServiceScopeFactory scopes, IOptions<WorkflowLimits> options, IOptions<InvoicingLimits> invoicing,
+    ILogger<WorkflowScheduler> logger) : BackgroundService
 {
     static readonly TimeSpan Interval = TimeSpan.FromSeconds(30);
     readonly WorkflowLimits limits = options.Value;
     // Werkruimtes die nog bezig zijn met een vorige ronde; die slaat een nieuwe ronde over.
     readonly ConcurrentDictionary<int, Task> busy = new();
+    // Wanneer de taken rond facturen per werkruimte voor het laatst liepen.
+    readonly ConcurrentDictionary<int, DateTime> jobsRanAt = new();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -65,9 +70,39 @@ public class WorkflowScheduler(IServiceScopeFactory scopes, IOptions<WorkflowLim
         }
     }
 
-    // Eén werkruimte: eerst wachtende runs, dan geplande werkstromen, samen hooguit MaxRunsPerTick runs.
-    // Is de werkruimte deze ronde al MaxSecondsPerRun bezig, dan begint hij geen nieuwe run meer; de rest volgt de volgende ronde.
+    // Eén werkruimte: eerst de werkstromen, dan de taken rond facturen.
     async Task RunWorkspaceAsync(int workspaceId, CancellationToken ct)
+    {
+        await RunWorkflowsAsync(workspaceId, ct);
+        await RunJobsAsync(workspaceId, ct);
+    }
+
+    // Terugkerende facturen en andere taken, elk in een eigen scope, zodat een fout in de ene de andere niet raakt.
+    async Task RunJobsAsync(int workspaceId, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        if (ct.IsCancellationRequested || now - jobsRanAt.GetValueOrDefault(workspaceId) < TimeSpan.FromMinutes(Math.Max(0, invoicing.Value.CheckEveryMinutes))) return;
+        jobsRanAt[workspaceId] = now;
+        int count;
+        using (var scope = scopes.CreateScope()) count = scope.ServiceProvider.GetServices<IWorkspaceJob>().Count();
+        for (var i = 0; i < count && !ct.IsCancellationRequested; i++)
+        {
+            try
+            {
+                using var scope = scopes.CreateScope();
+                scope.ServiceProvider.GetRequiredService<Tenant>().WorkspaceId = workspaceId;
+                await scope.ServiceProvider.GetServices<IWorkspaceJob>().ElementAt(i).RunAsync(ct);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                logger.LogError(ex, "Taak {Job} mislukt voor werkruimte {Workspace}", i, workspaceId);
+            }
+        }
+    }
+
+    // Wachtende runs, dan geplande werkstromen, samen hooguit MaxRunsPerTick runs.
+    // Is de werkruimte deze ronde al MaxSecondsPerRun bezig, dan begint hij geen nieuwe run meer; de rest volgt de volgende ronde.
+    async Task RunWorkflowsAsync(int workspaceId, CancellationToken ct)
     {
         try
         {

@@ -18,6 +18,7 @@ import { CustomerDetailPage } from './pages/CustomerDetail'
 import { LeadsPage } from './pages/Leads'
 import { InvoicesPage } from './pages/Invoices'
 import { InvoiceEditorPage } from './pages/InvoiceEditor'
+import { RecurringEditorPage } from './pages/RecurringInvoices'
 import { ExpensesPage } from './pages/Expenses'
 import { VatReturnPage } from './pages/VatReturn'
 import { AnnualPage } from './pages/Annual'
@@ -82,6 +83,7 @@ function AppRoutes({ location }: { location: string }) {
       <Route path="/leads" element={<LeadsPage />} />
       <Route path="/facturen" element={<InvoicesPage />} />
       <Route path="/facturen/:id" element={<InvoiceEditorPage />} />
+      <Route path="/facturen/terugkerend/:id" element={<RecurringEditorPage />} />
       <Route path="/kosten" element={<ExpensesPage />} />
       <Route path="/btw-aangifte" element={<VatReturnPage />} />
       <Route path="/jaaroverzicht" element={<AnnualPage />} />

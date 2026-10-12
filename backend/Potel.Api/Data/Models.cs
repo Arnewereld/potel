@@ -287,6 +287,11 @@ public class Invoice : IWorkspaceOwned, IDemoData
     // Bij een creditnota: de factuur die hij corrigeert.
     public int? CreditForInvoiceId { get; set; }
     [JsonIgnore] public Invoice? CreditFor { get; set; }
+    // Gemaakt door een terugkerende factuur, voor de periode die op RecurringPeriodStart begint. Per terugkerende factuur
+    // bestaat elke periode hooguit één keer (unieke index), ook als de planner twee keer tegelijk draait. Bewust zonder
+    // databasekoppeling: die zou de hele tabel met facturen laten herbouwen. Verwijderen van de terugkerende factuur maakt dit leeg.
+    public int? RecurringInvoiceId { get; set; }
+    public DateTime? RecurringPeriodStart { get; set; }
     // De gegevens van jou en je klant zoals ze bij versturen waren. Een verstuurde factuur toont deze, niet de huidige.
     public InvoiceParty? Seller { get; set; }
     public InvoiceParty? Buyer { get; set; }
@@ -389,6 +394,73 @@ public class InvoiceLine
     public string Description { get; set; } = "";
     public decimal Quantity { get; set; } = 1;
     public string Unit { get; set; } = "stuk";
+    public decimal UnitPrice { get; set; }
+    public decimal VatRate { get; set; } = 21;
+}
+
+// Hoe vaak een terugkerende factuur komt, welke periode hij dekt en wat er bij elke keer gebeurt.
+public static class RecurringIntervals
+{
+    public const string Monthly = "maand";
+    public const string Quarterly = "kwartaal";
+    public const string Yearly = "jaar";
+    public static readonly string[] All = [Monthly, Quarterly, Yearly];
+
+    public static int Months(string interval) => interval switch { Quarterly => 3, Yearly => 12, _ => 1 };
+}
+
+public static class RecurringPeriodRules
+{
+    // Vooraf: de factuur komt aan het begin van de periode die hij dekt (hosting, een abonnement).
+    public const string InAdvance = "vooraf";
+    // Achteraf: de factuur komt de dag nadat de periode voorbij is (een retainer, onderhoud per maand).
+    public const string InArrears = "achteraf";
+    public static readonly string[] All = [InAdvance, InArrears];
+}
+
+public static class RecurringActions
+{
+    public const string Draft = "concept";
+    public const string Send = "versturen";
+    public static readonly string[] All = [Draft, Send];
+}
+
+// Een factuur die elke maand, elk kwartaal of elk jaar terugkomt voor dezelfde klant, zoals onderhoud, hosting of een retainer.
+// De planner maakt per periode precies één factuur (zie RecurringInvoiceService). NextPeriodStart is de eerste periode die
+// nog geen factuur heeft; NextRunDate is de dag waarop die aan de beurt is, of leeg als de einddatum voorbij is.
+public class RecurringInvoice : IWorkspaceOwned, IDemoData
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
+    public string Name { get; set; } = "";
+    public int CustomerId { get; set; }
+    public Customer? Customer { get; set; }
+    public string VatRegime { get; set; } = VatRegimes.Normal;
+    public string Interval { get; set; } = RecurringIntervals.Monthly;
+    public string PeriodRule { get; set; } = RecurringPeriodRules.InAdvance;
+    public string Action { get; set; } = RecurringActions.Draft;
+    public DateTime StartDate { get; set; }
+    public DateTime? EndDate { get; set; }
+    public DateTime NextPeriodStart { get; set; }
+    public DateTime? NextRunDate { get; set; }
+    public bool Active { get; set; } = true;
+    public string? Reference { get; set; }
+    public string? Notes { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public List<RecurringInvoiceLine> Lines { get; set; } = [];
+    [NotMapped] public bool Demo => IsDemo;
+}
+
+// Een regel van een terugkerende factuur, net als een factuurregel. In de omschrijving mogen {maand}, {jaar}, {kwartaal} en {periode}.
+public class RecurringInvoiceLine
+{
+    public int Id { get; set; }
+    public int RecurringInvoiceId { get; set; }
+    [JsonIgnore] public int Position { get; set; }
+    public string Description { get; set; } = "";
+    public decimal Quantity { get; set; } = 1;
+    public string Unit { get; set; } = "maand";
     public decimal UnitPrice { get; set; }
     public decimal VatRate { get; set; } = 21;
 }

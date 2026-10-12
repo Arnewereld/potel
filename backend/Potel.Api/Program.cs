@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Potel.Api.Data;
 using Potel.Api.Endpoints;
+using Potel.Api.Invoicing;
 using Potel.Api.Payments;
 using Potel.Api.Workflows;
 
@@ -110,6 +111,10 @@ builder.Services.AddHttpClient<MollieClient>(c =>
     c.Timeout = TimeSpan.FromSeconds(20);
 });
 builder.Services.AddScoped<MollieBilling>();
+// Terugkerende facturen. De planner hieronder zet ze per werkruimte klaar (IWorkspaceJob).
+builder.Services.Configure<InvoicingLimits>(builder.Configuration.GetSection("Invoicing"));
+builder.Services.AddScoped<RecurringInvoiceService>();
+builder.Services.AddScoped<IWorkspaceJob, RecurringInvoiceJob>();
 if (builder.Configuration.GetValue("Workflows:Scheduler", true))
     builder.Services.AddHostedService<WorkflowScheduler>();
 
@@ -199,6 +204,7 @@ api.MapDashboard();
 api.MapCustomers();
 api.MapLeads();
 api.MapInvoices();
+api.MapRecurringInvoices();
 api.MapExpenses();
 api.MapTax();
 api.MapAppointments();

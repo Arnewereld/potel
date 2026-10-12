@@ -159,6 +159,7 @@ public static partial class WorkspaceEndpoints
             // Voorbeelduren die je zelf op een echte factuur zette, blijven staan; die factuur moet blijven kloppen.
             db.TimeEntries.RemoveRange(db.TimeEntries.Where(t => t.IsDemo && (t.InvoiceId == null || db.Invoices.Any(i => i.Id == t.InvoiceId && i.IsDemo))));
             db.Invoices.RemoveRange(db.Invoices.Where(i => i.IsDemo && !i.Credits.Any()));
+            db.RecurringInvoices.RemoveRange(db.RecurringInvoices.Where(r => r.IsDemo));
             db.Leads.RemoveRange(db.Leads.Where(l => l.IsDemo));
             db.Appointments.RemoveRange(db.Appointments.Where(a => a.IsDemo));
             db.CustomRecords.RemoveRange(db.CustomRecords.Where(r => r.IsDemo));
@@ -173,7 +174,8 @@ public static partial class WorkspaceEndpoints
             db.CustomModules.RemoveRange(db.CustomModules.Where(m => m.IsDemo && !db.CustomRecords.Any(r => r.ModuleId == m.Id)));
             await db.SaveChangesAsync();
             var customers = await db.Customers
-                .Where(c => c.IsDemo && !db.Invoices.Any(i => i.CustomerId == c.Id) && !db.Projects.Any(p => p.CustomerId == c.Id) && !db.Expenses.Any(e => e.CustomerId == c.Id))
+                .Where(c => c.IsDemo && !db.Invoices.Any(i => i.CustomerId == c.Id) && !db.Projects.Any(p => p.CustomerId == c.Id) && !db.Expenses.Any(e => e.CustomerId == c.Id)
+                            && !db.RecurringInvoices.Any(r => r.CustomerId == c.Id))
                 .Select(c => c.Id).ToListAsync();
             await db.Appointments.Where(a => a.CustomerId != null && customers.Contains(a.CustomerId.Value)).ExecuteUpdateAsync(x => x.SetProperty(a => a.CustomerId, (int?)null));
             await db.Leads.Where(l => l.CustomerId != null && customers.Contains(l.CustomerId.Value)).ExecuteUpdateAsync(x => x.SetProperty(l => l.CustomerId, (int?)null));
@@ -215,6 +217,7 @@ public static partial class WorkspaceEndpoints
             await Write("projects", await db.Projects.ToListAsync());
             await Write("timeEntries", await db.TimeEntries.ToListAsync());
             await Write("invoices", await db.Invoices.Include(i => i.Lines).ToListAsync());
+            await Write("recurringInvoices", await db.RecurringInvoices.Include(r => r.Lines).ToListAsync());
             await Write("expenses", await db.Expenses.OrderBy(e => e.Id).ToListAsync());
             await Write("leads", await db.Leads.ToListAsync());
             await Write("appointments", await db.Appointments.ToListAsync());
@@ -267,6 +270,7 @@ public static partial class WorkspaceEndpoints
             db.TimeEntries.RemoveRange(db.TimeEntries);
             db.Invoices.RemoveRange(db.Invoices);
             await db.SaveChangesAsync();
+            db.RecurringInvoices.RemoveRange(db.RecurringInvoices);
             db.Projects.RemoveRange(db.Projects);
             db.Appointments.RemoveRange(db.Appointments);
             db.Leads.RemoveRange(db.Leads);
