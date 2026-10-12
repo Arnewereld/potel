@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Pencil, Trash2, Mail, Phone, MapPin, Receipt, CalendarDays, StickyNote, User, Plus, FolderKanban, Repeat } from 'lucide-react'
+import { Pencil, Trash2, Mail, Phone, MapPin, Receipt, CalendarDays, StickyNote, User, Plus, FolderKanban, Repeat, Globe } from 'lucide-react'
 import { useApi } from '../lib/useApi'
 import { api } from '../lib/api'
 import { useTabs, useTabTitle } from '../lib/tabs'
 import { useToast } from '../lib/toast'
 import { useAuth } from '../lib/auth'
-import type { Appointment, Customer, Invoice, Project, RecurringInvoice } from '../lib/types'
+import type { Appointment, Customer, CustomerPortalSettings, Invoice, Project, RecurringInvoice } from '../lib/types'
 import { date, dateTime, euro, initials, invoiceTotals } from '../lib/format'
 import { colorFor, invoiceStatuses, kindColor } from '../lib/status'
 import { isNetherlands } from '../lib/invoice'
@@ -14,9 +14,11 @@ import { recurringIntervals, recurringStates } from '../lib/recurring'
 import { Badge, Empty, ErrorBox, Loading, SubTabs } from '../components/ui'
 import { CustomerForm } from '../components/CustomerForm'
 import { ProjectForm } from '../components/ProjectForm'
+import { CustomerPortalTab } from '../components/CustomerPortal'
+import { portalOpened } from '../lib/portal'
 import { ProjectCard } from './Projects'
 
-type TabId = 'overzicht' | 'projecten' | 'facturen' | 'planning' | 'notities'
+type TabId = 'overzicht' | 'projecten' | 'facturen' | 'planning' | 'notities' | 'portaal'
 
 export function CustomerDetailPage() {
   const { id } = useParams()
@@ -25,6 +27,7 @@ export function CustomerDetailPage() {
   const { data: appointments } = useApi<Appointment[]>('/appointments')
   const { data: projects } = useApi<Project[]>(`/projects?customerId=${id}`)
   const { data: recurring } = useApi<RecurringInvoice[]>(`/recurring-invoices?customerId=${id}`)
+  const { data: portal, setData: setPortal } = useApi<CustomerPortalSettings>(`/customers/${id}/portal`)
   const { user } = useAuth()
   const [newProject, setNewProject] = useState(false)
   const [tab, setTab] = useState<TabId>('overzicht')
@@ -94,6 +97,7 @@ export function CustomerDetailPage() {
           { id: 'facturen', label: 'Facturen', icon: <Receipt size={14} />, count: mine.length },
           { id: 'planning', label: 'Planning', icon: <CalendarDays size={14} />, count: myAppointments.length },
           { id: 'notities', label: 'Notities', icon: <StickyNote size={14} /> },
+          { id: 'portaal', label: 'Klantportaal', icon: <Globe size={14} /> },
         ]}
       />
 
@@ -110,6 +114,7 @@ export function CustomerDetailPage() {
                 <dt>Adres</dt><dd>{[customer.address, customer.city, !isNetherlands(customer.country) && customer.country].filter(Boolean).join(', ') || '—'}</dd>
                 <dt>Btw-nummer</dt><dd>{customer.vatNumber || '—'}</dd>
                 <dt>Klant sinds</dt><dd>{date(customer.createdAt)}</dd>
+                <dt>Klantportaal</dt><dd><a href="#portaal" onClick={e => { e.preventDefault(); setTab('portaal') }}>{portalOpened(portal)}</a></dd>
               </dl>
             </div>
           </div>
@@ -219,6 +224,8 @@ export function CustomerDetailPage() {
           </div>
         </div>
       )}
+
+      {tab === 'portaal' && <CustomerPortalTab customerId={customer.id} admin={user.role === 'beheerder'} onChanged={setPortal} />}
 
       {newProject && <ProjectForm customerId={customer.id} onClose={() => setNewProject(false)} onSaved={p => { setNewProject(false); navigate(`/projecten/${p.id}`) }} />}
       {editing && <CustomerForm customer={customer} onClose={() => setEditing(false)} onSaved={c => { setData(c); setEditing(false) }} />}

@@ -220,6 +220,7 @@ public static partial class WorkspaceEndpoints
             await Write("recurringInvoices", await db.RecurringInvoices.Include(r => r.Lines).ToListAsync());
             await Write("invoiceMails", await db.InvoiceMails.OrderBy(m => m.Id).ToListAsync());
             await Write("reminderSettings", await db.ReminderSettings.FirstOrDefaultAsync());
+            await Write("customerPortals", await db.CustomerPortals.OrderBy(p => p.Id).ToListAsync());
             await Write("expenses", await db.Expenses.OrderBy(e => e.Id).ToListAsync());
             await Write("leads", await db.Leads.ToListAsync());
             await Write("appointments", await db.Appointments.ToListAsync());
@@ -271,6 +272,8 @@ public static partial class WorkspaceEndpoints
             await db.Expenses.ExecuteDeleteAsync();
             await db.InvoiceMails.ExecuteDeleteAsync();
             await db.InvoiceLinks.ExecuteDeleteAsync();
+            await db.PortalLinks.ExecuteDeleteAsync();
+            await db.CustomerPortals.ExecuteDeleteAsync();
             db.TimeEntries.RemoveRange(db.TimeEntries);
             db.Invoices.RemoveRange(db.Invoices);
             await db.SaveChangesAsync();

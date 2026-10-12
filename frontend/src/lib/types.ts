@@ -506,3 +506,68 @@ export interface AnnualOverview {
   hoursSource: string
   depreciationSource: string
 }
+
+// Het klantportaal: wat de klant ziet en de stand van de link. Het token zelf bewaart de server niet.
+export interface PortalLinkInfo {
+  createdAt: string
+  createdBy?: string | null
+  expiresAt?: string | null
+  lastOpenedAt?: string | null
+  opens: number
+  expired: boolean
+}
+
+export interface CustomerPortalSettings {
+  showHours: boolean
+  showBudget: boolean
+  showInvoices: boolean
+  showAmounts: boolean
+  note?: string | null
+  link?: PortalLinkInfo | null
+  lastOpenedAt?: string | null
+}
+
+export interface PortalProject {
+  name: string
+  billing: BillingType
+  deadline?: string | null
+  budgetHours?: number | null
+  minutes?: number | null
+  lastEntry?: string | null
+  weeks?: { start: string; minutes: number }[] | null
+  hourlyRate?: number | null
+  value?: number | null
+  fixedPrice?: number | null
+}
+
+export interface PortalEntry {
+  date: string
+  project: string
+  minutes: number
+  description: string
+  amount?: number | null
+}
+
+export interface PortalInvoice {
+  number?: string | null
+  issueDate: string
+  dueDate: string
+  status: InvoiceStatus
+  isCredit: boolean
+  total: number
+  openAmount: number
+  fullyCredited: boolean
+  paidAt?: string | null
+  link?: string | null
+}
+
+export interface PublicPortal {
+  company: { name: string; logoDataUrl?: string | null; brandColor: string }
+  customer: { name: string }
+  note?: string | null
+  visible: { hours: boolean; budget: boolean; invoices: boolean; amounts: boolean }
+  projects: PortalProject[]
+  entries?: PortalEntry[] | null
+  invoices?: PortalInvoice[] | null
+  expiresAt?: string | null
+}

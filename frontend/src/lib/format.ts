@@ -14,6 +14,10 @@ export const time = (s: string) => parseDate(s).toLocaleTimeString('nl-NL', { ho
 export const dateTime = (s: string) =>
   parseDate(s).toLocaleString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
+// Een moment dat de server in UTC bewaart (zoals "laatst geopend"), in de tijd van de gebruiker.
+export const utcDateTime = (s: string) =>
+  new Date(s.endsWith('Z') ? s : `${s}Z`).toLocaleString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+
 export function relative(s: string) {
   const diff = (Date.now() - new Date(s.endsWith('Z') ? s : `${s}Z`).getTime()) / 1000
   if (diff < 60) return 'zojuist'

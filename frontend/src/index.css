@@ -1010,3 +1010,39 @@ a.btn { text-decoration: none; color: inherit; display: inline-flex; align-items
   .legal-company { background: none; border: 0; padding: 0; }
   .legal-article { break-inside: avoid-page; }
 }
+
+/* ---------- Klantportaal (geheime link per klant) ---------- */
+.portal { min-height: 100vh; background: var(--bg); padding: 24px 16px 40px; --brand: var(--primary); }
+.portal-inner { max-width: 880px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+.portal-head { display: flex; gap: 16px; align-items: center; padding: 20px; border-top: 4px solid var(--brand); }
+.portal-head h1 { font-size: 22px; margin-top: 2px; }
+.portal-head p { margin: 6px 0 0; font-size: 13px; }
+.portal-head .grow { flex: 1; min-width: 0; }
+.portal-logo { max-width: 120px; max-height: 56px; object-fit: contain; flex-shrink: 0; }
+.portal-kicker { color: var(--brand); font-weight: 600; font-size: 13px; }
+.portal-note .card-body { white-space: pre-wrap; border-left: 3px solid var(--brand); border-radius: 0 14px 14px 0; }
+.portal-title { font-size: 16px; display: flex; align-items: center; gap: 8px; margin: 0 0 10px; }
+.portal-projects { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.portal-project { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+.portal-project h3 { font-size: 15px; }
+.portal-bars { display: flex; align-items: flex-end; gap: 2px; height: 56px; margin: 8px 0 4px; }
+.portal-bar { flex: 1; height: 100%; display: flex; align-items: flex-end; }
+.portal-bar > div { width: 100%; min-height: 2px; background: var(--brand); border-radius: 4px 4px 0 0; }
+.portal-list { padding: 4px 18px; }
+.portal-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.portal-row:last-child { border-bottom: 0; }
+.portal-row .grow { flex: 1; min-width: 0; }
+.portal-text { overflow-wrap: anywhere; }
+.portal-date { width: 96px; flex-shrink: 0; color: var(--muted); font-size: 13px; }
+.portal-amount { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.portal-foot { text-align: center; font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
+@media (max-width: 640px) {
+  .portal { padding: 12px 12px 32px; }
+  .portal-head { flex-direction: column; align-items: flex-start; padding: 16px; }
+  .portal-head h1 { font-size: 19px; }
+  .portal-list { padding: 2px 14px; }
+  .portal-row { flex-wrap: wrap; gap: 6px 12px; }
+  .portal-date { width: 100%; }
+  .portal-row .grow { flex-basis: 55%; }
+}
+.portal-created { margin-top: 14px; padding: 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); display: grid; gap: 10px; }

@@ -5,18 +5,7 @@ import { date, euro, invoiceTotals } from '../../lib/format'
 import { product } from '../../lib/plans'
 import type { PublicInvoice, Settings } from '../../lib/types'
 import { InvoicePaper } from '../../components/InvoicePaper'
-
-// Niet in zoekmachines en het adres niet doorgeven aan andere sites. De server stuurt dezelfde regels mee als header.
-function usePrivatePage() {
-  useEffect(() => {
-    const tags = [['robots', 'noindex, nofollow'], ['referrer', 'no-referrer']].map(([name, content]) => {
-      const meta = Object.assign(document.createElement('meta'), { name, content })
-      document.head.appendChild(meta)
-      return meta
-    })
-    return () => tags.forEach(t => t.remove())
-  }, [])
-}
+import { usePrivatePage } from '../../lib/privatePage'
 
 // De factuur achter de link in de mail. Werkt zonder inloggen en laat alleen deze ene factuur zien. Het token staat
 // achter de #, zodat het niet bij de server of in logboeken belandt; het blijft in de adresbalk staan, zodat je de

@@ -526,6 +526,43 @@ public class InvoiceLink : IWorkspaceOwned
     public DateTime? RevokedAt { get; set; }
     public DateTime? LastOpenedAt { get; set; }
     public int Opens { get; set; }
+    // Gemaakt vanuit het klantportaal: werkt alleen zolang die portaallink werkt en facturen daar zichtbaar zijn.
+    // Het token is afgeleid van het portaaltoken (zie CustomerPortalEndpoints.InvoiceToken), dus ook hier alleen de hash.
+    public int? PortalLinkId { get; set; }
+}
+
+// Wat een klant in zijn portaal ziet. Hooguit één rij per klant; zonder rij gelden de standaardwaarden hieronder.
+public class CustomerPortal : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int CustomerId { get; set; }
+    public bool ShowHours { get; set; } = true;
+    public bool ShowBudget { get; set; } = true;
+    public bool ShowInvoices { get; set; } = true;
+    // Uurtarieven en de waarde van de uren. Facturen tonen altijd hun eigen bedrag.
+    public bool ShowAmounts { get; set; }
+    // Een kort bericht van de freelancer bovenaan het portaal.
+    public string? Note { get; set; }
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+}
+
+// Een geheime link naar het portaal van één klant. Net als bij de factuurlink staat alleen de SHA-256-hash van het token
+// hier; het token zelf ziet de beheerder één keer. Per klant werkt hooguit één link tegelijk.
+public class PortalLink : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int CustomerId { get; set; }
+    [JsonIgnore] public string TokenHash { get; set; } = "";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public string? CreatedBy { get; set; }
+    public DateTime? ExpiresAt { get; set; }
+    public DateTime? RevokedAt { get; set; }
+    public DateTime? LastOpenedAt { get; set; }
+    public int Opens { get; set; }
+
+    public bool Works(DateTime utcNow) => RevokedAt is null && (ExpiresAt is not { } end || end > utcNow);
 }
 
 // Automatische herinneringen bij te late facturen: aan of uit, hoeveel dagen na de vervaldatum elke stap komt, en de teksten.

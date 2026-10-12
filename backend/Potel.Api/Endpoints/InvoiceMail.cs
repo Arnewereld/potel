@@ -68,6 +68,10 @@ public static class InvoiceMailEndpoints
             var links = await db.InvoiceLinks.AsNoTracking().Where(l => l.InvoiceId == id).ToListAsync();
             var settings = await db.ReminderSettings.AsNoTracking().FirstOrDefaultAsync() ?? new ReminderSettings();
             var today = clock.Today;
+            // Een link uit het klantportaal telt alleen mee zolang dat portaal open staat.
+            var working = new HashSet<int>();
+            foreach (var portalLinkId in links.Where(l => l.RevokedAt == null).Select(l => l.PortalLinkId).OfType<int>().Distinct())
+                if (await CustomerPortalEndpoints.InvoiceLinkWorksAsync(db, inv.WorkspaceId, portalLinkId, inv.CustomerId, clock.UtcNow)) working.Add(portalLinkId);
             var open = inv.Status is InvoiceStatus.Sent or InvoiceStatus.Overdue && !inv.IsCredit && inv.OpenAmount > 0 && !inv.IsDemo && inv.Customer?.IsDemo != true;
             object? next = null;
             if (open && settings.Enabled && !inv.RemindersOff && inv.Customer?.RemindersOff != true && ReminderService.Next(inv, mails, settings) is { } n)
@@ -79,7 +83,7 @@ public static class InvoiceMailEndpoints
                 {
                     m.Id, m.Step, label = MailSteps.Label(m.Step), m.To, m.Subject, m.Status, m.Note, m.Automatic, m.SentBy, m.CreatedAt, m.SentAt,
                 }),
-                activeLinks = links.Count(l => l.RevokedAt == null),
+                activeLinks = links.Count(l => l.RevokedAt == null && (l.PortalLinkId is not { } p || working.Contains(p))),
                 lastOpenedAt = links.Max(l => l.LastOpenedAt),
                 remindersEnabled = settings.Enabled,
                 remindersOff = inv.RemindersOff,
@@ -176,7 +180,7 @@ public static class InvoiceMailEndpoints
         // De openbare factuurpagina: zonder inloggen, alleen met het token uit de mail. Laat alleen deze ene factuur zien, met wat
         // er op de factuur zelf staat (plus logo en kleur), en niets anders uit de werkruimte. Een onbekend, ingetrokken of fout
         // token geeft steeds hetzelfde antwoord.
-        api.MapPost("/public/invoice", async (AppDb db, HttpResponse response, PublicInvoiceRequest req) =>
+        api.MapPost("/public/invoice", async (AppDb db, BusinessClock clock, HttpResponse response, PublicInvoiceRequest req) =>
         {
             NoIndex(response);
             var token = req.Token?.Trim();
@@ -188,6 +192,10 @@ public static class InvoiceMailEndpoints
                 .Include(i => i.Lines).Include(i => i.Credits).ThenInclude(c => c.Lines).AsSplitQuery()
                 .FirstOrDefaultAsync(i => i.Id == link.InvoiceId && i.WorkspaceId == link.WorkspaceId);
             if (inv is null || inv.Status == InvoiceStatus.Draft || inv.IsDemo) return Results.NotFound(new { error = LinkGone });
+            // Een link uit het klantportaal werkt alleen zolang dat portaal open staat en facturen daar te zien zijn.
+            if (link.PortalLinkId is { } portalLinkId
+                && !await CustomerPortalEndpoints.InvoiceLinkWorksAsync(db, link.WorkspaceId, portalLinkId, inv.CustomerId, clock.UtcNow))
+                return Results.NotFound(new { error = LinkGone });
             var brand = await db.Settings.IgnoreQueryFilters().AsNoTracking().Where(s => s.WorkspaceId == link.WorkspaceId).OrderBy(s => s.Id)
                 .Select(s => new { s.LogoDataUrl, s.BrandColor }).FirstOrDefaultAsync();
             var creditFor = inv.CreditForInvoiceId is { } originalId

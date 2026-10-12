@@ -12,6 +12,7 @@ import { PublicSite } from './pages/public/PublicSite'
 import { ResetPasswordPage, VerifyEmailPage } from './pages/public/AccountLinks'
 import { ProcessorAgreementPage, PrivacyPage, TermsPage } from './pages/public/Legal'
 import { PublicInvoicePage } from './pages/public/PublicInvoice'
+import { PortalPage } from './pages/public/Portal'
 import { UsersPage } from './pages/Users'
 import { DashboardPage } from './pages/Dashboard'
 import { CustomersPage } from './pages/Customers'
@@ -43,6 +44,8 @@ const standalone: Record<string, () => React.ReactNode> = {
   '/verwerkersovereenkomst': ProcessorAgreementPage,
   // De factuur achter de link in een mail aan een klant.
   '/factuur': PublicInvoicePage,
+  // Het klantportaal achter de geheime link per klant.
+  '/portaal': PortalPage,
 }
 
 export default function App() {

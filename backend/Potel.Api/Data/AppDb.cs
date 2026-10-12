@@ -33,6 +33,8 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
     public DbSet<InvoiceMail> InvoiceMails => Set<InvoiceMail>();
     public DbSet<InvoiceLink> InvoiceLinks => Set<InvoiceLink>();
     public DbSet<ReminderSettings> ReminderSettings => Set<ReminderSettings>();
+    public DbSet<CustomerPortal> CustomerPortals => Set<CustomerPortal>();
+    public DbSet<PortalLink> PortalLinks => Set<PortalLink>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -85,7 +87,15 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
             .HasDatabaseName("IX_InvoiceMails_OneAutomaticPerStep");
         b.Entity<InvoiceLink>().HasOne<Invoice>().WithMany().HasForeignKey(l => l.InvoiceId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<InvoiceLink>().HasIndex(l => l.TokenHash).IsUnique();
+        // Bewust zonder databasekoppeling naar de portaallink: die zou de tabel met links laten herbouwen. De openbare
+        // factuurpagina zoekt de portaallink zelf op, en zonder die link werkt de factuurlink niet.
+        b.Entity<InvoiceLink>().HasIndex(l => l.PortalLinkId);
         b.Entity<ReminderSettings>().HasIndex(r => r.WorkspaceId).IsUnique();
+        // Het klantportaal: de instellingen en de links horen bij een klant en gaan mee als die klant weggaat.
+        b.Entity<CustomerPortal>().HasOne<Customer>().WithMany().HasForeignKey(p => p.CustomerId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<CustomerPortal>().HasIndex(p => p.CustomerId).IsUnique();
+        b.Entity<PortalLink>().HasOne<Customer>().WithMany().HasForeignKey(l => l.CustomerId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<PortalLink>().HasIndex(l => l.TokenHash).IsUnique();
         FilterByWorkspace(b);
     }
 
@@ -96,7 +106,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         Filter<Settings>(b); Filter<CustomModule>(b); Filter<CustomRecord>(b); Filter<Workflow>(b); Filter<Activity>(b);
         Filter<User>(b); Filter<WorkflowRun>(b); Filter<AccountToken>(b); Filter<MolliePayment>(b);
         Filter<Expense>(b); Filter<ExpenseReceipt>(b); Filter<RecurringInvoice>(b);
-        Filter<InvoiceMail>(b); Filter<InvoiceLink>(b); Filter<ReminderSettings>(b);
+        Filter<InvoiceMail>(b); Filter<InvoiceLink>(b); Filter<ReminderSettings>(b); Filter<CustomerPortal>(b); Filter<PortalLink>(b);
     }
 
     void Filter<T>(ModelBuilder b) where T : class, IWorkspaceOwned

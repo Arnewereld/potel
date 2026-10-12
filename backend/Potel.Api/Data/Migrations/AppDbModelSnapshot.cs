@@ -254,6 +254,46 @@ namespace Potel.Api.Data.Migrations
                     b.ToTable("Customers");
                 });
 
+            modelBuilder.Entity("Potel.Api.Data.CustomerPortal", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("CustomerId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Note")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("ShowAmounts")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("ShowBudget")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("ShowHours")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("ShowInvoices")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerId")
+                        .IsUnique();
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.ToTable("CustomerPortals");
+                });
+
             modelBuilder.Entity("Potel.Api.Data.Expense", b =>
                 {
                     b.Property<int>("Id")
@@ -492,6 +532,9 @@ namespace Potel.Api.Data.Migrations
                     b.Property<int>("Opens")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("PortalLinkId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime?>("RevokedAt")
                         .HasColumnType("TEXT");
 
@@ -505,6 +548,8 @@ namespace Potel.Api.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("InvoiceId");
+
+                    b.HasIndex("PortalLinkId");
 
                     b.HasIndex("TokenHash")
                         .IsUnique();
@@ -696,6 +741,52 @@ namespace Potel.Api.Data.Migrations
                             Key = "proef-emails",
                             Count = 0
                         });
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.PortalLink", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("CustomerId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastOpenedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Opens")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.ToTable("PortalLinks");
                 });
 
             modelBuilder.Entity("Potel.Api.Data.Project", b =>
@@ -1285,6 +1376,15 @@ namespace Potel.Api.Data.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Potel.Api.Data.CustomerPortal", b =>
+                {
+                    b.HasOne("Potel.Api.Data.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Potel.Api.Data.Expense", b =>
                 {
                     b.HasOne("Potel.Api.Data.Customer", null)
@@ -1446,6 +1546,15 @@ namespace Potel.Api.Data.Migrations
                     b.HasOne("Potel.Api.Data.Invoice", null)
                         .WithMany()
                         .HasForeignKey("InvoiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.PortalLink", b =>
+                {
+                    b.HasOne("Potel.Api.Data.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
