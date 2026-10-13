@@ -5,6 +5,7 @@ import { useApi } from '../lib/useApi'
 import { useToast } from '../lib/toast'
 import type { AnnualOverview } from '../lib/types'
 import { euro, hours } from '../lib/format'
+import { km } from '../lib/trips'
 import { ErrorBox, Loading, PageHeader } from '../components/ui'
 import { MiniStat } from './Time'
 
@@ -97,7 +98,7 @@ export function AnnualPage() {
 
           <div className="card">
             <div className="card-head"><h3>Kosten per categorie</h3><span className="muted">{data.deduction ? 'Zonder btw' : 'Met btw'}</span></div>
-            {data.costsByCategory.length === 0 ? (
+            {data.costsByCategory.length === 0 && data.mileage.trips === 0 ? (
               <div className="card-body muted">Nog geen kosten in {data.year}.</div>
             ) : (
               <div className="table-wrap">
@@ -106,6 +107,19 @@ export function AnnualPage() {
                     {data.costsByCategory.map(c => (
                       <tr key={c.category}><td>{c.label}<div className="cell-sub">{c.count} {c.count === 1 ? 'uitgave' : 'uitgaven'}</div></td><td className="num">{euro(c.amount)}</td></tr>
                     ))}
+                    {data.mileage.trips > 0 && (
+                      <tr>
+                        <td>
+                          Kilometers eigen auto
+                          <div className="cell-sub">
+                            {data.mileage.rate != null
+                              ? <>{km(data.mileage.businessKm)} à € {data.mileage.rate.toLocaleString('nl-NL', { minimumFractionDigits: 2 })} · <a href={data.mileage.source} target="_blank" rel="noreferrer">Bron</a></>
+                              : data.mileage.note}
+                          </div>
+                        </td>
+                        <td className="num">{euro(data.mileage.deduction)}</td>
+                      </tr>
+                    )}
                   </tbody>
                   <tfoot><tr><td>Totaal</td><td className="num"><strong>{euro(data.costs)}</strong></td></tr></tfoot>
                 </table>

@@ -151,6 +151,8 @@ public class Customer : IWorkspaceOwned, IDemoData
     public string? Notes { get; set; }
     // Geen automatische herinneringen aan deze klant.
     public bool RemindersOff { get; set; }
+    // Wat je deze klant per kilometer rekent voor ritten die je doorbelast. Leeg is: ritten niet doorbelasten.
+    public decimal? KilometreRate { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
@@ -835,6 +837,8 @@ public class Project : IWorkspaceOwned, IDemoData
     public string? RepoUrl { get; set; }
     public string? Description { get; set; }
     public DateTime? Deadline { get; set; }
+    // Kilometertarief voor doorbelaste ritten op dit project. Leeg is: het tarief van de klant.
+    public decimal? KilometreRate { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
@@ -857,6 +861,73 @@ public class TimeEntry : IWorkspaceOwned, IDemoData
     public int? UserId { get; set; }
     // Kenmerk dat de timer meestuurt, zodat dubbel stoppen maar één boeking oplevert.
     public string? ClientId { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+// Soorten ritten. Alleen zakelijke kilometers met je eigen auto geven aftrek voor de inkomstenbelasting. Met een auto van
+// de zaak zitten de autokosten al in je kosten, dus die kilometers leggen we alleen vast. Woon-werkverkeer met je eigen
+// auto telt voor de inkomstenbelasting als zakelijk.
+public static class TripKinds
+{
+    public const string Business = "zakelijk";
+    public const string CompanyCar = "auto-van-de-zaak";
+    public const string Private = "prive";
+    public static readonly string[] All = [Business, CompanyCar, Private];
+
+    public static bool IsBusiness(string kind) => kind is Business or CompanyCar;
+
+    public static string Label(string kind) => kind switch
+    {
+        Business => "Zakelijk, eigen auto",
+        CompanyCar => "Zakelijk, auto van de zaak",
+        _ => "Privé",
+    };
+}
+
+// Een rit voor de kilometerregistratie. Een zakelijke rit voor een klant kan doorbelast worden; staat hij op een factuur,
+// dan ligt hij vast, net als uren.
+public class Trip : IWorkspaceOwned, IDemoData
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
+    public DateTime Date { get; set; } = DateTime.UtcNow.Date;
+    public string From { get; set; } = "";
+    public string To { get; set; } = "";
+    // Op een tiende kilometer.
+    public decimal Kilometres { get; set; }
+    public string? Purpose { get; set; }
+    public string Kind { get; set; } = TripKinds.Business;
+    public int? CustomerId { get; set; }
+    public int? ProjectId { get; set; }
+    // De kilometerstand voor en na de rit, als je die bijhoudt.
+    public int? OdometerStart { get; set; }
+    public int? OdometerEnd { get; set; }
+    // Doorbelasten aan de klant, tegen het kilometertarief van het project of de klant.
+    public bool Billable { get; set; }
+    // Gevuld zodra de rit op een factuur staat; daarna ligt hij vast.
+    public int? InvoiceId { get; set; }
+    public int? InvoiceLineId { get; set; }
+    // Wie de rit vastlegde, uit de inlog.
+    public int? UserId { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+// Een vaste route die je vaak rijdt, om een rit snel in te vullen.
+public class TripRoute : IWorkspaceOwned, IDemoData
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
+    public string Name { get; set; } = "";
+    public string From { get; set; } = "";
+    public string To { get; set; } = "";
+    public decimal Kilometres { get; set; }
+    public string? Purpose { get; set; }
+    public string Kind { get; set; } = TripKinds.Business;
+    public int? CustomerId { get; set; }
+    public int? ProjectId { get; set; }
+    public bool Billable { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 

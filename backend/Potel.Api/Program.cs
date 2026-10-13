@@ -265,6 +265,7 @@ api.MapModules();
 api.MapWorkflows();
 api.MapProjects();
 api.MapTime();
+api.MapTrips();
 api.MapSettings();
 api.MapWorkspace();
 api.MapPlatform();

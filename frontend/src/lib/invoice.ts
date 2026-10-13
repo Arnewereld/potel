@@ -1,7 +1,7 @@
 import type { Customer, Invoice, InvoiceParty, PaymentMethod, Settings, VatRegime } from './types'
 import { date, euro, invoiceTotals, parseDate } from './format'
 
-export const units = ['uur', 'dag', 'stuk', 'maand', 'jaar']
+export const units = ['uur', 'dag', 'stuk', 'km', 'maand', 'jaar']
 
 // Dagen tot de vervaldatum; negatief als hij al verstreken is.
 export function daysUntil(due: string) {

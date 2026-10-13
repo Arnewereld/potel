@@ -7,7 +7,7 @@ import { Field, Modal } from './ui'
 
 const colors = ['#ff6d5a', '#4ea5ff', '#3ecf8e', '#9b7bff', '#f5b83d', '#ff5ca8', '#2fc6c6']
 
-type Form = Pick<Project, 'name' | 'customerId' | 'status' | 'billing' | 'hourlyRate' | 'fixedPrice' | 'budgetHours' | 'color' | 'repoUrl' | 'description' | 'deadline'>
+type Form = Pick<Project, 'name' | 'customerId' | 'status' | 'billing' | 'hourlyRate' | 'fixedPrice' | 'budgetHours' | 'color' | 'repoUrl' | 'description' | 'deadline' | 'kilometreRate'>
 
 export function ProjectForm({ project, customerId, onClose, onSaved }: {
   project?: Project | null
@@ -19,7 +19,7 @@ export function ProjectForm({ project, customerId, onClose, onSaved }: {
   const { data: settings } = useApi<Settings>('/settings')
   const [form, setForm] = useState<Form>(() => project ? { ...project, deadline: project.deadline?.slice(0, 10) } : {
     name: '', customerId: customerId ?? 0, status: 'actief', billing: 'uur', hourlyRate: 0, fixedPrice: 0,
-    budgetHours: null, color: colors[Math.floor(Math.random() * colors.length)]!, repoUrl: '', description: '', deadline: null,
+    budgetHours: null, color: colors[Math.floor(Math.random() * colors.length)]!, repoUrl: '', description: '', deadline: null, kilometreRate: null,
   })
   const [busy, setBusy] = useState(false)
   const toast = useToast()
@@ -80,6 +80,10 @@ export function ProjectForm({ project, customerId, onClose, onSaved }: {
         </Field>
         <Field label="Deadline"><input type="date" value={form.deadline ?? ''} onChange={e => set('deadline', e.target.value)} /></Field>
         <Field label="Repository"><input value={form.repoUrl ?? ''} onChange={e => set('repoUrl', e.target.value)} placeholder="https://github.com/…" /></Field>
+        <Field label="Kilometertarief voor ritten (excl. btw)">
+          <input type="number" min={0} max={10} step="0.01" placeholder="Tarief van de klant" value={form.kilometreRate ?? ''}
+            onChange={e => set('kilometreRate', e.target.value === '' ? null : Number(e.target.value))} />
+        </Field>
         <Field label="Kleur" full>
           <div className="color-row">
             {colors.map(c => <button type="button" key={c} className={`color-swatch ${form.color === c ? 'selected' : ''}`} style={{ background: c }} onClick={() => set('color', c)} aria-label={c} />)}

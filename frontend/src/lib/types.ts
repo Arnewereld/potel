@@ -14,6 +14,8 @@ export interface Customer {
   notes?: string | null
   // Geen automatische betalingsherinneringen voor deze klant.
   remindersOff?: boolean
+  // Wat je deze klant per kilometer rekent voor doorbelaste ritten; leeg is niet doorbelasten.
+  kilometreRate?: number | null
   createdAt?: string
 }
 
@@ -413,6 +415,77 @@ export interface Project {
   // Wat er van dit project op facturen staat (alleen de eigen uren, ook op een factuur met meer projecten).
   invoicedValue: number
   lastEntry?: string | null
+  // Kilometertarief voor doorbelaste ritten; leeg is het tarief van de klant.
+  kilometreRate?: number | null
+}
+
+// Soorten ritten, zoals de server ze kent (TripKinds in backend/Potel.Api/Data/Models.cs).
+export type TripKind = 'zakelijk' | 'auto-van-de-zaak' | 'prive'
+
+export interface Trip {
+  id: number
+  date: string
+  from: string
+  to: string
+  kilometres: number
+  purpose?: string | null
+  kind: TripKind
+  kindLabel: string
+  customerId?: number | null
+  customerName?: string | null
+  projectId?: number | null
+  projectName?: string | null
+  projectColor?: string | null
+  odometerStart?: number | null
+  odometerEnd?: number | null
+  billable: boolean
+  // Het kilometertarief waartegen hij doorbelast wordt; leeg als er nog geen tarief is.
+  rate?: number | null
+  invoiceId?: number | null
+  invoiceNumber?: string | null
+  userId?: number | null
+  userName?: string | null
+  demo: boolean
+  canEdit: boolean
+}
+
+export interface TripRoute {
+  id: number
+  name: string
+  from: string
+  to: string
+  kilometres: number
+  purpose?: string | null
+  kind: TripKind
+  customerId?: number | null
+  projectId?: number | null
+  billable: boolean
+}
+
+export interface TripYear {
+  year: number
+  trips: Trip[]
+  months: { month: string; trips: number; businessKm: number; companyCarKm: number; privateKm: number }[]
+  count: number
+  businessKm: number
+  companyCarKm: number
+  privateKm: number
+  // Aftrek per zakelijke kilometer met je eigen auto; null als het bedrag voor dat jaar nog niet vaststaat.
+  rate: number | null
+  deduction: number
+  rateSource: string
+  note?: string | null
+  kilometreSource: string
+}
+
+// Wat er van een klant of project nog door te belasten is, per kilometertarief.
+export interface BillableTrips {
+  trips: number
+  kilometres: number
+  amount: number
+  lines: { rate: number; kilometres: number; amount: number; trips: number }[]
+  withoutRate: number
+  withoutRateKilometres: number
 }
 
 export interface TimeEntry {
@@ -622,6 +695,8 @@ export interface AnnualOverview {
   demoData: boolean
   hoursSource: string
   depreciationSource: string
+  // Ritten van het jaar: alleen zakelijke kilometers met je eigen auto geven aftrek.
+  mileage: { trips: number; businessKm: number; companyCarKm: number; privateKm: number; rate: number | null; deduction: number; source: string; note?: string | null }
 }
 
 // Het klantportaal: wat de klant ziet en de stand van de link. Het token zelf bewaart de server niet.

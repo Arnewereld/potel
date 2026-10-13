@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
-  Receipt, Plus, Trash2, Printer, Save, Building, ChevronUp, ChevronDown, Send, CheckCircle2, Copy, Undo2, BellRing, Clock, Mail, Lock, Repeat, Download,
+  Receipt, Plus, Trash2, Printer, Save, Building, ChevronUp, ChevronDown, Send, CheckCircle2, Copy, Undo2, BellRing, Clock, Mail, Lock, Repeat, Download, Car,
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
@@ -9,8 +9,9 @@ import { useTabs, useTabTitle } from '../lib/tabs'
 import { useToast } from '../lib/toast'
 import { useAuth } from '../lib/auth'
 import type {
-  Customer, Invoice, InvoiceHours, InvoiceLine, InvoiceMailInfo, MailServerStatus, MailStep, Project, RecurringInvoice, Settings, VatRegime,
+  BillableTrips, Customer, Invoice, InvoiceHours, InvoiceLine, InvoiceMailInfo, MailServerStatus, MailStep, Project, RecurringInvoice, Settings, VatRegime,
 } from '../lib/types'
+import { km } from '../lib/trips'
 import { date, euro, hours, invoiceTotals, lineAmount, num, toDateInput } from '../lib/format'
 import { invoiceStatuses } from '../lib/status'
 import {
@@ -47,6 +48,8 @@ export function InvoiceEditorPage() {
   const [sendDate] = useState(() => toDateInput(new Date()))
   const [dialog, setDialog] = useState<'send' | 'paid' | null>(null)
   const { data: projects, reload: reloadProjects } = useApi<Project[]>(draft?.customerId ? `/projects?customerId=${draft.customerId}` : null)
+  // Open ritten van deze klant met een kilometertarief, om door te belasten. Alleen bij een concept.
+  const { data: openTrips, reload: reloadTrips } = useApi<BillableTrips>(draft?.customerId && draft.status === 'concept' ? `/trips/billable?customerId=${draft.customerId}` : null)
   // Het nummer dat deze factuur bij versturen krijgt. Hij krijgt dan de datum van die dag, dus ook het nummer van dit jaar.
   const { data: next } = useApi<{ number: string }>(draft && draft.status === 'concept' ? '/invoices/next-number' : null)
   // De terugkerende factuur die deze factuur maakte, voor de link terug.
@@ -140,8 +143,9 @@ export function InvoiceEditorPage() {
       setDraft(fromServer(saved))
       if (!quiet) toast('Factuur opgeslagen')
       setDirty(false)
-      // Regels met uren die eraf gingen geven die uren weer vrij.
+      // Regels met uren of ritten die eraf gingen geven die weer vrij.
       reloadProjects(true)
+      reloadTrips(true)
       await reloadHours(true)
       return saved.id
     } catch (e) {
@@ -204,8 +208,35 @@ export function InvoiceEditorPage() {
     }
   }
 
+  // Zet de open ritten van de klant erbij, net als open uren: eerst opslaan, dan koppelt de server ze aan hun regel.
+  const addTrips = async () => {
+    if (busy || !openTrips) return
+    setBusy(true)
+    try {
+      const filled = draft.lines.filter(l => l.description.trim())
+      const lines = filled.length ? filled : [{ ...newLine(), description: '-', unitPrice: 0 }]
+      const invoiceId = isNew || dirty ? await save({ lines }, true, true) : Number(id)
+      if (!invoiceId) return
+      try {
+        const saved = await api.post<Invoice>(`/invoices/${invoiceId}/trips`, {})
+        toast(`${km(openTrips.kilometres)} aan ritten toegevoegd`)
+        setDraft(fromServer(saved))
+        setDirty(false)
+      } catch (e) {
+        toast((e as Error).message, 'error')
+      }
+      reloadTrips(true)
+      if (isNew) retarget(pathname + search, `/facturen/${invoiceId}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const remove = async () => {
-    const freed = draft.lines.some(l => l.unit === 'uur') ? ' Uren op deze factuur komen weer open te staan.' : ''
+    const freed = [
+      draft.lines.some(l => l.unit === 'uur') ? ' Uren op deze factuur komen weer open te staan.' : '',
+      draft.lines.some(l => l.unit === 'km') ? ' Ritten op deze factuur komen weer open te staan.' : '',
+    ].join('')
     if (!confirm(`${demo ? 'Voorbeeldfactuur' : invoiceTitle(draft)} verwijderen?${freed}`)) return
     try {
       await api.del(`/invoices/${id}`)
@@ -412,6 +443,26 @@ export function InvoiceEditorPage() {
                       <button className="btn btn-sm" disabled={busy} onClick={() => addHours(p)}><Plus size={13} /> Toevoegen</button>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {!readOnly && !linked && openTrips && (openTrips.trips > 0 || openTrips.withoutRate > 0) && (
+                <div className="open-hours">
+                  <div className="open-hours-head"><Car size={15} /> Open ritten van {customer?.company || customer?.name}</div>
+                  {openTrips.trips > 0 && (
+                    <div className="open-hours-row">
+                      <span className="grow truncate">
+                        {openTrips.trips} {openTrips.trips === 1 ? 'rit' : 'ritten'}, {openTrips.lines.map(l => `${km(l.kilometres)} à ${euro(l.rate)}`).join(' en ')}
+                      </span>
+                      <span className="muted">{euro(openTrips.amount)}</span>
+                      <button className="btn btn-sm" disabled={busy} onClick={addTrips}><Plus size={13} /> Toevoegen</button>
+                    </div>
+                  )}
+                  {openTrips.withoutRate > 0 && (
+                    <div className="open-hours-row muted" style={{ fontSize: 13 }}>
+                      {openTrips.withoutRate} {openTrips.withoutRate === 1 ? 'rit heeft' : 'ritten hebben'} nog geen kilometertarief. Stel dat in bij de klant of het project.
+                    </div>
+                  )}
                 </div>
               )}
 

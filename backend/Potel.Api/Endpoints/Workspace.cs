@@ -158,6 +158,9 @@ public static partial class WorkspaceEndpoints
             await using var tx = await WriteLock.BeginAsync(db);
             // Voorbeelduren die je zelf op een echte factuur zette, blijven staan; die factuur moet blijven kloppen.
             db.TimeEntries.RemoveRange(db.TimeEntries.Where(t => t.IsDemo && (t.InvoiceId == null || db.Invoices.Any(i => i.Id == t.InvoiceId && i.IsDemo))));
+            // Voor ritten hetzelfde.
+            db.Trips.RemoveRange(db.Trips.Where(t => t.IsDemo && (t.InvoiceId == null || db.Invoices.Any(i => i.Id == t.InvoiceId && i.IsDemo))));
+            db.TripRoutes.RemoveRange(db.TripRoutes.Where(r => r.IsDemo));
             // Voorbeeldoffertes gaan weg, met hun regels en links. Een voorbeeldlead met een eigen offerte van jou blijft staan.
             db.Quotes.RemoveRange(db.Quotes.Where(q => q.IsDemo));
             db.Invoices.RemoveRange(db.Invoices.Where(i => i.IsDemo && !i.Credits.Any()));
@@ -172,12 +175,14 @@ public static partial class WorkspaceEndpoints
             await db.Expenses.Where(e => e.IsDemo && db.ExpenseReceipts.Any(r => r.ExpenseId == e.Id)).ExecuteUpdateAsync(x => x.SetProperty(e => e.IsDemo, false));
             db.Expenses.RemoveRange(db.Expenses.Where(e => e.IsDemo));
             await db.SaveChangesAsync();
-            db.Projects.RemoveRange(db.Projects.Where(p => p.IsDemo && !db.TimeEntries.Any(t => t.ProjectId == p.Id) && !db.Expenses.Any(e => e.ProjectId == p.Id)));
+            db.Projects.RemoveRange(db.Projects.Where(p => p.IsDemo && !db.TimeEntries.Any(t => t.ProjectId == p.Id) && !db.Expenses.Any(e => e.ProjectId == p.Id)
+                && !db.Trips.Any(t => t.ProjectId == p.Id) && !db.TripRoutes.Any(r => r.ProjectId == p.Id)));
             db.CustomModules.RemoveRange(db.CustomModules.Where(m => m.IsDemo && !db.CustomRecords.Any(r => r.ModuleId == m.Id)));
             await db.SaveChangesAsync();
             var customers = await db.Customers
                 .Where(c => c.IsDemo && !db.Invoices.Any(i => i.CustomerId == c.Id) && !db.Projects.Any(p => p.CustomerId == c.Id) && !db.Expenses.Any(e => e.CustomerId == c.Id)
-                            && !db.RecurringInvoices.Any(r => r.CustomerId == c.Id) && !db.Quotes.Any(q => q.CustomerId == c.Id && !q.IsDemo))
+                            && !db.RecurringInvoices.Any(r => r.CustomerId == c.Id) && !db.Quotes.Any(q => q.CustomerId == c.Id && !q.IsDemo)
+                            && !db.Trips.Any(t => t.CustomerId == c.Id) && !db.TripRoutes.Any(r => r.CustomerId == c.Id))
                 .Select(c => c.Id).ToListAsync();
             await db.Appointments.Where(a => a.CustomerId != null && customers.Contains(a.CustomerId.Value)).ExecuteUpdateAsync(x => x.SetProperty(a => a.CustomerId, (int?)null));
             await db.Leads.Where(l => l.CustomerId != null && customers.Contains(l.CustomerId.Value)).ExecuteUpdateAsync(x => x.SetProperty(l => l.CustomerId, (int?)null));
@@ -237,6 +242,9 @@ public static partial class WorkspaceEndpoints
             await Write("githubAuthors", await db.GitHubAuthors.OrderBy(a => a.Id).ToListAsync());
             await Write("githubCommits", await db.GitHubCommits.OrderBy(c => c.Id).ToListAsync());
             await Write("expenses", await db.Expenses.OrderBy(e => e.Id).ToListAsync());
+            // De kilometerregistratie en de vaste routes.
+            await Write("trips", await db.Trips.OrderBy(t => t.Id).ToListAsync());
+            await Write("tripRoutes", await db.TripRoutes.OrderBy(r => r.Id).ToListAsync());
             // Ingelezen bankafschriften: de regels, de imports en de kolomindeling voor CSV.
             await Write("bankImports", await db.BankImports.OrderBy(i => i.Id).ToListAsync());
             await Write("bankTransactions", await db.BankTransactions.OrderBy(t => t.Id).ToListAsync());
@@ -288,6 +296,8 @@ public static partial class WorkspaceEndpoints
 
             // Volgorde maakt uit vanwege de koppelingen tussen tabellen. Bonnetjes direct in de database, zonder ze eerst in te lezen.
             await db.ExpenseReceipts.ExecuteDeleteAsync();
+            await db.Trips.ExecuteDeleteAsync();
+            await db.TripRoutes.ExecuteDeleteAsync();
             await db.BankTransactions.ExecuteDeleteAsync();
             await db.BankImports.ExecuteDeleteAsync();
             await db.BankCsvMappings.ExecuteDeleteAsync();

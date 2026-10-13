@@ -30,7 +30,9 @@ public static class CustomerEndpoints
         {
             if (string.IsNullOrWhiteSpace(input.Name)) return Results.BadRequest(new { error = "Naam is verplicht" });
             if (!TryIban(input.Iban, out var iban)) return Results.BadRequest(new { error = IbanError });
+            if (TripEndpoints.RateProblem(input.KilometreRate) is { } rateProblem) return Results.BadRequest(new { error = rateProblem });
             input.Iban = iban;
+            input.KilometreRate = TripEndpoints.CleanRate(input.KilometreRate);
             input.Id = 0;
             input.CreatedAt = DateTime.UtcNow;
             input.Country = Countries.Normalize(input.Country);
@@ -49,7 +51,9 @@ public static class CustomerEndpoints
             if (c is null) return Results.NotFound();
             if (string.IsNullOrWhiteSpace(input.Name)) return Results.BadRequest(new { error = "Naam is verplicht" });
             if (!TryIban(input.Iban, out var iban)) return Results.BadRequest(new { error = IbanError });
+            if (TripEndpoints.RateProblem(input.KilometreRate) is { } rateProblem) return Results.BadRequest(new { error = rateProblem });
             c.Iban = iban;
+            c.KilometreRate = TripEndpoints.CleanRate(input.KilometreRate);
             c.Name = input.Name; c.Company = input.Company; c.Email = input.Email; c.Phone = input.Phone;
             c.Address = input.Address; c.City = input.City; c.Country = Countries.Normalize(input.Country); c.VatNumber = input.VatNumber; c.Notes = input.Notes;
             c.RemindersOff = input.RemindersOff;

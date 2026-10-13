@@ -4,7 +4,8 @@ using Potel.Api.Integrations;
 
 namespace Potel.Api.Endpoints;
 
-public record InvoiceHoursRequest(int[]? EntryIds, bool Detailed);
+// Met Trips gaan ook de open ritten van het project mee die een kilometertarief hebben.
+public record InvoiceHoursRequest(int[]? EntryIds, bool Detailed, bool Trips = false);
 
 public static class ProjectEndpoints
 {
@@ -14,7 +15,7 @@ public static class ProjectEndpoints
     public record ProjectDto(
         int Id, string Name, int CustomerId, string? CustomerName, string Status, string Billing, decimal HourlyRate, decimal FixedPrice,
         decimal? BudgetHours, string Color, string? RepoUrl, string? Description, DateTime? Deadline, DateTime CreatedAt,
-        int MinutesTotal, int MinutesUnbilled, decimal UnbilledValue, decimal InvoicedValue, DateTime? LastEntry);
+        int MinutesTotal, int MinutesUnbilled, decimal UnbilledValue, decimal InvoicedValue, DateTime? LastEntry, decimal? KilometreRate);
 
     public static ProjectDto ToDto(Project p, IEnumerable<TimeEntry> entries, IReadOnlyDictionary<int, InvoiceLine> lines)
     {
@@ -29,7 +30,7 @@ public static class ProjectEndpoints
             p.Id, p.Name, p.CustomerId, p.Customer?.Company ?? p.Customer?.Name, p.Status, p.Billing, p.HourlyRate, p.FixedPrice,
             p.BudgetHours, p.Color, p.RepoUrl, p.Description, p.Deadline, p.CreatedAt,
             mine.Sum(e => e.Minutes), unbilled, Money.Round(Hours(unbilled) * p.HourlyRate), invoiced,
-            mine.Count == 0 ? null : mine.Max(e => e.Date));
+            mine.Count == 0 ? null : mine.Max(e => e.Date), p.KilometreRate);
     }
 
     public static async Task<List<ProjectDto>> ListAsync(AppDb db, Func<IQueryable<Project>, IQueryable<Project>>? filter = null)
@@ -110,6 +111,7 @@ public static class ProjectEndpoints
         if (input.HourlyRate < 0 || input.FixedPrice < 0 || input.BudgetHours < 0) return "Bedragen en uren kunnen niet negatief zijn";
         // Zo past een factuurregel van dit project altijd (zie Money.MaxAmount).
         if (input.HourlyRate > Money.MaxAmount || input.FixedPrice > Money.MaxAmount) return "Dat bedrag is te groot";
+        if (TripEndpoints.RateProblem(input.KilometreRate) is { } rateProblem) return rateProblem;
         if (storedRepoUrl is not null && CleanRepoUrl(input.RepoUrl) == storedRepoUrl) return null;
         return RepoUrlProblem(input.RepoUrl);
     }
@@ -148,6 +150,7 @@ public static class ProjectEndpoints
                 Name = input.Name.Trim(), CustomerId = input.CustomerId, Status = input.Status, Billing = input.Billing,
                 HourlyRate = input.HourlyRate, FixedPrice = input.FixedPrice, BudgetHours = input.BudgetHours, Color = input.Color,
                 RepoUrl = CleanRepoUrl(input.RepoUrl), Description = input.Description, Deadline = input.Deadline,
+                KilometreRate = TripEndpoints.CleanRate(input.KilometreRate),
             };
             db.Projects.Add(p);
             db.Log("project", $"Project {p.Name} gestart");
@@ -164,6 +167,7 @@ public static class ProjectEndpoints
             p.Name = input.Name.Trim(); p.CustomerId = input.CustomerId; p.Status = input.Status; p.Billing = input.Billing;
             p.HourlyRate = input.HourlyRate; p.FixedPrice = input.FixedPrice; p.BudgetHours = input.BudgetHours; p.Color = input.Color;
             p.RepoUrl = CleanRepoUrl(input.RepoUrl); p.Description = input.Description; p.Deadline = input.Deadline;
+            p.KilometreRate = TripEndpoints.CleanRate(input.KilometreRate);
             await db.SaveChangesAsync();
             return Results.Ok(p);
         });
@@ -180,7 +184,8 @@ public static class ProjectEndpoints
             return Results.NoContent();
         });
 
-        // Zet de open uren van een project op een nieuwe conceptfactuur. Het nummer komt pas bij versturen.
+        // Zet de open uren van een project op een nieuwe conceptfactuur, en als je dat wilt ook de open ritten van het project.
+        // Het nummer komt pas bij versturen.
         g.MapPost("/{id:int}/invoice", async (AppDb db, BusinessClock clock, int id, InvoiceHoursRequest? req) =>
         {
             await using var tx = await WriteLock.BeginAsync(db);
@@ -190,24 +195,37 @@ public static class ProjectEndpoints
                 return Results.BadRequest(new { error = "Dit project heeft een vaste prijs; maak de factuur zelf aan." });
 
             var entries = await OpenEntries(db, id, req?.EntryIds);
-            if (entries.Count == 0) return Results.BadRequest(new { error = "Er zijn geen open uren om te factureren" });
+            var trips = req?.Trips == true ? (await TripEndpoints.OpenTripsAsync(db, p.CustomerId, id)).Where(x => x.Rate is not null).ToList() : [];
+            if (entries.Count == 0 && trips.Count == 0)
+                return Results.BadRequest(new { error = req?.Trips == true ? "Er zijn geen open uren of ritten om te factureren" : "Er zijn geen open uren om te factureren" });
 
             var settings = await SettingsEndpoints.GetAsync(db);
             var today = clock.Today;
             var regime = VatRegimes.DefaultFor(settings, p.Customer);
-            var parts = HourLines(p, entries, req?.Detailed == true);
-            if (VatRegimes.ZeroVat(regime)) foreach (var (line, _) in parts) line.VatRate = 0;
+            var parts = entries.Count > 0 ? HourLines(p, entries, req?.Detailed == true) : [];
+            var tripParts = TripEndpoints.TripLines(trips);
+            foreach (var (line, _) in tripParts) line.VatRate = 21;
+            var lines = parts.Select(x => x.Line).Concat(tripParts.Select(x => x.Line)).ToList();
+            for (var i = 0; i < lines.Count; i++)
+            {
+                lines[i].Position = i;
+                if (VatRegimes.ZeroVat(regime)) lines[i].VatRate = 0;
+            }
+            var dates = entries.Select(e => e.Date).Concat(trips.Select(x => x.Trip.Date)).ToList();
 
             var inv = new Invoice
             {
                 CustomerId = p.CustomerId, IssueDate = today, DueDate = today.AddDays(settings.PaymentTermDays), Status = InvoiceStatus.Draft,
-                VatRegime = regime, DeliveryFrom = entries.Min(e => e.Date).Date, DeliveryTo = entries.Max(e => e.Date).Date,
-                Notes = SettingsEndpoints.DefaultNote, Lines = parts.Select(x => x.Line).ToList(),
+                VatRegime = regime, DeliveryFrom = dates.Min().Date, DeliveryTo = dates.Max().Date,
+                Notes = SettingsEndpoints.DefaultNote, Lines = lines,
             };
             db.Invoices.Add(inv);
             await db.SaveChangesAsync();
             if (!await ClaimAsync(db, inv.Id, parts)) return Results.Conflict(new { error = InvoiceEndpoints.HoursTaken });
-            db.Log("factuur", $"Conceptfactuur gemaakt van {Hours(entries.Sum(e => e.Minutes)):0.##} uur op {p.Name}");
+            if (!await TripEndpoints.ClaimAsync(db, inv.Id, tripParts)) return Results.Conflict(new { error = TripEndpoints.TripsTaken });
+            db.Log("factuur", entries.Count > 0
+                ? $"Conceptfactuur gemaakt van {Hours(entries.Sum(e => e.Minutes)):0.##} uur op {p.Name}{(trips.Count > 0 ? $" en {TripEndpoints.Km(trips.Sum(x => x.Trip.Kilometres))} km aan ritten" : "")}"
+                : $"Conceptfactuur gemaakt van {TripEndpoints.Km(trips.Sum(x => x.Trip.Kilometres))} km aan ritten op {p.Name}");
             await db.SaveChangesAsync();
             await tx.CommitAsync();
             return Results.Created($"/api/invoices/{inv.Id}", new { id = inv.Id, number = inv.Number });

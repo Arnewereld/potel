@@ -167,6 +167,8 @@ public static class Seed
             new() { Name = "Peter Bakker", Company = "Zorgnet Oost", Email = "peter@zorgnetoost.nl", Phone = "06 45678901", Address = "Hengelosestraat 1", City = "Enschede", Notes = "Onderhoudscontract voor het cliëntportaal (.NET + Angular)." },
         };
         customers.ForEach(c => c.IsDemo = true);
+        // Ritten naar Fietsplein worden doorbelast.
+        customers[0].KilometreRate = 0.30m;
         db.Customers.AddRange(customers);
         db.SaveChanges();
 
@@ -216,23 +218,61 @@ public static class Seed
         db.TimeEntries.AddRange(entries);
         db.SaveChanges();
 
+        // Ritten: elke week een keer naar Fietsplein in Utrecht voor de Exact-koppeling (doorbelast), elke maand een sprint review
+        // bij Jansen Logistiek in Rotterdam (vaste prijs, dus niet doorbelast) en een paar privéritten. De doorbelaste ritten van
+        // een afgelopen maand staan op de maandfactuur; die van deze maand staan nog open.
+        const string office = "Keizersgracht 100, Amsterdam";
+        const string utrecht = "Oudegracht 12, Utrecht";
+        const string rotterdam = "Industrieweg 4, Rotterdam";
+        var trips = new List<Trip>();
+        void Drive(DateTime date, string from, string to, decimal km, string? purpose, string kind, Project? project = null, bool billable = false, bool back = true)
+        {
+            Trip Leg(string a, string b) => new()
+            {
+                IsDemo = true, Date = date, From = a, To = b, Kilometres = km, Purpose = purpose, Kind = kind, ProjectId = project?.Id,
+                CustomerId = project?.CustomerId, Billable = billable, UserId = booker,
+            };
+            trips.Add(Leg(from, to));
+            if (back) trips.Add(Leg(to, from));
+        }
+        static int Week(DateTime d) => System.Globalization.ISOWeek.GetYear(d) * 100 + System.Globalization.ISOWeek.GetWeekOfYear(d);
+        foreach (var week in entries.Where(e => e.ProjectId == projects[0].Id).Select(e => e.Date).Distinct().GroupBy(Week))
+            Drive(week.Min(), office, utrecht, 45, "Overleg en werken op locatie bij Fietsplein", TripKinds.Business, projects[0], billable: true);
+        foreach (var month in entries.Where(e => e.ProjectId == projects[1].Id).Select(e => e.Date).Distinct().GroupBy(d => d.Month))
+            Drive(month.Min(), office, rotterdam, 78, "Sprint review planningsapp", TripKinds.Business, projects[1]);
+        foreach (var (m, d) in new[] { (3, 8), (6, 14), (8, 2) })
+            if (new DateTime(today.Year, m, d) < today) Drive(new DateTime(today.Year, m, d), office, "Boulevard Paulus Loot, Zandvoort", 29, "Dagje strand", TripKinds.Private);
+        db.Trips.AddRange(trips);
+        db.TripRoutes.AddRange(
+            new TripRoute { IsDemo = true, Name = "Fietsplein Utrecht", From = office, To = utrecht, Kilometres = 45, Purpose = "Overleg en werken op locatie bij Fietsplein", ProjectId = projects[0].Id, CustomerId = customers[0].Id, Billable = true },
+            new TripRoute { IsDemo = true, Name = "Jansen Logistiek Rotterdam", From = office, To = rotterdam, Kilometres = 78, Purpose = "Sprint review planningsapp", ProjectId = projects[1].Id, CustomerId = customers[1].Id });
+        db.SaveChanges();
+
         // Uurprojecten worden per maand gefactureerd; de lopende maand staat nog open. Verstuurde facturen hebben een nummer
         // in een eigen reeks (VOORBEELD-0001), zodat je echte facturen gewoon bij 0001 beginnen, de gegevens van beide partijen
         // zoals ze toen waren en een leverperiode; de uren hangen aan hun factuurregel.
-        var invoices = new List<(Invoice Invoice, List<TimeEntry> Entries)>();
+        var invoices = new List<(Invoice Invoice, List<TimeEntry> Entries, List<Trip> Trips)>();
         var thisMonth = new DateTime(today.Year, today.Month, 1);
         foreach (var month in entries.Where(e => e.Billable && e.Date < thisMonth).GroupBy(e => (e.ProjectId, new DateTime(e.Date.Year, e.Date.Month, 1))))
         {
             var p = projects.First(x => x.Id == month.Key.ProjectId);
             var issue = month.Key.Item2.AddMonths(1);
             var minutes = month.Sum(e => e.Minutes);
+            var driven = trips.Where(t => t.Billable && t.ProjectId == p.Id && t.Date >= month.Key.Item2 && t.Date < issue).ToList();
+            var km = driven.Sum(t => t.Kilometres);
+            var rate = customers.First(c => c.Id == p.CustomerId).KilometreRate ?? 0;
             invoices.Add((new Invoice
             {
                 CustomerId = p.CustomerId, IssueDate = issue, DueDate = issue.AddDays(14),
                 Status = issue < thisMonth ? InvoiceStatus.Paid : InvoiceStatus.Sent, PaidAt = issue < thisMonth ? issue.AddDays(9) : null, Reference = p.Id == projects[3].Id ? "PO-2026-0412" : null, Notes = Endpoints.SettingsEndpoints.DefaultNote,
                 DeliveryFrom = month.Min(e => e.Date), DeliveryTo = month.Max(e => e.Date),
-                Lines = [new InvoiceLine { Description = $"{p.Name}: werkzaamheden {issue.AddMonths(-1):MMMM yyyy}", Quantity = Endpoints.ProjectEndpoints.Hours(minutes), Unit = "uur", UnitPrice = p.HourlyRate }],
-            }, month.ToList()));
+                Lines = driven.Count == 0
+                    ? [new InvoiceLine { Description = $"{p.Name}: werkzaamheden {issue.AddMonths(-1):MMMM yyyy}", Quantity = Endpoints.ProjectEndpoints.Hours(minutes), Unit = "uur", UnitPrice = p.HourlyRate }]
+                    : [
+                        new InvoiceLine { Description = $"{p.Name}: werkzaamheden {issue.AddMonths(-1):MMMM yyyy}", Quantity = Endpoints.ProjectEndpoints.Hours(minutes), Unit = "uur", UnitPrice = p.HourlyRate, Position = 0 },
+                        new InvoiceLine { Description = Endpoints.TripEndpoints.LineText(km, rate), Quantity = km, Unit = "km", UnitPrice = rate, Position = 1 },
+                    ],
+            }, month.ToList(), driven));
         }
         var start = today.AddMonths(-4);
         var depositInvoice = new Invoice
@@ -241,10 +281,10 @@ public static class Seed
             DeliveryFrom = start,
             Lines = [new InvoiceLine { Description = "Planningsapp: aanbetaling 50% bij start", Quantity = 1, UnitPrice = 7250 }],
         };
-        invoices.Add((depositInvoice, []));
+        invoices.Add((depositInvoice, [], []));
 
         var n = 0;
-        foreach (var (inv, linked) in invoices.OrderBy(x => x.Invoice.IssueDate))
+        foreach (var (inv, linked, driven) in invoices.OrderBy(x => x.Invoice.IssueDate))
         {
             inv.Number = $"{DemoNumberPrefix}{++n:0000}";
             inv.IsDemo = true;
@@ -257,6 +297,7 @@ public static class Seed
             db.Invoices.Add(inv);
             db.SaveChanges();
             foreach (var e in linked) { e.InvoiceId = inv.Id; e.InvoiceLineId = inv.Lines[0].Id; }
+            foreach (var t in driven) { t.InvoiceId = inv.Id; t.InvoiceLineId = inv.Lines[1].Id; }
             // Met de urenspecificatie zoals hij bij versturen is vastgelegd.
             if (linked.Count > 0)
                 inv.HoursSnapshot = Invoicing.HourSpecs.Build(inv.Lines, linked, projects.ToDictionary(p => p.Id, p => p.Name), new Dictionary<int, string>(), team: false, showAmounts: false)

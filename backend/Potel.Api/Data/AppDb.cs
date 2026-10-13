@@ -47,6 +47,8 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
     public DbSet<BankTransaction> BankTransactions => Set<BankTransaction>();
     public DbSet<BankImport> BankImports => Set<BankImport>();
     public DbSet<BankCsvMapping> BankCsvMappings => Set<BankCsvMapping>();
+    public DbSet<Trip> Trips => Set<Trip>();
+    public DbSet<TripRoute> TripRoutes => Set<TripRoute>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -148,6 +150,15 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         b.Entity<BankTransaction>().HasOne<Expense>().WithMany().HasForeignKey(t => t.ExpenseId).OnDelete(DeleteBehavior.SetNull);
         b.Entity<BankTransaction>().HasIndex(t => t.ExpenseId).IsUnique().HasFilter("\"ExpenseId\" IS NOT NULL");
         b.Entity<BankCsvMapping>().HasIndex(m => m.WorkspaceId).IsUnique();
+        // Ritten en vaste routes mogen aan een klant of project hangen; gaat die weg, dan blijft de rit staan zonder koppeling.
+        // Wordt een factuur verwijderd of gaat de regel eraf, dan komen de ritten weer vrij om te factureren, net als uren.
+        b.Entity<Trip>().HasOne<Customer>().WithMany().HasForeignKey(t => t.CustomerId).OnDelete(DeleteBehavior.SetNull);
+        b.Entity<Trip>().HasOne<Project>().WithMany().HasForeignKey(t => t.ProjectId).OnDelete(DeleteBehavior.SetNull);
+        b.Entity<Trip>().HasOne<Invoice>().WithMany().HasForeignKey(t => t.InvoiceId).OnDelete(DeleteBehavior.SetNull);
+        b.Entity<Trip>().HasOne<InvoiceLine>().WithMany().HasForeignKey(t => t.InvoiceLineId).OnDelete(DeleteBehavior.SetNull);
+        b.Entity<Trip>().HasIndex(t => new { t.WorkspaceId, t.Date });
+        b.Entity<TripRoute>().HasOne<Customer>().WithMany().HasForeignKey(r => r.CustomerId).OnDelete(DeleteBehavior.SetNull);
+        b.Entity<TripRoute>().HasOne<Project>().WithMany().HasForeignKey(r => r.ProjectId).OnDelete(DeleteBehavior.SetNull);
         FilterByWorkspace(b);
     }
 
@@ -163,6 +174,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         Filter<Quote>(b); Filter<QuoteLink>(b);
         Filter<InvoicePayment>(b); Filter<MollieAccount>(b); Filter<OnlinePayment>(b);
         Filter<BankTransaction>(b); Filter<BankImport>(b); Filter<BankCsvMapping>(b);
+        Filter<Trip>(b); Filter<TripRoute>(b);
     }
 
     void Filter<T>(ModelBuilder b) where T : class, IWorkspaceOwned

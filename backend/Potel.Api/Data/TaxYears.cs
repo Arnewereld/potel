@@ -4,6 +4,10 @@ namespace Potel.Api.Data;
 // jaar bij of verandert er iets, pas het dan hier aan en zet de bron erbij. Null is: staat nog niet vast.
 public record TaxYear(int Year, decimal SelfEmployedDeduction, decimal? StarterDeduction, decimal? SmeProfitExemption, string[] Sources, string? Note = null);
 
+// Wat je per zakelijke kilometer met je eigen auto (of ander privévervoermiddel) van je winst aftrekt. Daarnaast mag je geen
+// andere kosten van die auto aftrekken, zoals brandstof of parkeren. Null is: staat nog niet vast.
+public record KilometreRate(int Year, decimal? Rate, string Source, string? Note = null);
+
 public static class TaxYears
 {
     // Minstens zoveel uur per kalenderjaar aan je onderneming voor de zelfstandigenaftrek en startersaftrek.
@@ -41,4 +45,20 @@ public static class TaxYears
     ];
 
     public static TaxYear? For(int year) => All.FirstOrDefault(y => y.Year == year);
+
+    // Woon-werkverkeer met je eigen auto telt voor de inkomstenbelasting als zakelijke kilometers.
+    public const string KilometreSource = $"{Ib}/inkomstenbelasting_voor_ondernemers/zakelijk-gebruik-privevervoermiddel";
+
+    // Gecontroleerd op belastingdienst.nl op 13 oktober 2026. De pagina over 2025 noemt € 0,23 en zegt dat het in 2024 ook
+    // € 0,23 was; de pagina over 2026 noemt € 0,25. Voor 2027 is er nog geen bedrag gepubliceerd.
+    public static readonly KilometreRate[] KilometreRates =
+    [
+        new(2024, 0.23m, $"{Ib}/verandering_inkomstenbelasting_vorige_jaren/veranderingen-inkomstenbelasting-2025/zakelijk-gebruik-privevervoermiddel-2025"),
+        new(2025, 0.23m, $"{Ib}/verandering_inkomstenbelasting_vorige_jaren/veranderingen-inkomstenbelasting-2025/zakelijk-gebruik-privevervoermiddel-2025"),
+        new(2026, 0.25m, $"{Ib}/veranderingen-inkomstenbelasting-2026/zakelijk-gebruik-privevervoermiddel-2026"),
+        new(2027, null, KilometreSource, "Het bedrag per kilometer voor 2027 staat nog niet vast. Daarom tellen de kilometers nog niet mee in je resultaat."),
+    ];
+
+    public static KilometreRate KilometreRateFor(int year) => KilometreRates.FirstOrDefault(k => k.Year == year)
+        ?? new(year, null, KilometreSource, $"Voor {year} hebben we het bedrag per kilometer niet. Daarom tellen de kilometers niet mee in je resultaat.");
 }

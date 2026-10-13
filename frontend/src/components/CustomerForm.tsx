@@ -77,6 +77,10 @@ export function CustomerForm({ customer, onClose, onSaved }: {
         <Field label="Rekeningnummer (IBAN)">
           <input value={form.iban ?? ''} onChange={set('iban')} placeholder="Optioneel, bijv. NL91 ABNA 0417 1643 00" autoComplete="off" spellCheck={false} />
         </Field>
+        <Field label="Kilometertarief voor ritten (excl. btw)">
+          <input type="number" min={0} max={10} step="0.01" value={form.kilometreRate ?? ''} placeholder="Leeg is niet doorbelasten"
+            onChange={e => setForm(f => ({ ...f, kilometreRate: e.target.value === '' ? null : Number(e.target.value) }))} />
+        </Field>
         <Field label="Notities" full><textarea value={form.notes ?? ''} onChange={set('notes')} /></Field>
         <label className="row field-full" style={{ gap: 8 }}>
           <input type="checkbox" checked={!!form.remindersOff} onChange={e => setForm(f => ({ ...f, remindersOff: e.target.checked }))} />

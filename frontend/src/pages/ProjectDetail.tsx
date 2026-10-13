@@ -6,7 +6,8 @@ import { api } from '../lib/api'
 import { useTabs, useTabTitle } from '../lib/tabs'
 import { useToast } from '../lib/toast'
 import { useOnTimeChanged } from '../lib/timer'
-import type { Invoice, Project, TimeEntry } from '../lib/types'
+import type { BillableTrips, Invoice, Project, TimeEntry } from '../lib/types'
+import { km } from '../lib/trips'
 import { date, euro, hm, hours, invoiceTotals } from '../lib/format'
 import { invoiceStatuses, projectStatuses } from '../lib/status'
 import { Badge, Empty, ErrorBox, Loading, Modal, SubTabs } from '../components/ui'
@@ -25,6 +26,8 @@ export function ProjectDetailPage() {
   const { data: project, error, loading, reload } = useApi<Project>(`/projects/${id}`)
   const { data: entries, reload: reloadEntries } = useApi<TimeEntry[]>(`/time?projectId=${id}`)
   const { data: invoices } = useApi<Invoice[]>('/invoices')
+  // Open ritten van dit project met een kilometertarief; die kunnen mee op de factuur.
+  const { data: trips, reload: reloadTrips } = useApi<BillableTrips>(`/trips/billable?projectId=${id}`)
   const [tab, setTab] = useState<TabId>('uren')
   const [editing, setEditing] = useState(false)
   const [entry, setEntry] = useState<{ entry?: TimeEntry } | null>(null)
@@ -35,7 +38,7 @@ export function ProjectDetailPage() {
   const toast = useToast()
   useTabTitle(project?.name)
 
-  useOnTimeChanged(useCallback(() => { reload(true); reloadEntries(true) }, [reload, reloadEntries]))
+  useOnTimeChanged(useCallback(() => { reload(true); reloadEntries(true); reloadTrips(true) }, [reload, reloadEntries, reloadTrips]))
 
   if (error) return <ErrorBox message={error} />
   if (loading || !project) return <Loading />
@@ -75,8 +78,8 @@ export function ProjectDetailPage() {
         </div>
         <div className="row">
           {project.billing === 'uur' && (
-            <button className="btn btn-primary" disabled={project.minutesUnbilled === 0} onClick={() => setInvoicing(true)}>
-              <Receipt size={15} /> Factureer {hours(project.minutesUnbilled)}
+            <button className="btn btn-primary" disabled={project.minutesUnbilled === 0 && !trips?.trips} onClick={() => setInvoicing(true)}>
+              <Receipt size={15} /> Factureer {project.minutesUnbilled > 0 || !trips?.trips ? hours(project.minutesUnbilled) : km(trips.kilometres)}
             </button>
           )}
           <button className="btn" onClick={() => setEditing(true)}><Pencil size={15} /> Bewerken</button>
@@ -170,22 +173,25 @@ export function ProjectDetailPage() {
 
       {editing && <ProjectForm project={project} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); reload(true) }} />}
       {entry && <TimeEntryForm entry={entry.entry} projectId={project.id} onClose={() => setEntry(null)} onSaved={() => setEntry(null)} />}
-      {invoicing && <InvoiceHoursModal project={project} onClose={() => setInvoicing(false)} />}
+      {invoicing && <InvoiceHoursModal project={project} trips={trips} onClose={() => setInvoicing(false)} />}
       {suggesting && <GitHubSuggestionsModal projectId={project.id} onClose={() => setSuggesting(false)} />}
     </>
   )
 }
 
-function InvoiceHoursModal({ project, onClose }: { project: Project; onClose: () => void }) {
+function InvoiceHoursModal({ project, trips, onClose }: { project: Project; trips: BillableTrips | null; onClose: () => void }) {
   const [detailed, setDetailed] = useState(false)
+  const [withTrips, setWithTrips] = useState(true)
   const [busy, setBusy] = useState(false)
+  const openTrips = trips?.trips ?? 0
+  const hasHours = project.minutesUnbilled > 0
   const navigate = useNavigate()
   const toast = useToast()
 
   const create = async () => {
     setBusy(true)
     try {
-      const inv = await api.post<{ id: number }>(`/projects/${project.id}/invoice`, { detailed })
+      const inv = await api.post<{ id: number }>(`/projects/${project.id}/invoice`, { detailed, trips: openTrips > 0 && withTrips })
       toast('Conceptfactuur aangemaakt')
       onClose()
       navigate(`/facturen/${inv.id}`)
@@ -196,19 +202,34 @@ function InvoiceHoursModal({ project, onClose }: { project: Project; onClose: ()
   }
 
   return (
-    <Modal title="Open uren factureren" onClose={onClose} footer={<>
+    <Modal title={hasHours ? 'Open uren factureren' : 'Open ritten factureren'} onClose={onClose} footer={<>
       <button className="btn" onClick={onClose}>Annuleren</button>
-      <button className="btn btn-primary" disabled={busy} onClick={create}><Receipt size={15} /> Conceptfactuur maken</button>
+      <button className="btn btn-primary" disabled={busy || (!hasHours && !withTrips)} onClick={create}><Receipt size={15} /> Conceptfactuur maken</button>
     </>}>
-      <p style={{ marginTop: 0 }}>
-        Je zet <strong>{hours(project.minutesUnbilled, 2)}</strong> à {euro(project.hourlyRate)} op een nieuwe factuur
-        voor <strong>{project.customerName}</strong>: <strong>{euro(project.unbilledValue)}</strong> excl. btw.
-      </p>
-      <div className="segmented">
-        <button type="button" className={!detailed ? 'active' : ''} onClick={() => setDetailed(false)}>Eén regel met het totaal</button>
-        <button type="button" className={detailed ? 'active' : ''} onClick={() => setDetailed(true)}>Elke boeking een eigen regel</button>
-      </div>
-      <p className="muted" style={{ marginBottom: 0 }}>De uren worden aan de factuur gekoppeld. Verwijder je de factuur, dan komen ze weer vrij.</p>
+      {hasHours ? (<>
+        <p style={{ marginTop: 0 }}>
+          Je zet <strong>{hours(project.minutesUnbilled, 2)}</strong> à {euro(project.hourlyRate)} op een nieuwe factuur
+          voor <strong>{project.customerName}</strong>: <strong>{euro(project.unbilledValue)}</strong> excl. btw.
+        </p>
+        <div className="segmented">
+          <button type="button" className={!detailed ? 'active' : ''} onClick={() => setDetailed(false)}>Eén regel met het totaal</button>
+          <button type="button" className={detailed ? 'active' : ''} onClick={() => setDetailed(true)}>Elke boeking een eigen regel</button>
+        </div>
+      </>) : (
+        <p style={{ marginTop: 0 }}>Er staan geen uren open, wel ritten. Je zet ze op een nieuwe factuur voor <strong>{project.customerName}</strong>.</p>
+      )}
+      {openTrips > 0 && (
+        <label className="check-row mt">
+          <input type="checkbox" checked={withTrips} onChange={e => setWithTrips(e.target.checked)} />
+          <span>Ook de open ritten: {km(trips!.kilometres)} in {openTrips} {openTrips === 1 ? 'rit' : 'ritten'}, {euro(trips!.amount)} excl. btw</span>
+        </label>
+      )}
+      {(trips?.withoutRate ?? 0) > 0 && (
+        <p className="muted" style={{ fontSize: 13 }}>
+          {trips!.withoutRate} {trips!.withoutRate === 1 ? 'rit heeft' : 'ritten hebben'} nog geen kilometertarief. Stel dat in bij het project of de klant om ze te factureren.
+        </p>
+      )}
+      <p className="muted" style={{ marginBottom: 0 }}>De uren en ritten worden aan de factuur gekoppeld. Verwijder je de factuur, dan komen ze weer vrij.</p>
     </Modal>
   )
 }

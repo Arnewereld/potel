@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, CalendarDays, Users, Target, Receipt, Workflow, Blocks, X, Search, FileSignature,
   ChevronsLeft, ChevronsRight, Moon, Sun, Plus, ShieldCheck, LogOut, KeyRound, Timer, FolderKanban, Settings, Square, Crown, Wallet, Landmark, CalendarRange,
-  ArrowLeftRight,
+  ArrowLeftRight, Car,
 } from 'lucide-react'
 import { clock, useTimer } from '../lib/timer'
 import { useWorkspace } from '../lib/workspace'
@@ -25,6 +25,7 @@ const nav = [
   { to: '/projecten', label: 'Projecten', icon: FolderKanban, group: 'Werk' },
   { to: '/facturen', label: 'Facturen', icon: Receipt, group: 'Werk' },
   { to: '/kosten', label: 'Kosten', icon: Wallet, group: 'Werk' },
+  { to: '/ritten', label: 'Ritten', icon: Car, group: 'Werk' },
   // Alleen voor beheerders: een bankafschrift laat al je geldzaken zien.
   { to: '/bank', label: 'Bank', icon: ArrowLeftRight, group: 'Werk', admin: true },
   { to: '/planning', label: 'Planning', icon: CalendarDays, group: 'Werk' },

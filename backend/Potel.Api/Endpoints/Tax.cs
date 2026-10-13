@@ -174,16 +174,38 @@ public record TaxIndication(
     bool Available, decimal Profit, bool HoursMet, bool Starter, decimal SelfEmployedDeduction, decimal StarterDeduction,
     decimal ProfitAfterDeductions, decimal? SmePercentage, decimal SmeExemption, decimal TaxableProfit, List<string> Notes, string[] Sources);
 
+// Ritten van het jaar. Alleen zakelijke kilometers met je eigen auto geven aftrek: kilometers maal het bedrag per kilometer van dat jaar.
+public record MileageSummary(int Trips, decimal BusinessKm, decimal CompanyCarKm, decimal PrivateKm, decimal? Rate, decimal Deduction, string Source, string? Note);
+
 public record AnnualDto(
     int Year, decimal Revenue, decimal Costs, decimal Result, bool Deduction, List<CategoryCost> CostsByCategory, List<MonthTotals> Months,
     HoursSummary Hours, TaxIndication Indication, int Invoices, int Expenses, int Investments, bool DemoData,
-    string HoursSource, string DepreciationSource);
+    string HoursSource, string DepreciationSource, MileageSummary Mileage);
 
 // Het jaaroverzicht voor de aangifte inkomstenbelasting: omzet, kosten, resultaat, uren en een indicatie van de aftrekposten.
 // Zonder concepten en voorbeelddata. Een indicatie, geen belastingadvies.
 public static class AnnualOverview
 {
-    public record Data(AnnualDto Summary, List<Invoice> Invoices, List<Expense> Expenses, HashSet<int> ReceiptIds);
+    public record Data(AnnualDto Summary, List<Invoice> Invoices, List<Expense> Expenses, HashSet<int> ReceiptIds, List<TripRow> Trips);
+
+    public record TripRow(Trip Trip, string? Customer, string? Project, string? InvoiceNumber);
+
+    // De aftrek per maand, zo afgerond dat de maanden samen precies de aftrek van het jaar zijn.
+    static decimal[] SplitByMonth(IEnumerable<Trip> trips, decimal? rate)
+    {
+        var months = new decimal[12];
+        if (rate is not { } r) return months;
+        var km = 0m;
+        var done = 0m;
+        for (var m = 1; m <= 12; m++)
+        {
+            km += trips.Where(t => t.Date.Month == m).Sum(t => t.Kilometres);
+            var upTo = Money.Round(km * r);
+            months[m - 1] = upTo - done;
+            done = upTo;
+        }
+        return months;
+    }
 
     public static async Task<Data> CalculateAsync(AppDb db, int year, bool starter)
     {
@@ -201,28 +223,42 @@ public static class AnnualOverview
         // Alle uren tellen voor het urencriterium, ook die je niet factureert.
         var hours = await db.TimeEntries.AsNoTracking().Where(t => !t.IsDemo && t.Date >= from && t.Date <= to)
             .Select(t => new { t.Minutes, t.Billable }).ToListAsync();
+        // Ritten tellen op hun datum, ook als je ze aan een klant doorbelast: wat de klant betaalt is omzet, de aftrek blijft.
+        var trips = await db.Trips.AsNoTracking().Where(t => !t.IsDemo && t.Date >= from && t.Date <= to)
+            .OrderBy(t => t.Date).ThenBy(t => t.Id).ToListAsync();
+        var (businessKm, companyCarKm, privateKm) = TripEndpoints.Totals(trips);
+        var kmRate = TaxYears.KilometreRateFor(year);
+        var mileageByMonth = SplitByMonth(trips.Where(t => t.Kind == TripKinds.Business), kmRate.Rate);
+        var mileage = new MileageSummary(trips.Count, businessKm, companyCarKm, privateKm, kmRate.Rate, mileageByMonth.Sum(), kmRate.Source, kmRate.Note);
 
         var revenue = invoices.Sum(i => i.Totals.Subtotal);
-        var costs = expenses.Sum(e => e.CostForProfit(deduction));
+        var costs = expenses.Sum(e => e.CostForProfit(deduction)) + mileage.Deduction;
         var result = revenue - costs;
         var byCategory = ExpenseCategories.All
             .Select(c => new CategoryCost(c, ExpenseCategories.Label(c), expenses.Where(e => e.Category == c).Sum(e => e.CostForProfit(deduction)), expenses.Count(e => e.Category == c)))
             .Where(c => c.Count > 0).ToList();
         var months = Enumerable.Range(1, 12).Select(m => new MonthTotals($"{year}-{m:00}",
             invoices.Where(i => i.IssueDate.Month == m).Sum(i => i.Totals.Subtotal),
-            expenses.Where(e => e.Date.Month == m).Sum(e => e.CostForProfit(deduction)))).ToList();
+            expenses.Where(e => e.Date.Month == m).Sum(e => e.CostForProfit(deduction)) + mileageByMonth[m - 1])).ToList();
         var minutes = hours.Sum(h => h.Minutes);
         var billable = hours.Where(h => h.Billable).Sum(h => h.Minutes);
         var hoursSummary = new HoursSummary(minutes, billable, minutes - billable, TaxYears.HoursCriterion, minutes >= TaxYears.HoursCriterion * 60);
         var investments = expenses.Count(e => e.Category == ExpenseCategories.Hardware && e.CostForProfit(deduction) >= TaxYears.DepreciationThreshold);
-        var demoData = await db.Invoices.AnyAsync(i => i.IsDemo) || await db.Expenses.AnyAsync(e => e.IsDemo) || await db.TimeEntries.AnyAsync(t => t.IsDemo);
+        var demoData = await db.Invoices.AnyAsync(i => i.IsDemo) || await db.Expenses.AnyAsync(e => e.IsDemo) || await db.TimeEntries.AnyAsync(t => t.IsDemo)
+            || await db.Trips.AnyAsync(t => t.IsDemo);
 
         var summary = new AnnualDto(year, revenue, costs, result, deduction, byCategory, months, hoursSummary,
             Indicate(TaxYears.For(year), year, result, hoursSummary, starter), invoices.Count, expenses.Count, investments, demoData,
-            TaxYears.HoursSource, TaxYears.DepreciationSource);
+            TaxYears.HoursSource, TaxYears.DepreciationSource, mileage);
         var ids = expenses.Select(e => e.Id).ToList();
         var receiptIds = (await db.ExpenseReceipts.Where(r => ids.Contains(r.ExpenseId)).Select(r => r.ExpenseId).ToListAsync()).ToHashSet();
-        return new Data(summary, invoices, expenses, receiptIds);
+        var projects = await db.Projects.AsNoTracking().ToDictionaryAsync(p => p.Id, p => p.Name);
+        var customers = await db.Customers.AsNoTracking().ToDictionaryAsync(c => c.Id, c => string.IsNullOrWhiteSpace(c.Company) ? c.Name : c.Company);
+        var invoiceIds = trips.Where(t => t.InvoiceId != null).Select(t => t.InvoiceId!.Value).Distinct().ToList();
+        var numbers = await db.Invoices.Where(i => invoiceIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id, i => i.Number);
+        var tripRows = trips.Select(t => new TripRow(t, t.CustomerId is { } c ? customers.GetValueOrDefault(c) : null,
+            t.ProjectId is { } p ? projects.GetValueOrDefault(p) : null, t.InvoiceId is { } i ? numbers.GetValueOrDefault(i) ?? "concept" : null)).ToList();
+        return new Data(summary, invoices, expenses, receiptIds, tripRows);
     }
 
     // Zelfstandigenaftrek (met het urencriterium, niet hoger dan de winst behalve voor starters), startersaftrek
@@ -268,6 +304,14 @@ public static class AnnualOverview
         Line("Omzet zonder btw", CsvNumber(s.Revenue));
         Line(s.Deduction ? "Kosten zonder btw" : "Kosten met btw (je trekt geen btw af)", CsvNumber(s.Costs));
         foreach (var c in s.CostsByCategory) Line(CsvText($"Kosten {c.Label.ToLowerInvariant()}"), CsvNumber(c.Amount));
+        if (s.Mileage.Trips > 0)
+        {
+            Line("Zakelijke kilometers eigen auto", CsvNumber(s.Mileage.BusinessKm));
+            Line(CsvText(s.Mileage.Rate is { } r ? $"Kilometeraftrek eigen auto ({CsvNumber(r)} per km)" : "Kilometeraftrek eigen auto (bedrag per km nog niet bekend)"),
+                CsvNumber(s.Mileage.Deduction));
+            Line("Zakelijke kilometers auto van de zaak", CsvNumber(s.Mileage.CompanyCarKm));
+            Line("Privékilometers", CsvNumber(s.Mileage.PrivateKm));
+        }
         Line("Resultaat voor belasting", CsvNumber(s.Result));
         Line("Uren totaal", CsvNumber(s.Hours.Minutes / 60m));
         Line("Uren factureerbaar", CsvNumber(s.Hours.BillableMinutes / 60m));
@@ -291,6 +335,17 @@ public static class AnnualOverview
                 e.VatRate is { } r ? CsvNumber(r) : "geen", CsvNumber(e.VatAmount), CsvNumber(e.AmountExclVat), e.ReverseCharge ? "ja" : "nee",
                 e.SupplierRegion == SupplierRegions.Eu ? "EU" : e.SupplierRegion == SupplierRegions.OutsideEu ? "buiten de EU" : "",
                 data.ReceiptIds.Contains(e.Id) ? "ja" : "nee");
+        if (data.Trips.Count > 0)
+        {
+            Line();
+            Line("Ritten");
+            Line("Datum", "Van", "Naar", "Doel", "Soort", "Kilometers", "Kilometerstand begin", "Kilometerstand eind", "Klant", "Project", "Doorbelast op factuur");
+            foreach (var (t, customer, project, number) in data.Trips)
+                Line(CsvDate(t.Date), CsvText(t.From), CsvText(t.To), CsvText(t.Purpose), CsvText(TripKinds.Label(t.Kind)), CsvNumber(t.Kilometres),
+                    t.OdometerStart?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "",
+                    t.OdometerEnd?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "",
+                    CsvText(customer), CsvText(project), CsvText(number));
+        }
 
         return [.. System.Text.Encoding.UTF8.GetPreamble(), .. System.Text.Encoding.UTF8.GetBytes(sb.ToString())];
     }

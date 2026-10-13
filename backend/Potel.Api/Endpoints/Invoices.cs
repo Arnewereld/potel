@@ -198,15 +198,20 @@ public static partial class InvoiceEndpoints
         return credited < 0 && Total(original) + credited <= 0;
     }
 
-    // Is een factuur helemaal gecrediteerd, dan komen zijn uren weer vrij: zo kun je ze op een nieuwe, goede factuur zetten.
+    // Is een factuur helemaal gecrediteerd, dan komen zijn uren en ritten weer vrij: zo kun je ze op een nieuwe, goede factuur zetten.
     static async Task ReleaseCreditedHoursAsync(AppDb db, Invoice credit)
     {
         if (credit.CreditForInvoiceId is not { } originalId || !await FullyCreditedAsync(db, originalId, credit)) return;
         var entries = await db.TimeEntries.Where(t => t.InvoiceId == originalId).ToListAsync();
-        if (entries.Count == 0) return;
+        var trips = await db.Trips.Where(t => t.InvoiceId == originalId).ToListAsync();
+        if (entries.Count == 0 && trips.Count == 0) return;
         foreach (var t in entries) { t.InvoiceId = null; t.InvoiceLineId = null; }
+        foreach (var t in trips) { t.InvoiceId = null; t.InvoiceLineId = null; }
         var number = await db.Invoices.Where(i => i.Id == originalId).Select(i => i.Number).FirstAsync();
-        db.Log("factuur", $"{ProjectEndpoints.Hours(entries.Sum(t => t.Minutes)):0.##} uur van factuur {number} staan weer open: die factuur is helemaal gecrediteerd");
+        if (entries.Count > 0)
+            db.Log("factuur", $"{ProjectEndpoints.Hours(entries.Sum(t => t.Minutes)):0.##} uur van factuur {number} staan weer open: die factuur is helemaal gecrediteerd");
+        if (trips.Count > 0)
+            db.Log("factuur", $"{TripEndpoints.Km(trips.Sum(t => t.Kilometres))} km aan ritten van factuur {number} staat weer open: die factuur is helemaal gecrediteerd");
     }
 
     // Zet een nieuwe status volgens de regels. Een concept wordt daarbij verstuurd; daarna gaat de status alleen nog vooruit.
@@ -285,10 +290,11 @@ public static partial class InvoiceEndpoints
         db.Invoices.Include(i => i.Lines.OrderBy(l => l.Position).ThenBy(l => l.Id)).Include(i => i.Customer).Include(i => i.CreditFor)
             .Include(i => i.Credits).ThenInclude(c => c.Lines).Include(i => i.Payments.OrderBy(p => p.Date).ThenBy(p => p.Id)).AsSplitQuery();
 
-    // De leverperiode van de uren op deze factuur.
+    // De leverperiode van de uren en ritten op deze factuur.
     public static async Task SetDeliveryFromHoursAsync(AppDb db, Invoice inv)
     {
         var dates = await db.TimeEntries.Where(t => t.InvoiceId == inv.Id).Select(t => t.Date).ToListAsync();
+        dates.AddRange(await db.Trips.Where(t => t.InvoiceId == inv.Id).Select(t => t.Date).ToListAsync());
         if (dates.Count == 0) return;
         inv.DeliveryFrom = dates.Min().Date;
         inv.DeliveryTo = dates.Max().Date;
@@ -373,10 +379,19 @@ public static partial class InvoiceEndpoints
             var released = entries.Where(t => t.InvoiceLineId is { } lineId ? !keptIds.Contains(lineId) : noHourLines).ToList();
             if (inv.CustomerId != input.CustomerId && entries.Count > released.Count)
                 return Results.BadRequest(new { error = "Op deze factuur staan uren van een project; de klant kan niet meer veranderen." });
+            // Ritten gaan op dezelfde manier: alleen met hun regel komen ze weer vrij.
+            var trips = await db.Trips.Where(t => t.InvoiceId == id).ToListAsync();
+            var noKmLines = !newLines.Any(l => l.Unit == "km");
+            var releasedTrips = trips.Where(t => t.InvoiceLineId is { } lineId ? !keptIds.Contains(lineId) : noKmLines).ToList();
+            if (inv.CustomerId != input.CustomerId && trips.Count > releasedTrips.Count)
+                return Results.BadRequest(new { error = "Op deze factuur staan ritten van deze klant; de klant kan niet meer veranderen." });
 
             foreach (var t in released) { t.InvoiceId = null; t.InvoiceLineId = null; }
             if (released.Count > 0)
                 db.Log("factuur", $"{ProjectEndpoints.Hours(released.Sum(t => t.Minutes)):0.##} uur van de conceptfactuur gehaald; die uren staan weer open");
+            foreach (var t in releasedTrips) { t.InvoiceId = null; t.InvoiceLineId = null; }
+            if (releasedTrips.Count > 0)
+                db.Log("factuur", $"{TripEndpoints.Km(releasedTrips.Sum(t => t.Kilometres))} km aan ritten van de conceptfactuur gehaald; die ritten staan weer open");
             inv.CustomerId = input.CustomerId; inv.IssueDate = input.IssueDate.Date; inv.DueDate = input.DueDate.Date;
             inv.Reference = input.Reference; inv.VatRegime = input.VatRegime; inv.Notes = input.Notes;
             inv.DeliveryFrom = input.DeliveryFrom?.Date; inv.DeliveryTo = input.DeliveryTo?.Date;
@@ -526,6 +541,39 @@ public static partial class InvoiceEndpoints
             if (!await ProjectEndpoints.ClaimAsync(db, inv.Id, parts)) return Results.Conflict(new { error = HoursTaken });
             await SetDeliveryFromHoursAsync(db, inv);
             db.Log("factuur", $"{ProjectEndpoints.Hours(entries.Sum(e => e.Minutes)):0.##} uur van {project.Name} op {Label(inv).ToLowerInvariant()} gezet");
+            await db.SaveChangesAsync();
+            await tx.CommitAsync();
+            return Results.Ok(await Full(db).AsNoTracking().FirstAsync(i => i.Id == id));
+        });
+
+        // Zet de open ritten van de klant van deze conceptfactuur erbij, tegen het kilometertarief van het project of de klant.
+        // Met TripIds alleen die ritten. Net als bij uren: binnen een WriteLock, en een rit die intussen op een andere factuur
+        // staat, laat het hele verzoek mislukken.
+        g.MapPost("/{id:int}/trips", async (AppDb db, int id, AddTripsRequest? req) =>
+        {
+            await using var tx = await WriteLock.BeginAsync(db);
+            var inv = await db.Invoices.Include(i => i.Lines).FirstOrDefaultAsync(i => i.Id == id);
+            if (inv is null) return Results.NotFound();
+            if (inv.Status != InvoiceStatus.Draft) return Results.BadRequest(new { error = "Ritten toevoegen kan alleen op een concept" });
+            if (inv.CreditForInvoiceId is not null) return Results.BadRequest(new { error = "Op een creditnota kun je geen ritten zetten" });
+            var wanted = req?.TripIds is { Length: > 0 } ids ? ids.Distinct().ToArray() : null;
+            var open = (await TripEndpoints.OpenTripsAsync(db, inv.CustomerId, ids: wanted)).Where(x => x.Rate is not null).ToList();
+            if (wanted is not null && open.Count != wanted.Length) return Results.Conflict(new { error = TripEndpoints.TripsTaken });
+            if (open.Count == 0) return Results.BadRequest(new { error = "Er zijn geen open ritten met een kilometertarief voor deze klant" });
+            // Een leeg beginregeltje van een nieuwe factuur hoeft niet te blijven staan.
+            db.InvoiceLines.RemoveRange(inv.Lines.Where(l => string.IsNullOrWhiteSpace(l.Description) || (l.Description == "-" && l.UnitPrice == 0)));
+            var parts = TripEndpoints.TripLines(open);
+            var position = inv.Lines.Select(l => l.Position).DefaultIfEmpty(-1).Max() + 1;
+            foreach (var line in parts.Select(p => p.Line))
+            {
+                line.VatRate = VatRegimes.ZeroVat(inv.VatRegime) ? 0 : 21;
+                line.Position = position++;
+                inv.Lines.Add(line);
+            }
+            await db.SaveChangesAsync();
+            if (!await TripEndpoints.ClaimAsync(db, inv.Id, parts)) return Results.Conflict(new { error = TripEndpoints.TripsTaken });
+            await SetDeliveryFromHoursAsync(db, inv);
+            db.Log("factuur", $"{TripEndpoints.Km(open.Sum(x => x.Trip.Kilometres))} km aan ritten op {Label(inv).ToLowerInvariant()} gezet");
             await db.SaveChangesAsync();
             await tx.CommitAsync();
             return Results.Ok(await Full(db).AsNoTracking().FirstAsync(i => i.Id == id));

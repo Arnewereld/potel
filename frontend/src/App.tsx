@@ -25,6 +25,7 @@ import { QuotesPage } from './pages/Quotes'
 import { QuoteEditorPage } from './pages/QuoteEditor'
 import { RecurringEditorPage } from './pages/RecurringInvoices'
 import { ExpensesPage } from './pages/Expenses'
+import { TripsPage } from './pages/Trips'
 import { BankPage } from './pages/Bank'
 import { VatReturnPage } from './pages/VatReturn'
 import { AnnualPage } from './pages/Annual'
@@ -99,6 +100,7 @@ function AppRoutes({ location }: { location: string }) {
       <Route path="/facturen/:id" element={<InvoiceEditorPage />} />
       <Route path="/facturen/terugkerend/:id" element={<RecurringEditorPage />} />
       <Route path="/kosten" element={<ExpensesPage />} />
+      <Route path="/ritten" element={<TripsPage />} />
       <Route path="/bank" element={<BankPage />} />
       <Route path="/btw-aangifte" element={<VatReturnPage />} />
       <Route path="/jaaroverzicht" element={<AnnualPage />} />

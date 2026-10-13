@@ -10,7 +10,7 @@ using static Potel.Api.Tests.InvoiceKit;
 
 namespace Potel.Api.Tests;
 
-// Telt de verzoeken die uren op een factuur zetten zodra ze binnenkomen, zodat een test weet dat ze echt tegelijk lopen.
+// Telt de verzoeken die uren of ritten op een factuur zetten zodra ze binnenkomen, zodat een test weet dat ze echt tegelijk lopen.
 public class RaceFactory : PortalFactory
 {
     readonly Lock sync = new();
@@ -55,7 +55,9 @@ public class RaceFactory : PortalFactory
             app.Use(async (http, go) =>
             {
                 var path = http.Request.Path.Value ?? "";
-                if (HttpMethods.IsPost(http.Request.Method) && (path.EndsWith("/hours") || path.EndsWith("/invoice"))) factory.Arrive();
+                if (HttpMethods.IsPost(http.Request.Method)
+                    && (path.EndsWith("/hours") || path.EndsWith("/invoice") || (path.StartsWith("/api/invoices/") && path.EndsWith("/trips"))))
+                    factory.Arrive();
                 await go();
             });
             next(app);
@@ -144,6 +146,52 @@ public class InvoiceRaceTests(RaceFactory factory) : IClassFixture<RaceFactory>
         if (winner.StatusCode == HttpStatusCode.Created) billed += HourQuantity(await GetInvoiceAsync(c, (await Json(winner)).GetProperty("id").GetInt32()));
         Assert.Equal(6m, billed);
         await AssertNoOpenHoursAsync(c, projectId);
+    }
+
+    static Func<Task<HttpResponseMessage>> AddTrips(HttpClient c, int invoiceId) =>
+        () => c.PostAsJsonAsync($"/api/invoices/{invoiceId}/trips", new { });
+
+    static decimal Km(System.Text.Json.JsonElement invoice) =>
+        invoice.GetProperty("lines").EnumerateArray().Where(l => l.GetProperty("unit").GetString() == "km").Sum(l => l.GetProperty("quantity").GetDecimal());
+
+    // Ritten hebben dezelfde bescherming als uren: tegelijk op twee facturen zetten lukt maar één keer.
+    [Fact]
+    public async Task Two_requests_adding_the_same_trips_bill_them_only_once()
+    {
+        var c = await ReadyAsync(factory, "race-trips");
+        var customerId = await TripTests.RatedCustomerAsync(c, "Ritten", 0.3m);
+        var projectId = await TripTests.RatedProjectAsync(c, customerId, null);
+        async Task Drive()
+        {
+            for (var i = 0; i < 3; i++) await TripTests.CreateAsync(c, TripTests.Trip(km: 20, projectId: projectId, billable: true));
+        }
+        async Task AssertNoOpenTripsAsync() =>
+            Assert.Equal(0, (await c.GetFromJsonAsync<System.Text.Json.JsonElement>($"/api/trips/billable?customerId={customerId}")).GetProperty("trips").GetInt32());
+
+        // Dubbelklik op dezelfde conceptfactuur.
+        await Drive();
+        var invoiceId = await InvoiceAsync(c, customerId, "concept", 1, 100);
+        Assert.Equal(HttpStatusCode.OK, Winner(await TogetherAsync(AddTrips(c, invoiceId), AddTrips(c, invoiceId))).StatusCode);
+        Assert.Equal(60m, Km(await GetInvoiceAsync(c, invoiceId)));
+        await AssertNoOpenTripsAsync();
+
+        // Twee tabbladen met elk een concept.
+        await Drive();
+        var first = await InvoiceAsync(c, customerId, "concept", 1, 100);
+        var second = await InvoiceAsync(c, customerId, "concept", 1, 100);
+        Winner(await TogetherAsync(AddTrips(c, first), AddTrips(c, second)));
+        Assert.Equal(60m, Km(await GetInvoiceAsync(c, first)) + Km(await GetInvoiceAsync(c, second)));
+        await AssertNoOpenTripsAsync();
+
+        // Ritten op een concept zetten terwijl je vanaf het project een factuur met ritten maakt.
+        await Drive();
+        invoiceId = await InvoiceAsync(c, customerId, "concept", 1, 100);
+        var winner = Winner(await TogetherAsync(AddTrips(c, invoiceId),
+            () => c.PostAsJsonAsync($"/api/projects/{projectId}/invoice", new { trips = true })));
+        var billed = Km(await GetInvoiceAsync(c, invoiceId));
+        if (winner.StatusCode == HttpStatusCode.Created) billed += Km(await GetInvoiceAsync(c, (await Json(winner)).GetProperty("id").GetInt32()));
+        Assert.Equal(60m, billed);
+        await AssertNoOpenTripsAsync();
     }
 
     [Fact]
