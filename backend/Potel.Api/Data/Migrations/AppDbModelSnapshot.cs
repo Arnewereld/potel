@@ -828,6 +828,41 @@ namespace Potel.Api.Data.Migrations
                     b.ToTable("Leads");
                 });
 
+            modelBuilder.Entity("Potel.Api.Data.MollieAccount", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("KeyLast4")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProtectedKey")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WorkspaceId")
+                        .IsUnique();
+
+                    b.ToTable("MollieAccounts");
+                });
+
             modelBuilder.Entity("Potel.Api.Data.MolliePayment", b =>
                 {
                     b.Property<string>("Id")
@@ -880,6 +915,64 @@ namespace Potel.Api.Data.Migrations
                     b.HasIndex("WorkspaceId");
 
                     b.ToTable("MolliePayments");
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.OnlinePayment", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("InvoiceId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MollieId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("PaidAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("RecordedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReturnTokenHash")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InvoiceId");
+
+                    b.HasIndex("MollieId")
+                        .IsUnique();
+
+                    b.HasIndex("ReturnTokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.ToTable("OnlinePayments");
                 });
 
             modelBuilder.Entity("Potel.Api.Data.PlatformCounter", b =>
@@ -1936,6 +2029,15 @@ namespace Potel.Api.Data.Migrations
                 {
                     b.HasOne("Potel.Api.Data.Invoice", null)
                         .WithMany("Payments")
+                        .HasForeignKey("InvoiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.OnlinePayment", b =>
+                {
+                    b.HasOne("Potel.Api.Data.Invoice", null)
+                        .WithMany()
                         .HasForeignKey("InvoiceId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();

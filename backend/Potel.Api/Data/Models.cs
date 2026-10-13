@@ -721,6 +721,42 @@ public class GitHubSettings : IWorkspaceOwned
     public string? UpdatedBy { get; set; }
 }
 
+// De eigen Mollie van een werkruimte: daarmee betalen klanten facturen met iDEAL en komt het geld op de rekening van de
+// freelancer. Los van het abonnement op Potel zelf (Mollie:ApiKey van het platform). De sleutel staat versleuteld in de
+// database en gaat nooit meer terug naar de browser; je ziet alleen of hij test of live is en de laatste 4 tekens.
+public class MollieAccount : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public string ProtectedKey { get; set; } = "";
+    public string KeyLast4 { get; set; } = "";
+    // "test" of "live", uit het begin van de sleutel.
+    public string Mode { get; set; } = "test";
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public string? UpdatedBy { get; set; }
+}
+
+// Een iDEAL-betaling voor een factuur via de eigen Mollie van de werkruimte. Mollie meldt alleen een id; alleen een id dat
+// hier staat doet iets, en wat er gebeurd is vragen we altijd zelf op met de sleutel van deze werkruimte.
+public class OnlinePayment : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public string MollieId { get; set; } = "";
+    public int InvoiceId { get; set; }
+    public decimal Amount { get; set; }
+    public string Mode { get; set; } = "test";
+    // Zoals Mollie hem noemt: open, pending, authorized, paid, canceled, expired of failed.
+    public string Status { get; set; } = "open";
+    // Hash van de code in het terugkeeradres (/factuur?betaling=...). Daarmee ziet de klant na het betalen alleen de status.
+    [JsonIgnore] public string ReturnTokenHash { get; set; } = "";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? PaidAt { get; set; }
+    // Wanneer de betaling op de factuur is gezet. Daarna nooit nog een keer, ook niet als Mollie hem opnieuw meldt.
+    public DateTime? RecordedAt { get; set; }
+}
+
 // Met welke e-mailadressen een gebruiker commit. Zonder rij gebruiken we het e-mailadres van zijn account.
 public class GitHubAuthor : IWorkspaceOwned
 {

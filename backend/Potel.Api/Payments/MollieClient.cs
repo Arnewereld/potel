@@ -47,6 +47,8 @@ public class MolliePaymentInfo
     public string? MandateId { get; set; }
     public MollieAmount? Amount { get; set; }
     public string? Description { get; set; }
+    // "test" of "live".
+    public string? Mode { get; set; }
     public DateTimeOffset? CreatedAt { get; set; }
     public DateTimeOffset? PaidAt { get; set; }
     public JsonElement? Metadata { get; set; }
@@ -78,12 +80,30 @@ public class MollieCustomerInfo
     public string Id { get; set; } = "";
 }
 
+public class MollieMethod
+{
+    public string Id { get; set; } = "";
+    public string? Description { get; set; }
+}
+
+public class MollieMethodsEmbedded
+{
+    public List<MollieMethod> Methods { get; set; } = [];
+}
+
+public class MollieMethodList
+{
+    [JsonPropertyName("_embedded")] public MollieMethodsEmbedded? Embedded { get; set; }
+}
+
 public class MollieException(HttpStatusCode status, string message) : Exception(message)
 {
     public HttpStatusCode Status { get; } = status;
 }
 
 // Praat met de API van Mollie (https://api.mollie.com/v2). Alleen wat Potel nodig heeft: klanten, betalingen en abonnementen.
+// Zonder sleutel erbij gaat het om het abonnement op Potel zelf, met de sleutel van het platform (Mollie:ApiKey). De methodes
+// met een apiKey zijn voor iDEAL op facturen, met de eigen sleutel van een werkruimte; die raken de sleutel van het platform nooit.
 public class MollieClient(HttpClient http, IOptions<MollieOptions> options)
 {
     public const string BaseUrl = "https://api.mollie.com/v2/";
@@ -91,11 +111,13 @@ public class MollieClient(HttpClient http, IOptions<MollieOptions> options)
 
     public bool Enabled => options.Value.Enabled;
 
-    async Task<T?> SendAsync<T>(HttpMethod method, string path, object? body = null, string? idempotencyKey = null, bool allowNotFound = false) where T : class
+    async Task<T?> SendAsync<T>(HttpMethod method, string path, object? body = null, string? idempotencyKey = null, bool allowNotFound = false,
+        string? apiKey = null) where T : class
     {
-        if (!Enabled) throw new InvalidOperationException("Mollie:ApiKey ontbreekt");
+        if (apiKey is null && !Enabled) throw new InvalidOperationException("Mollie:ApiKey ontbreekt");
+        if (apiKey is not null && string.IsNullOrWhiteSpace(apiKey)) throw new InvalidOperationException("Sleutel van Mollie ontbreekt");
         using var req = new HttpRequestMessage(method, path);
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.Value.ApiKey.Trim());
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", (apiKey ?? options.Value.ApiKey).Trim());
         if (idempotencyKey is not null) req.Headers.Add("Idempotency-Key", idempotencyKey);
         if (body is not null) req.Content = JsonContent.Create(body, options: Json);
         using var res = await http.SendAsync(req);
@@ -122,6 +144,21 @@ public class MollieClient(HttpClient http, IOptions<MollieOptions> options)
     // Null als Mollie deze betaling niet kent, bijvoorbeeld bij een verzonnen id.
     public Task<MolliePaymentInfo?> GetPaymentAsync(string id) =>
         SendAsync<MolliePaymentInfo>(HttpMethod.Get, $"payments/{Uri.EscapeDataString(id)}", allowNotFound: true);
+
+    // Een iDEAL-betaling voor een factuur, met de eigen sleutel van de werkruimte. Geen klant of abonnement bij Mollie.
+    public async Task<MolliePaymentInfo> CreateInvoicePaymentAsync(string apiKey, MollieAmount amount, string description, string redirectUrl, string webhookUrl, object metadata) =>
+        (await SendAsync<MolliePaymentInfo>(HttpMethod.Post, "payments", new
+        {
+            amount, description, redirectUrl, webhookUrl, metadata, method = "ideal", locale = "nl_NL",
+        }, apiKey: apiKey))!;
+
+    // Null als Mollie deze betaling niet kent met deze sleutel, bijvoorbeeld omdat hij bij een ander Mollie-account hoort.
+    public Task<MolliePaymentInfo?> GetInvoicePaymentAsync(string apiKey, string id) =>
+        SendAsync<MolliePaymentInfo>(HttpMethod.Get, $"payments/{Uri.EscapeDataString(id)}", allowNotFound: true, apiKey: apiKey);
+
+    // De betaalmethodes die aan staan bij deze sleutel; om de verbinding te testen.
+    public async Task<List<MollieMethod>> ListMethodsAsync(string apiKey) =>
+        (await SendAsync<MollieMethodList>(HttpMethod.Get, "methods", apiKey: apiKey))?.Embedded?.Methods ?? [];
 
     public async Task<MollieSubscriptionInfo> CreateSubscriptionAsync(string customerId, MollieAmount amount, DateOnly startDate, string description,
         string? webhookUrl, object metadata, string idempotencyKey) =>

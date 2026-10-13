@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { CalendarClock, Clock, ExternalLink, FolderKanban, Link2Off, Receipt } from 'lucide-react'
+import { CalendarClock, Clock, CreditCard, ExternalLink, FolderKanban, Link2Off, Receipt } from 'lucide-react'
 import { api } from '../../lib/api'
 import { date, euro, hm, hours, initials, num } from '../../lib/format'
 import { product } from '../../lib/plans'
+import { payWithIdeal } from '../../lib/ideal'
 import type { PortalInvoice, PortalProject, PublicPortal } from '../../lib/types'
 import { Badge } from '../../components/ui'
 import { usePrivatePage } from '../../lib/privatePage'
@@ -184,8 +185,23 @@ function invoiceState(inv: PortalInvoice): { label: string; tone: string } {
 function InvoiceRow({ invoice: inv }: { invoice: PortalInvoice }) {
   const state = invoiceState(inv)
   const unpaid = !inv.isCredit && inv.openAmount > 0
+  const [paying, setPaying] = useState(false)
+  const [payError, setPayError] = useState<string | null>(null)
+  // Betalen gaat met het token van de factuurlink; het bedrag bepaalt de server.
+  const token = inv.link ? new URLSearchParams(inv.link.split('#')[1] ?? '').get('token') : null
+  const pay = async () => {
+    if (!token) return
+    setPaying(true)
+    setPayError(null)
+    try {
+      await payWithIdeal(token)
+    } catch (e) {
+      setPayError((e as Error).message)
+      setPaying(false)
+    }
+  }
   return (
-    <div className="portal-row">
+    <div className="portal-row" style={payError ? { flexWrap: 'wrap' } : undefined}>
       <div className="grow">
         <div><strong>{inv.isCredit ? 'Creditnota' : 'Factuur'} {inv.number}</strong></div>
         <div className="cell-sub">{date(inv.issueDate)}{unpaid ? `, te betalen uiterlijk ${date(inv.dueDate)}` : ''}</div>
@@ -195,7 +211,9 @@ function InvoiceRow({ invoice: inv }: { invoice: PortalInvoice }) {
         <strong>{euro(inv.total)}</strong>
         {unpaid && inv.openAmount < inv.total && <div className="cell-sub">nog {euro(inv.openAmount)}</div>}
       </div>
+      {inv.canPay && token && <button className="btn btn-sm btn-primary" disabled={paying} onClick={pay}><CreditCard size={13} /> {paying ? 'Even geduld…' : 'Betaal nu met iDEAL'}</button>}
       {inv.link && <a className="btn btn-sm" href={inv.link} target="_blank" rel="noreferrer"><ExternalLink size={13} /> Bekijken</a>}
+      {payError && <div className="text-red" style={{ flexBasis: '100%', fontSize: 13 }}>{payError}</div>}
     </div>
   )
 }

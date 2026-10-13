@@ -86,6 +86,11 @@ builder.Services.AddRateLimiter(o =>
     o.AddPolicy("public", http => RateLimitPartition.GetFixedWindowLimiter(
         http.Connection.RemoteIpAddress?.ToString() ?? "onbekend",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = publicPerMinute, Window = TimeSpan.FromMinutes(1) }));
+    // Betaal nu met iDEAL op de openbare factuurpagina: elke klik maakt een betaling bij Mollie, dus per IP-adres krap begrensd.
+    var payPerMinute = builder.Configuration.GetValue("RateLimit:InvoicePayPerMinute", 10);
+    o.AddPolicy("pay", http => RateLimitPartition.GetFixedWindowLimiter(
+        http.Connection.RemoteIpAddress?.ToString() ?? "onbekend",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = payPerMinute, Window = TimeSpan.FromMinutes(1) }));
     // Het klantportaal (geheime link per klant): ook per IP-adres begrensd, tegen het raden van links.
     var portalPerMinute = builder.Configuration.GetValue("RateLimit:PortalPerMinute", 30);
     o.AddPolicy("portal", http => RateLimitPartition.GetFixedWindowLimiter(
@@ -122,6 +127,8 @@ builder.Services.AddHttpClient<MollieClient>(c =>
     c.Timeout = TimeSpan.FromSeconds(20);
 });
 builder.Services.AddScoped<MollieBilling>();
+// iDEAL op facturen via de eigen Mollie van een werkruimte (een sleutel per werkruimte, los van Mollie:ApiKey).
+builder.Services.AddScoped<InvoiceIdeal>();
 // Urenvoorstellen uit GitHub: alleen naar api.github.com, met een tijdslimiet, een maximale grootte en zonder doorverwijzingen.
 builder.Services.AddHttpClient<GitHubClient>(c =>
 {
@@ -199,7 +206,7 @@ app.UseRateLimiter();
 // Na een verlopen proefperiode, of als een abonnement is afgelopen of niet betaald, kun je nog alles bekijken en exporteren,
 // maar niets meer wijzigen tot je (weer) een abonnement kiest. Wel mag je nog inloggen, je wachtwoord wijzigen of herstellen,
 // je e-mailadres bevestigen (alles onder /api/auth), betalen of opzeggen (/api/billing), gebruikers uitschakelen of
-// verwijderen, een link naar het klantportaal intrekken, het GitHub-token weghalen, een offerte of de links ernaar intrekken,
+// verwijderen, een link naar het klantportaal intrekken, het GitHub-token of de sleutel van Mollie weghalen, een offerte of de links ernaar intrekken,
 // de welkomstwizard sluiten en je werkruimte verwijderen. Openbare pagina's (/api/public) werken gewoon, ook akkoord op een offerte.
 // Al het andere is dicht, ook wat hier later bijkomt.
 static bool WritableAfterTrial(HttpRequest r)
@@ -210,6 +217,7 @@ static bool WritableAfterTrial(HttpRequest r)
     if (r.Path.StartsWithSegments("/api/users", out var user) && user.HasValue && (HttpMethods.IsPut(r.Method) || HttpMethods.IsDelete(r.Method))) return true;
     if (CustomerPortalEndpoints.IsRevoke(r)) return true;
     if (GitHubEndpoints.IsRemoveToken(r)) return true;
+    if (InvoiceIdealEndpoints.IsRemoveKey(r)) return true;
     if (QuoteEndpoints.IsSafetyAction(r)) return true;
     if (r.Path.StartsWithSegments("/api/workspace", out var rest))
         return (HttpMethods.IsDelete(r.Method) && (!rest.HasValue || rest == "/"))
@@ -247,6 +255,7 @@ api.MapLeads();
 api.MapInvoices();
 api.MapRecurringInvoices();
 api.MapInvoiceMail();
+api.MapInvoiceIdeal();
 api.MapQuotes();
 api.MapExpenses();
 api.MapTax();

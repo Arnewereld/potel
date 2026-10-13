@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Potel.Api.Data;
 using Potel.Api.Invoicing;
+using Potel.Api.Payments;
 
 namespace Potel.Api.Endpoints;
 
@@ -41,7 +42,7 @@ public static class InvoiceMailEndpoints
 
     // De link en de factuur achter een token, of null als het token niet (meer) werkt. Een onbekend, ingetrokken of fout
     // token, een concept, een voorbeeldfactuur of een dichte portaallink: voor de buitenwereld allemaal hetzelfde.
-    static async Task<(InvoiceLink Link, Invoice Invoice)?> OpenLinkAsync(AppDb db, BusinessClock clock, string? token)
+    public static async Task<(InvoiceLink Link, Invoice Invoice)?> OpenLinkAsync(AppDb db, BusinessClock clock, string? token)
     {
         token = token?.Trim();
         if (string.IsNullOrEmpty(token) || token.Length > 100) return null;
@@ -200,7 +201,7 @@ public static class InvoiceMailEndpoints
         // De openbare factuurpagina: zonder inloggen, alleen met het token uit de mail. Laat alleen deze ene factuur zien, met wat
         // er op de factuur zelf staat (plus logo en kleur), en niets anders uit de werkruimte. Een onbekend, ingetrokken of fout
         // token geeft steeds hetzelfde antwoord.
-        api.MapPost("/public/invoice", async (AppDb db, BusinessClock clock, HttpResponse response, PublicInvoiceRequest req) =>
+        api.MapPost("/public/invoice", async (AppDb db, BusinessClock clock, InvoiceIdeal ideal, HttpResponse response, PublicInvoiceRequest req) =>
         {
             NoIndex(response);
             if (await OpenLinkAsync(db, clock, req.Token) is not { } found) return Results.NotFound(new { error = LinkGone });
@@ -228,6 +229,8 @@ public static class InvoiceMailEndpoints
                     // Wat er al betaald is, zonder de betalingen zelf.
                     inv.PaidTotal,
                 },
+                // Kan de klant hier met iDEAL betalen (via de eigen Mollie van de freelancer)?
+                canPay = await ideal.CanPayAsync(db, inv),
                 // De urenspecificatie zoals hij bij versturen is vastgelegd, alleen als die mee moest.
                 hours = HourSpecs.Sent(inv),
                 brand = new { logoDataUrl = brand?.LogoDataUrl, brandColor = brand?.BrandColor ?? "#ff6d5a" },

@@ -222,6 +222,27 @@ export interface PublicInvoice {
   invoice: Omit<Invoice, 'id' | 'customerId'> & { isCredit: boolean; openAmount: number; fullyCredited: boolean; paidTotal: number }
   brand: { logoDataUrl?: string | null; brandColor: string }
   hours?: HourSpec | null
+  // Kan de klant hier met iDEAL betalen, via de eigen Mollie van de freelancer?
+  canPay?: boolean
+}
+
+// Terug van de betaalpagina van Mollie: wat Potel over die ene betaling weet.
+export interface PublicPaymentStatus {
+  status: 'open' | 'pending' | 'authorized' | 'paid' | 'canceled' | 'expired' | 'failed' | string
+  paid: boolean
+  amount: number
+  test: boolean
+  number?: string | null
+  seller?: string | null
+  invoicePaid: boolean
+  brand: { logoDataUrl?: string | null; brandColor: string }
+}
+
+// De eigen Mollie van de werkruimte voor iDEAL op facturen. De sleutel zelf komt nooit terug.
+export interface IdealSettings {
+  key: { mode: 'test' | 'live'; last4: string; updatedAt: string; updatedBy?: string | null } | null
+  available: boolean
+  problem?: string | null
 }
 
 // Een offerte: dezelfde regels als een factuur, voor een klant of een lead. Verlopen is geen opgeslagen status maar volgt
@@ -653,6 +674,7 @@ export interface PortalInvoice {
   fullyCredited: boolean
   paidAt?: string | null
   link?: string | null
+  canPay?: boolean
 }
 
 export interface PublicPortal {

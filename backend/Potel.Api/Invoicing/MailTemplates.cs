@@ -195,9 +195,12 @@ public static partial class MailTemplates
             : $"We vragen je het bedrag uiterlijk op {payBy} te betalen. Omdat de betaaltermijn verstreken is, hebben we volgens de wet recht op de wettelijke handelsrente vanaf de dag na de vervaldatum en op een vergoeding voor incassokosten van {costs}. Betaal je niet op tijd, dan brengen we die in rekening en nemen we verdere stappen om het bedrag te innen.";
     }
 
+    // Kan de klant online betalen, dan zegt {betaalgegevens} dat erbij; de knop staat op de factuurpagina achter de link.
+    public const string IdealSentence = "Betalen met iDEAL kan ook: open de factuur via de link en kies Betaal nu met iDEAL.";
+
     // Vult de woorden tussen accolades in. Zonder link blijft {link} staan (in een voorbeeld), en een tekst zonder {link}
     // krijgt de link er onderaan bij: de klant moet de factuur altijd kunnen openen.
-    public static MailText Fill(MailText text, Invoice inv, Customer c, Settings s, DateTime today, string? link)
+    public static MailText Fill(MailText text, Invoice inv, Customer c, Settings s, DateTime today, string? link, bool ideal = false)
     {
         var open = inv.IsCredit ? Math.Abs(Data.Money.Totals(inv.Lines).Total)
             : inv.Status is InvoiceStatus.Sent or InvoiceStatus.Overdue ? inv.OpenAmount : Data.Money.Totals(inv.Lines).Total;
@@ -211,7 +214,7 @@ public static partial class MailTemplates
             ["factuurdatum"] = Date(inv.IssueDate),
             ["vervaldatum"] = Date(inv.DueDate),
             ["dagen"] = late.ToString(Dutch),
-            ["betaalgegevens"] = PaymentDetails(inv, s),
+            ["betaalgegevens"] = PaymentDetails(inv, s) + (ideal && !inv.IsCredit && open > 0 ? $" {IdealSentence}" : ""),
             ["bedrijf"] = (inv.Seller?.Name ?? s.CompanyName).Trim(),
             ["gevolgen"] = Consequences(consumer, open, today),
         };

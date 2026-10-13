@@ -231,6 +231,9 @@ public static partial class WorkspaceEndpoints
             await Write("customerPortals", await db.CustomerPortals.OrderBy(p => p.Id).ToListAsync());
             // Het GitHub-token zelf gaat nooit mee, alleen de laatste 4 tekens.
             await Write("github", await db.GitHubSettings.FirstOrDefaultAsync());
+            // Van de eigen Mollie alleen of er een sleutel is (test of live, laatste 4 tekens), nooit de sleutel zelf.
+            await Write("mollie", await db.MollieAccounts.FirstOrDefaultAsync());
+            await Write("onlinePayments", await db.OnlinePayments.OrderBy(p => p.Id).ToListAsync());
             await Write("githubAuthors", await db.GitHubAuthors.OrderBy(a => a.Id).ToListAsync());
             await Write("githubCommits", await db.GitHubCommits.OrderBy(c => c.Id).ToListAsync());
             await Write("expenses", await db.Expenses.OrderBy(e => e.Id).ToListAsync());
@@ -284,6 +287,8 @@ public static partial class WorkspaceEndpoints
             await db.Expenses.ExecuteDeleteAsync();
             await db.InvoiceMails.ExecuteDeleteAsync();
             await db.InvoicePayments.ExecuteDeleteAsync();
+            await db.OnlinePayments.ExecuteDeleteAsync();
+            await db.MollieAccounts.ExecuteDeleteAsync();
             await db.InvoiceLinks.ExecuteDeleteAsync();
             // Offerteregels gaan mee met hun offerte (cascade in de database).
             await db.QuoteLinks.ExecuteDeleteAsync();

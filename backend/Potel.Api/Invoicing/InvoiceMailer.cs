@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Potel.Api.Data;
 using Potel.Api.Endpoints;
+using Potel.Api.Payments;
 using Potel.Api.Workflows;
 
 namespace Potel.Api.Invoicing;
@@ -17,7 +18,7 @@ public record MailAttempt(SendOutcome Outcome, string? Message = null, InvoiceMa
 // Potel maakt zelf geen PDF (dat kan niet goed zonder extra pakket); de link opent de factuur, met een knop om hem als PDF
 // op te slaan of te printen. Elke mail telt mee voor de daglimiet van de werkruimte en gaat alleen weg als de beheerder zijn
 // e-mailadres bevestigde. Alles komt in het logboek van de factuur, ook wat niet weg kon.
-public class InvoiceMailer(AppDb db, IEmailSender sender, IOptions<WorkflowLimits> limits, BusinessClock clock, ILogger<InvoiceMailer> logger)
+public class InvoiceMailer(AppDb db, IEmailSender sender, IOptions<WorkflowLimits> limits, BusinessClock clock, InvoiceIdeal ideal, ILogger<InvoiceMailer> logger)
 {
     public const string NoServer = "Er is nog geen mailserver ingesteld, dus Potel kan zelf geen e-mail versturen.";
     public const string NoBaseUrl = "Het openbare adres van Potel ontbreekt (App:BaseUrl), dus we kunnen geen link naar de factuur maken.";
@@ -74,7 +75,9 @@ public class InvoiceMailer(AppDb db, IEmailSender sender, IOptions<WorkflowLimit
         var text = MailTemplates.For(reminders, step, inv.IsCredit);
         if (!string.IsNullOrWhiteSpace(subject)) text = text with { Subject = subject };
         if (!string.IsNullOrWhiteSpace(body)) text = text with { Body = body };
-        return MailTemplates.Fill(text, inv, inv.Customer!, settings, clock.Today, link);
+        // Met de eigen Mollie van de werkruimte kan de klant ook met iDEAL betalen; dat staat dan in de betaalgegevens.
+        var online = InvoiceIdeal.Payable(inv, inv.Customer?.IsDemo == true) && await ideal.AvailableAsync(db, inv.WorkspaceId);
+        return MailTemplates.Fill(text, inv, inv.Customer!, settings, clock.Today, link, online);
     }
 
     // Mailt één stap. Automatisch gaat elke stap hooguit één keer: de controle en de unieke index op (factuur, stap) zorgen

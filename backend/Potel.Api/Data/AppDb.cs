@@ -14,6 +14,8 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
     public DbSet<Invoice> Invoices => Set<Invoice>();
     public DbSet<InvoiceLine> InvoiceLines => Set<InvoiceLine>();
     public DbSet<InvoicePayment> InvoicePayments => Set<InvoicePayment>();
+    public DbSet<MollieAccount> MollieAccounts => Set<MollieAccount>();
+    public DbSet<OnlinePayment> OnlinePayments => Set<OnlinePayment>();
     public DbSet<Appointment> Appointments => Set<Appointment>();
     public DbSet<CustomModule> CustomModules => Set<CustomModule>();
     public DbSet<CustomRecord> CustomRecords => Set<CustomRecord>();
@@ -58,6 +60,11 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         b.Entity<Invoice>().HasMany(i => i.Payments).WithOne().HasForeignKey(p => p.InvoiceId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<InvoicePayment>().HasIndex(p => p.MolliePaymentId).IsUnique().HasFilter("\"MolliePaymentId\" IS NOT NULL");
         b.Entity<InvoicePayment>().HasIndex(p => p.BankTransactionId).IsUnique().HasFilter("\"BankTransactionId\" IS NOT NULL");
+        // De eigen Mollie: één sleutel per werkruimte. Elke iDEAL-betaling staat er één keer, en hoort bij een factuur.
+        b.Entity<MollieAccount>().HasIndex(a => a.WorkspaceId).IsUnique();
+        b.Entity<OnlinePayment>().HasIndex(p => p.MollieId).IsUnique();
+        b.Entity<OnlinePayment>().HasIndex(p => p.ReturnTokenHash).IsUnique();
+        b.Entity<OnlinePayment>().HasOne<Invoice>().WithMany().HasForeignKey(p => p.InvoiceId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<Invoice>().OwnsOne(i => i.Seller);
         b.Entity<Invoice>().OwnsOne(i => i.Buyer);
         b.Entity<Invoice>().Property(i => i.VatRegime).HasDefaultValue(VatRegimes.Normal);
@@ -142,7 +149,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         Filter<InvoiceMail>(b); Filter<InvoiceLink>(b); Filter<ReminderSettings>(b); Filter<CustomerPortal>(b); Filter<PortalLink>(b);
         Filter<GitHubSettings>(b); Filter<GitHubAuthor>(b); Filter<GitHubCommit>(b);
         Filter<Quote>(b); Filter<QuoteLink>(b);
-        Filter<InvoicePayment>(b);
+        Filter<InvoicePayment>(b); Filter<MollieAccount>(b); Filter<OnlinePayment>(b);
     }
 
     void Filter<T>(ModelBuilder b) where T : class, IWorkspaceOwned

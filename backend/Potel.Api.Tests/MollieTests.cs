@@ -21,11 +21,18 @@ namespace Potel.Api.Tests;
 public class FakeMollie : HttpMessageHandler
 {
     public const string Key = "test_potelsleutel1234567890";
+    // Eigen Mollie-accounts van werkruimtes (iDEAL op facturen): sleutel met de betaalmethodes die aan staan. Een betaling
+    // hoort bij de sleutel die hem maakte; met een andere sleutel kent deze Mollie hem niet (404), net als de echte.
+    public readonly ConcurrentDictionary<string, string[]> Accounts = new();
+    readonly ConcurrentDictionary<string, string> owners = new();
+    public readonly ConcurrentQueue<string> Created = new();
+    // Zo lang duurt het maken van een betaling, om te zien wat er gebeurt als twee verzoeken tegelijk komen.
+    public TimeSpan Delay = TimeSpan.Zero;
     public readonly ConcurrentDictionary<string, JsonObject> Customers = new();
     public readonly ConcurrentDictionary<string, JsonObject> Payments = new();
     public readonly ConcurrentDictionary<string, JsonObject> Subscriptions = new();
     readonly ConcurrentDictionary<string, string> idempotency = new();
-    public readonly ConcurrentQueue<(string Method, string Path, JsonObject? Body)> Requests = new();
+    public readonly ConcurrentQueue<(string Method, string Path, JsonObject? Body, string? Key)> Requests = new();
     public string CheckoutHost = "www.mollie.com";
     public bool Down;
     int next;
@@ -41,12 +48,13 @@ public class FakeMollie : HttpMessageHandler
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage req, CancellationToken ct)
     {
         Assert.Equal("api.mollie.com", req.RequestUri!.Host);
-        if (req.Headers.Authorization?.ToString() != $"Bearer {Key}") return Error(HttpStatusCode.Unauthorized, "Missing authentication, or failed to authenticate");
+        var key = req.Headers.Authorization is { Scheme: "Bearer" } auth ? auth.Parameter : null;
+        if (key is null || (key != Key && !Accounts.ContainsKey(key))) return Error(HttpStatusCode.Unauthorized, "Missing authentication, or failed to authenticate");
         if (Down) return Error(HttpStatusCode.ServiceUnavailable, "Even niet");
         var body = req.Content is null ? null : JsonNode.Parse(await req.Content.ReadAsStringAsync(ct)) as JsonObject;
         var path = req.RequestUri.AbsolutePath;
         Assert.StartsWith("/v2/", path);
-        Requests.Enqueue((req.Method.Method, path, body));
+        Requests.Enqueue((req.Method.Method, path, body, key));
         var parts = path["/v2/".Length..].Split('/');
         var method = req.Method.Method;
 
@@ -68,16 +76,27 @@ public class FakeMollie : HttpMessageHandler
                 p["id"] = id;
                 p["status"] = "open";
                 p["createdAt"] = DateTimeOffset.UtcNow.ToString("O");
+                p["mode"] = key.StartsWith("live_") ? "live" : "test";
                 p["_links"] = new JsonObject { ["checkout"] = new JsonObject { ["href"] = $"https://{CheckoutHost}/checkout/select-issuer/ideal/{id}" } };
+                if (Delay > TimeSpan.Zero) await Task.Delay(Delay, ct);
+                owners[id] = key;
                 Payments[id] = p;
+                Created.Enqueue(id);
                 return Reply(HttpStatusCode.Created, p);
             }
             case ["payments", var id] when method == "GET":
-                return Payments.TryGetValue(id, out var found) ? Reply(HttpStatusCode.OK, found.DeepClone()) : Error(HttpStatusCode.NotFound, "No payment exists with token " + id);
+                return Payments.TryGetValue(id, out var found) && owners.GetValueOrDefault(id, Key) == key
+                    ? Reply(HttpStatusCode.OK, found.DeepClone()) : Error(HttpStatusCode.NotFound, "No payment exists with token " + id);
+            case ["methods"] when method == "GET":
+            {
+                var enabled = key == Key ? ["ideal", "directdebit"] : Accounts[key];
+                var list = new JsonArray(enabled.Select(m => (JsonNode)new JsonObject { ["resource"] = "method", ["id"] = m, ["description"] = m }).ToArray());
+                return Reply(HttpStatusCode.OK, new JsonObject { ["count"] = enabled.Length, ["_embedded"] = new JsonObject { ["methods"] = list } });
+            }
             case ["customers", var customer, "subscriptions"] when method == "POST":
             {
-                var key = req.Headers.TryGetValues("Idempotency-Key", out var keys) ? keys.Single() : null;
-                if (key is not null && idempotency.TryGetValue(key, out var existing)) return Reply(HttpStatusCode.Created, Subscriptions[existing].DeepClone());
+                var idemKey = req.Headers.TryGetValues("Idempotency-Key", out var keys) ? keys.Single() : null;
+                if (idemKey is not null && idempotency.TryGetValue(idemKey, out var existing)) return Reply(HttpStatusCode.Created, Subscriptions[existing].DeepClone());
                 if (!Customers.ContainsKey(customer)) return Error(HttpStatusCode.NotFound, "No customer");
                 var s = (JsonObject)body!.DeepClone();
                 var id = Next("sub_");
@@ -86,7 +105,7 @@ public class FakeMollie : HttpMessageHandler
                 s["status"] = "active";
                 s["customerId"] = customer;
                 Subscriptions[id] = s;
-                if (key is not null) idempotency[key] = id;
+                if (idemKey is not null) idempotency[idemKey] = id;
                 return Reply(HttpStatusCode.Created, s);
             }
             case ["customers", var customer, "subscriptions", var id] when method == "GET":

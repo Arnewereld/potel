@@ -7,6 +7,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Potel.Api.Data;
 using Potel.Api.Invoicing;
+using Potel.Api.Payments;
 
 namespace Potel.Api.Endpoints;
 
@@ -140,7 +141,7 @@ public static partial class CustomerPortalEndpoints
 
         // Het portaal zelf: zonder inloggen, alleen met het token uit de link. Alles wordt expliciet gefilterd op de werkruimte
         // en de klant van de link; de rest van de werkruimte komt er nooit in.
-        api.MapPost("/public/portal", async (AppDb db, BusinessClock clock, HttpResponse response, PublicPortalRequest req) =>
+        api.MapPost("/public/portal", async (AppDb db, BusinessClock clock, InvoiceIdeal ideal, HttpResponse response, PublicPortalRequest req) =>
         {
             InvoiceMailEndpoints.NoIndex(response);
             var gone = Results.NotFound(new { error = LinkGone });
@@ -219,12 +220,15 @@ public static partial class CustomerPortalEndpoints
                     .Where(i => i.WorkspaceId == ws && i.CustomerId == customer.Id && i.Status != InvoiceStatus.Draft)
                     .OrderByDescending(i => i.IssueDate).ThenByDescending(i => i.Id).Take(MaxInvoices).ToListAsync();
                 var links = await InvoiceLinksAsync(db, link, token, list.Where(i => !i.IsDemo).Select(i => i.Id).ToList(), now);
+                // Met iDEAL betalen kan via de link naar de factuur, als de freelancer zijn eigen Mollie heeft ingesteld.
+                var online = await ideal.AvailableAsync(db, ws);
                 invoices = list.Select(i => new
                 {
                     i.Number, i.IssueDate, i.DueDate,
                     status = i.Status == InvoiceStatus.Sent && !i.IsCredit && i.DueDate.Date < today ? InvoiceStatus.Overdue : i.Status,
                     i.IsCredit, total = i.Totals.Total, i.OpenAmount, i.FullyCredited, i.PaidAt,
                     link = links.TryGetValue(i.Id, out var t) ? $"{InvoiceMailer.LinkPath}#token={t}" : null,
+                    canPay = online && links.ContainsKey(i.Id) && InvoiceIdeal.Payable(i, customer.IsDemo),
                 }).ToList();
             }
 
