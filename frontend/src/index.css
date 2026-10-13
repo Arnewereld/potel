@@ -163,9 +163,10 @@ kbd {
 .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .grid-2-1 { grid-template-columns: 2fr 1fr; }
 .grid-1-1 { grid-template-columns: 1fr 1fr; }
-@media (max-width: 1200px) { .grid-4 { grid-template-columns: repeat(2, 1fr); } .grid-2-1, .grid-3 { grid-template-columns: 1fr; } }
+/* Onder de desktopbreedte mogen kolommen smaller worden dan hun inhoud: een brede tabel scrolt dan in zijn kaart, de pagina blijft passen. */
+@media (max-width: 1200px) { .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .grid-2-1, .grid-3 { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 800px) {
-  .grid-4, .grid-1-1 { grid-template-columns: 1fr; }
+  .grid-4, .grid-1-1 { grid-template-columns: minmax(0, 1fr); }
   .app { grid-template-columns: 64px 1fr; }
   .app .brand-name, .app .nav-item span:not(.nav-dot), .app .nav-label, .app .search-trigger span, .app .search-trigger kbd { display: none; }
   .content { padding: 18px 16px 30px; }
@@ -395,7 +396,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* ---------- Factuur ---------- */
 .invoice-layout { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
-@media (max-width: 1250px) { .invoice-layout { grid-template-columns: 1fr; } }
+@media (max-width: 1250px) { .invoice-layout { grid-template-columns: minmax(0, 1fr); } }
 .section-title { margin: 22px 0 10px; font-size: 13px; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.06em; }
 .status-picker { display: flex; gap: 6px; flex-wrap: wrap; }
 .status-picker .badge { border: 1px solid transparent; cursor: pointer; opacity: 0.55; padding: 6px 12px; }
@@ -671,7 +672,9 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .btn-success:hover { background: color-mix(in srgb, var(--green) 88%, #000); }
 a.btn { text-decoration: none; color: inherit; display: inline-flex; align-items: center; }
 .notice { background: color-mix(in srgb, var(--yellow) 14%, var(--panel)); border: 1px solid color-mix(in srgb, var(--yellow) 45%, transparent); border-radius: 12px; padding: 10px 14px; margin-bottom: 12px; font-size: 13px; }
-.input-with-chips { display: flex; gap: 6px; align-items: center; }
+.input-with-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+/* Past het veld met de knoppen niet op één regel, dan gaan de knoppen eronder. */
+.input-with-chips > input { flex: 1 1 130px; min-width: 0; }
 .chip { border: 1px solid var(--border); background: var(--panel-2); border-radius: 8px; padding: 0 8px; height: 36px; cursor: pointer; font-size: 12px; color: var(--text-2); flex: none; }
 .chip.active { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
 .toggle-row { height: 38px; gap: 10px; }
@@ -704,16 +707,22 @@ a.btn { text-decoration: none; color: inherit; display: inline-flex; align-items
 .public-invoice-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .public-invoice .invoice-paper { position: static; min-height: 0; }
 .public-invoice-foot { text-align: center; font-size: 12px; }
+/* Op een telefoon: het papier op de openbare pagina en het voorbeeld naast de factuur- en offerte-editor. */
 @media (max-width: 640px) {
   .public-invoice { padding: 16px 16px 32px; }
-  .public-invoice .invoice-paper { padding: 28px 16px 20px; font-size: 12px; }
-  .public-invoice .paper-parties { grid-template-columns: 1fr; gap: 14px; }
-  .public-invoice .paper-parties > div:last-child { text-align: left; }
-  .public-invoice .paper-table td.nowrap { white-space: normal; }
+  .public-invoice .invoice-paper, .invoice-layout .invoice-paper { padding: 28px 16px 20px; font-size: 12px; }
+  /* Naast de editor is er minder ruimte dan op de openbare pagina. */
+  .invoice-layout .invoice-paper { min-height: 0; padding-left: 12px; padding-right: 12px; font-size: 11px; }
+  .invoice-layout .paper-table th { letter-spacing: 0; font-size: 9px; }
+  .invoice-layout .paper-table th, .invoice-layout .paper-table td { padding-left: 2px; padding-right: 2px; }
+  .invoice-layout .paper-table td:first-child { overflow-wrap: anywhere; }
+  .public-invoice .paper-parties, .invoice-layout .paper-parties { grid-template-columns: 1fr; gap: 14px; }
+  .public-invoice .paper-parties > div:last-child, .invoice-layout .paper-parties > div:last-child { text-align: left; }
+  .public-invoice .paper-table td.nowrap, .invoice-layout .paper-table td.nowrap { white-space: normal; }
   .public-invoice .paper-table th, .public-invoice .paper-table td { padding-left: 3px; padding-right: 3px; }
-  .public-invoice .paper-head { flex-wrap: wrap; row-gap: 8px; }
-  .public-invoice .paper-doc { margin-left: auto; }
-  .public-invoice .hours-paper .paper-doc { font-size: 22px; }
+  .public-invoice .paper-head, .invoice-layout .paper-head { flex-wrap: wrap; row-gap: 8px; }
+  .public-invoice .paper-doc, .invoice-layout .paper-doc { margin-left: auto; }
+  .public-invoice .hours-paper .paper-doc, .invoice-layout .hours-paper .paper-doc { font-size: 22px; }
 }
 @media print {
   .public-invoice { padding: 0; background: #fff; min-height: 0; }
@@ -804,7 +813,7 @@ a.btn { text-decoration: none; color: inherit; display: inline-flex; align-items
 .quote-decide-form .check-row-top { margin-top: 0; }
 .quote-tile { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 6px; }
 .quote-tile-value { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
-.dash-stack { display: grid; gap: 16px; align-content: start; }
+.dash-stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-content: start; }
 @media (max-width: 640px) {
   .quote-decide-choices { grid-template-columns: 1fr; }
   .public-quote .quote-subject { font-size: 14px; }
@@ -1146,4 +1155,21 @@ a.btn { text-decoration: none; color: inherit; display: inline-flex; align-items
   .bank-proposal, .bank-actions, .bank-hint { margin-left: 0; }
   .bank-proposal { flex-wrap: wrap; }
   .bank-choice { max-width: 100%; width: 100%; }
+}
+
+/* Telefoon: formulieren in één kolom, een factuurregel over drie rijen (omschrijving; aantal, eenheid, tarief; btw, bedrag, knoppen)
+   en een staafgrafiek met twaalf maanden die in de kaart past. */
+@media (max-width: 640px) {
+  .form-grid { grid-template-columns: minmax(0, 1fr); }
+  /* Een vinkje met een uitleg erachter: de uitleg mag naar de volgende regel. Een vinkje met alleen een tekst blijft ernaast staan. */
+  .check-row:has(> .muted) { flex-wrap: wrap; }
+  .check-row > span { min-width: 0; overflow-wrap: break-word; }
+  .line { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .line-totals { flex-wrap: wrap; gap: 6px 16px; }
+  .open-hours-row { flex-wrap: wrap; }
+  .open-hours-row .truncate { white-space: normal; flex: 1 1 150px; }
+  .card-head { flex-wrap: wrap; }
+  .bars { gap: 4px; }
+  .bar-col { min-width: 0; }
+  .bar-label { font-size: 10px; }
 }

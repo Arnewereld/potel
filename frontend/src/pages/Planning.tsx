@@ -64,11 +64,14 @@ export function PlanningPage() {
           { id: 'lijst', label: 'Takenlijst', icon: <List size={14} />, count: appointments.filter(a => !a.done).length },
         ]} />
         {view === 'week' && (
-          <div className="row" style={{ marginBottom: 16 }}>
+          <div className="row wrap" style={{ marginBottom: 16 }}>
             <button className="btn btn-sm" onClick={() => setWeekStart(startOfWeek(new Date()))}>Vandaag</button>
-            <button className="icon-btn" onClick={() => shiftWeek(-1)} aria-label="Vorige week"><ChevronLeft size={18} /></button>
-            <strong style={{ minWidth: 170, textAlign: 'center' }}>{weekLabel}</strong>
-            <button className="icon-btn" onClick={() => shiftWeek(1)} aria-label="Volgende week"><ChevronRight size={18} /></button>
+            {/* De pijlen en de week blijven bij elkaar als het op een telefoon niet op één regel past. */}
+            <div className="row">
+              <button className="icon-btn" onClick={() => shiftWeek(-1)} aria-label="Vorige week"><ChevronLeft size={18} /></button>
+              <strong style={{ minWidth: 170, textAlign: 'center' }}>{weekLabel}</strong>
+              <button className="icon-btn" onClick={() => shiftWeek(1)} aria-label="Volgende week"><ChevronRight size={18} /></button>
+            </div>
           </div>
         )}
       </div>

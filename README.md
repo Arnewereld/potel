@@ -44,7 +44,7 @@ Potel is gebouwd om te verkopen: elke klant maakt zelf een account aan en krijgt
 | **Account** | Beheerders exporteren alle gegevens als JSON, met de bonnetjes erin, of verwijderen hun hele werkruimte. |
 | **Platform** | Alleen voor platformbeheerders (jij): alle werkruimtes, gebruik, proefperiodes, omzet per maand, abonnementen omzetten en andere platformbeheerders aanwijzen. |
 
-Verder: alles opent als **tabblad** bovenin (dubbelklik op een tabblad sluit de andere), **Ctrl K** om overal te zoeken, en een licht (standaard) en donker thema.
+Verder: alles opent als **tabblad** bovenin (dubbelklik op een tabblad sluit de andere), **Ctrl K** om overal te zoeken, en een licht (standaard) en donker thema. Potel werkt ook op een **telefoon**: formulieren, zoals die van facturen, offertes, kosten en ritten, staan dan in één kolom en de pagina schuift niet opzij.
 
 ## Starten
 

@@ -76,7 +76,7 @@ export function ProjectDetailPage() {
             {/^https?:\/\//i.test(project.repoUrl ?? '') && <a className="row" href={project.repoUrl!} target="_blank" rel="noreferrer"><GitBranch size={14} /> Repository</a>}
           </div>
         </div>
-        <div className="row">
+        <div className="row wrap">
           {project.billing === 'uur' && (
             <button className="btn btn-primary" disabled={project.minutesUnbilled === 0 && !trips?.trips} onClick={() => setInvoicing(true)}>
               <Receipt size={15} /> Factureer {project.minutesUnbilled > 0 || !trips?.trips ? hours(project.minutesUnbilled) : km(trips.kilometres)}
@@ -110,7 +110,7 @@ export function ProjectDetailPage() {
         <div className="card">
           <div className="card-head">
             <h3>Boekingen</h3>
-            <div className="row" style={{ gap: 8 }}>
+            <div className="row wrap" style={{ gap: 8 }}>
               {isGitHubRepo(project.repoUrl) && <button className="btn btn-sm" onClick={() => setSuggesting(true)}><GitCommitHorizontal size={14} /> Voorstellen uit GitHub</button>}
               <button className="btn btn-sm btn-primary" onClick={() => setEntry({})}><Plus size={14} /> Uren boeken</button>
             </div>

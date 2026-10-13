@@ -230,7 +230,7 @@ export function ExpenseForm({ expense, date, asInvestment, onClose, onSaved }: {
         {canInvest && (
           <label className="check-row field-full">
             <input type="checkbox" checked={form.investment} disabled={disposed} onChange={e => set('investment', e.target.checked)} />
-            <span>Dit is een investering</span>
+            <span className="nowrap">Dit is een investering</span>
             <span className="muted">· iets wat je een paar jaar gebruikt, zoals een laptop of bureau. Je schrijft het af in plaats van alles in één keer.</span>
           </label>
         )}
