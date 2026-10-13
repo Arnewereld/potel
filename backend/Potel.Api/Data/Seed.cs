@@ -79,6 +79,76 @@ public static class Seed
 
     public const string DemoNumberPrefix = "VOORBEELD-";
 
+    // Voorbeeldoffertes in elke stand: een concept, twee openstaande, een geaccepteerde (met project en aanbetaling), een
+    // afgewezen en een verlopen offerte. Ze hebben een eigen reeks (VOORBEELD-OFF-001), zodat je echte offertes bij 001 beginnen.
+    static void DemoQuotes(AppDb db, Settings settings, DateTime today, List<Customer> customers, Lead lisa, Lead eva, Lead daan, Lead julia,
+        Project app, Invoice depositInvoice)
+    {
+        static QuoteLine Line(int position, string description, decimal quantity, string unit, decimal price) =>
+            new() { Position = position, Description = description, Quantity = quantity, Unit = unit, UnitPrice = price, VatRate = 21 };
+        const string terms = "Prijzen zijn exclusief btw. Uren boven de schatting meld ik vooraf. Facturen betaal je binnen 14 dagen. "
+                             + "De broncode wordt jouw eigendom na betaling van de laatste factuur.";
+        DateTime Utc(DateTime day, int hour) => DateTime.SpecifyKind(day.AddHours(hour - 2), DateTimeKind.Utc);
+        var accepted = depositInvoice.IssueDate.AddDays(-5);
+
+        var quotes = new List<Quote>
+        {
+            new()
+            {
+                LeadId = lisa.Id, IssueDate = today, ValidUntil = today.AddDays(30), Subject = "Nieuwe website met headless CMS", DepositPercent = 30, Terms = terms,
+                Intro = "Naar aanleiding van ons gesprek stuur ik je graag een voorstel voor de nieuwe website van Visser Media.",
+                Lines = [Line(0, "Ontwerp omzetten naar componenten", 16, "uur", 95), Line(1, "Website bouwen in Next.js met headless CMS", 40, "uur", 95), Line(2, "Hosting en onderhoud, eerste jaar", 12, "maand", 25)],
+            },
+            new()
+            {
+                LeadId = julia.Id, IssueDate = today.AddDays(-48), ValidUntil = today.AddDays(-18), Status = QuoteStatus.Rejected,
+                Subject = "Onderhoud WordPress-website", Terms = terms, DecidedAt = Utc(today.AddDays(-41), 15),
+                RejectReason = "Dank je wel voor de offerte. Voor nu is het te veel voor ons budget; we doen het onderhoud voorlopig zelf.",
+                Lines = [Line(0, "Updates en beveiligingspatches", 12, "maand", 75), Line(1, "Kleine wijzigingen, strippenkaart", 10, "uur", 85)],
+            },
+            new()
+            {
+                LeadId = eva.Id, IssueDate = today.AddDays(-45), ValidUntil = today.AddDays(-15), Status = QuoteStatus.Sent, Subject = "API-koppeling met Moneybird", Terms = terms,
+                Intro = "Hierbij mijn voorstel voor de koppeling tussen jullie urenregistratie en Moneybird.",
+                Lines = [Line(0, "Analyse en technisch ontwerp", 6, "uur", 95), Line(1, "Koppeling bouwen en testen", 32, "uur", 95), Line(2, "Overdracht en documentatie", 4, "uur", 95)],
+            },
+            new()
+            {
+                CustomerId = customers[1].Id, IssueDate = accepted.AddDays(-9), ValidUntil = accepted.AddDays(21), Status = QuoteStatus.Accepted, Subject = "Planningsapp (React Native)",
+                DepositPercent = 50, Terms = terms, DecidedAt = Utc(accepted, 11), DecidedName = "Mark Jansen", DecidedIp = "192.0.2.24",
+                Intro = "Zoals besproken bouw ik de planningsapp voor jullie chauffeurs voor een vaste prijs, met offline modus en pushmeldingen.",
+                Lines = [Line(0, "Planningsapp voor Android en iOS, vaste prijs", 1, "stuk", 12500), Line(1, "Beheeromgeving voor de planners", 1, "stuk", 2000)],
+                ProjectId = app.Id, DepositInvoiceId = depositInvoice.Id,
+            },
+            new()
+            {
+                LeadId = daan.Id, IssueDate = today.AddDays(-12), ValidUntil = today.AddDays(2), Status = QuoteStatus.Sent, Subject = "Shopify-app op maat", DepositPercent = 25, Terms = terms,
+                Intro = "Hierbij mijn offerte voor de Shopify-app waarmee jullie winkels de voorraad onderling zien.",
+                Lines = [Line(0, "App bouwen met Shopify Admin API", 60, "uur", 95), Line(1, "Testen met jullie winkels en livegang", 12, "uur", 95), Line(2, "Licentie Shopify Partner-app, eerste jaar", 1, "jaar", 240)],
+            },
+            new()
+            {
+                CustomerId = customers[0].Id, IssueDate = today.AddDays(-5), ValidUntil = today.AddDays(25), Status = QuoteStatus.Sent, Subject = "Retourportaal voor de webshop", Terms = terms,
+                Intro = "Hierbij de offerte voor het retourportaal, gekoppeld aan Exact Online, zoals we vorige week bespraken.",
+                Lines = [Line(0, "Retourportaal bouwen", 28, "uur", 95), Line(1, "Koppeling met Exact Online uitbreiden", 8, "uur", 95)],
+            },
+        };
+        var n = 0;
+        foreach (var q in quotes.OrderBy(q => q.IssueDate))
+        {
+            q.IsDemo = true;
+            q.CreatedAt = DateTime.SpecifyKind(q.IssueDate, DateTimeKind.Utc);
+            if (q.Status == QuoteStatus.Draft) continue;
+            q.Number = $"{Endpoints.QuoteEndpoints.DemoNumberPrefix}{++n:000}";
+            q.SentAt = Utc(q.IssueDate, 10);
+            q.Seller = InvoiceParty.Seller(settings);
+            q.Buyer = q.CustomerId is { } customerId ? InvoiceParty.Buyer(customers.First(c => c.Id == customerId))
+                : Endpoints.QuoteEndpoints.BuyerOf(new[] { eva, daan, julia }.First(l => l.Id == q.LeadId));
+        }
+        db.Quotes.AddRange(quotes);
+        db.SaveChanges();
+    }
+
     // Vult de huidige werkruimte met voorbeelddata. Met sampleCompany ook voorbeeld-bedrijfsgegevens.
     // Alles krijgt IsDemo, zodat je het later in één keer weghaalt (WorkspaceEndpoints, voorbeelddata verwijderen).
     public static void Run(AppDb db, bool sampleCompany)
@@ -165,12 +235,13 @@ public static class Seed
             }, month.ToList()));
         }
         var start = today.AddMonths(-4);
-        invoices.Add((new Invoice
+        var depositInvoice = new Invoice
         {
             CustomerId = customers[1].Id, IssueDate = start, DueDate = start.AddDays(14), Status = InvoiceStatus.Paid, PaidAt = start.AddDays(6), Notes = Endpoints.SettingsEndpoints.DefaultNote,
             DeliveryFrom = start,
             Lines = [new InvoiceLine { Description = "Planningsapp: aanbetaling 50% bij start", Quantity = 1, UnitPrice = 7250 }],
-        }, []));
+        };
+        invoices.Add((depositInvoice, []));
 
         var n = 0;
         foreach (var (inv, linked) in invoices.OrderBy(x => x.Invoice.IssueDate))
@@ -233,14 +304,20 @@ public static class Seed
         Spend(new DateTime(today.Year, 9, 24), "Techorama NL", "Conferentieticket", ExpenseCategories.Training, 605m, 21);
         db.Expenses.AddRange(expenses);
 
+        var lisa = new Lead { IsDemo = true, Name = "Lisa Visser", Company = "Visser Media", Email = "lisa@vissermedia.nl", Value = 6500, Status = "nieuw", Source = "Website", Notes = "Nieuwe website met headless CMS" };
+        var eva = new Lead { IsDemo = true, Name = "Eva Smit", Company = "Smit Advies", Value = 4200, Status = "offerte", Source = "Doorverwijzing", Notes = "API-koppeling met Moneybird" };
+        var daan = new Lead { IsDemo = true, Name = "Daan Mulder", Company = "Mulder Retail", Email = "daan@mulderretail.nl", Value = 9800, Status = "offerte", Source = "Freelanceplatform", Notes = "Shopify-app op maat" };
+        var julia = new Lead { IsDemo = true, Name = "Julia Meijer", Company = "Meijer Design", Value = 1800, Status = "verloren", Source = "Koude acquisitie", Notes = "WordPress-onderhoud; te klein" };
         db.Leads.AddRange(
-            new Lead { IsDemo = true, Name = "Lisa Visser", Company = "Visser Media", Email = "lisa@vissermedia.nl", Value = 6500, Status = "nieuw", Source = "Website", Notes = "Nieuwe website met headless CMS" },
+            lisa,
             new Lead { IsDemo = true, Name = "Tom Hendriks", Company = "Hendriks Installatie", Value = 18000, Status = "contact", Source = "LinkedIn", Notes = "Klantportaal waar klanten storingen melden" },
-            new Lead { IsDemo = true, Name = "Eva Smit", Company = "Smit Advies", Value = 4200, Status = "offerte", Source = "Doorverwijzing", Notes = "API-koppeling met Moneybird" },
-            new Lead { IsDemo = true, Name = "Daan Mulder", Company = "Mulder Retail", Value = 9800, Status = "offerte", Source = "Freelanceplatform", Notes = "Shopify-app op maat" },
+            eva,
+            daan,
             new Lead { IsDemo = true, Name = "Noah de Boer", Company = "De Boer Transport", Value = 22000, Status = "gewonnen", Source = "Netwerk", Notes = "MVP ritplanner, start volgende maand" },
-            new Lead { IsDemo = true, Name = "Julia Meijer", Company = "Meijer Design", Value = 1800, Status = "verloren", Source = "Koude acquisitie", Notes = "WordPress-onderhoud; te klein" }
+            julia
         );
+        db.SaveChanges();
+        DemoQuotes(db, settings, today, customers, lisa, eva, daan, julia, projects[1], depositInvoice);
 
         DateTime At(int day, int hour) => today.AddDays(day).AddHours(hour);
         db.Appointments.AddRange(

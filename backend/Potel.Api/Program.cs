@@ -134,6 +134,7 @@ builder.Services.AddScoped<RecurringInvoiceService>();
 // Facturen en herinneringen mailen, met een openbare link naar de factuur. De planner stuurt de automatische herinneringen.
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<InvoiceMailer>();
+builder.Services.AddScoped<QuoteNotices>();
 builder.Services.AddScoped<ReminderService>();
 builder.Services.AddScoped<IWorkspaceJob, RecurringInvoiceJob>();
 builder.Services.AddScoped<IWorkspaceJob, ReminderJob>();
@@ -178,10 +179,11 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// De openbare factuurpagina en het klantportaal horen niet in zoekmachines en geven hun adres niet door aan andere sites.
+// De openbare factuur- en offertepagina en het klantportaal horen niet in zoekmachines en geven hun adres niet door aan andere sites.
 app.Use(async (http, next) =>
 {
-    if (http.Request.Path.StartsWithSegments(InvoiceMailer.LinkPath) || http.Request.Path.StartsWithSegments(CustomerPortalEndpoints.LinkPath))
+    if (http.Request.Path.StartsWithSegments(InvoiceMailer.LinkPath) || http.Request.Path.StartsWithSegments(CustomerPortalEndpoints.LinkPath)
+        || http.Request.Path.StartsWithSegments(QuoteEndpoints.LinkPath))
         InvoiceMailEndpoints.NoIndex(http.Response);
     await next();
 });
@@ -197,8 +199,8 @@ app.UseRateLimiter();
 // Na een verlopen proefperiode, of als een abonnement is afgelopen of niet betaald, kun je nog alles bekijken en exporteren,
 // maar niets meer wijzigen tot je (weer) een abonnement kiest. Wel mag je nog inloggen, je wachtwoord wijzigen of herstellen,
 // je e-mailadres bevestigen (alles onder /api/auth), betalen of opzeggen (/api/billing), gebruikers uitschakelen of
-// verwijderen, een link naar het klantportaal intrekken, het GitHub-token weghalen, de welkomstwizard sluiten en je werkruimte verwijderen.
-// Openbare pagina's (/api/public) werken gewoon.
+// verwijderen, een link naar het klantportaal intrekken, het GitHub-token weghalen, een offerte of de links ernaar intrekken,
+// de welkomstwizard sluiten en je werkruimte verwijderen. Openbare pagina's (/api/public) werken gewoon, ook akkoord op een offerte.
 // Al het andere is dicht, ook wat hier later bijkomt.
 static bool WritableAfterTrial(HttpRequest r)
 {
@@ -208,6 +210,7 @@ static bool WritableAfterTrial(HttpRequest r)
     if (r.Path.StartsWithSegments("/api/users", out var user) && user.HasValue && (HttpMethods.IsPut(r.Method) || HttpMethods.IsDelete(r.Method))) return true;
     if (CustomerPortalEndpoints.IsRevoke(r)) return true;
     if (GitHubEndpoints.IsRemoveToken(r)) return true;
+    if (QuoteEndpoints.IsSafetyAction(r)) return true;
     if (r.Path.StartsWithSegments("/api/workspace", out var rest))
         return (HttpMethods.IsDelete(r.Method) && (!rest.HasValue || rest == "/"))
                || (HttpMethods.IsPost(r.Method) && rest.Equals("/onboarded", StringComparison.OrdinalIgnoreCase));
@@ -244,6 +247,7 @@ api.MapLeads();
 api.MapInvoices();
 api.MapRecurringInvoices();
 api.MapInvoiceMail();
+api.MapQuotes();
 api.MapExpenses();
 api.MapTax();
 api.MapAppointments();

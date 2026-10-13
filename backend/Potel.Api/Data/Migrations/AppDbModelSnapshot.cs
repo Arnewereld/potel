@@ -958,6 +958,197 @@ namespace Potel.Api.Data.Migrations
                     b.ToTable("Projects");
                 });
 
+            modelBuilder.Entity("Potel.Api.Data.Quote", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("CustomerId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("DecidedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DecidedIp")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DecidedName")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("DepositInvoiceId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal?>("DepositPercent")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Intro")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("InvoiceId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsDemo")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("IssueDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("LeadId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("MailedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MailedTo")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Number")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("PreviousVersionId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("ProjectId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("RejectReason")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("SentAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Subject")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Terms")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("ValidUntil")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("VatRegime")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("WithdrawnAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("DepositInvoiceId");
+
+                    b.HasIndex("InvoiceId");
+
+                    b.HasIndex("LeadId");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.HasIndex("WorkspaceId", "Number")
+                        .IsUnique();
+
+                    b.ToTable("Quotes");
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.QuoteLine", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("Quantity")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("QuoteId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Unit")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("UnitPrice")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("VatRate")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("QuoteId");
+
+                    b.ToTable("QuoteLines");
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.QuoteLink", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastOpenedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Opens")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("QuoteId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("QuoteId");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.ToTable("QuoteLinks");
+                });
+
             modelBuilder.Entity("Potel.Api.Data.RecurringInvoice", b =>
                 {
                     b.Property<int>("Id")
@@ -1166,6 +1357,9 @@ namespace Potel.Api.Data.Migrations
 
                     b.Property<string>("Phone")
                         .HasColumnType("TEXT");
+
+                    b.Property<int>("QuoteValidDays")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("VatRegime")
                         .IsRequired()
@@ -1704,6 +1898,154 @@ namespace Potel.Api.Data.Migrations
                     b.Navigation("Customer");
                 });
 
+            modelBuilder.Entity("Potel.Api.Data.Quote", b =>
+                {
+                    b.HasOne("Potel.Api.Data.Customer", "Customer")
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Potel.Api.Data.Invoice", null)
+                        .WithMany()
+                        .HasForeignKey("DepositInvoiceId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Potel.Api.Data.Invoice", null)
+                        .WithMany()
+                        .HasForeignKey("InvoiceId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Potel.Api.Data.Lead", "Lead")
+                        .WithMany()
+                        .HasForeignKey("LeadId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Potel.Api.Data.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.OwnsOne("Potel.Api.Data.InvoiceParty", "Buyer", b1 =>
+                        {
+                            b1.Property<int>("QuoteId")
+                                .HasColumnType("INTEGER");
+
+                            b1.Property<string>("Address")
+                                .HasColumnType("TEXT");
+
+                            b1.Property<string>("City")
+                                .HasColumnType("TEXT");
+
+                            b1.Property<string>("Contact")
+                                .HasColumnType("TEXT");
+
+                            b1.Property<string>("Country")
+                                .HasColumnType("TEXT");
+
+                            b1.Property<string>("Email")
+                                .HasColumnType("TEXT");
+
+                            b1.Property<string>("Iban")
+                                .HasColumnType("TEXT");
+
+                            b1.Property<string>("Kvk")
+                                .HasColumnType("TEXT");
+
+                            b1.Property<string>("Name")
+                                .IsRequired()
+                                .HasColumnType("TEXT");
+
+                            b1.Property<string>("Phone")
+                                .HasColumnType("TEXT");
+
+                            b1.Property<string>("VatNumber")
+                                .HasColumnType("TEXT");
+
+                            b1.Property<string>("Website")
+                                .HasColumnType("TEXT");
+
+                            b1.HasKey("QuoteId");
+
+                            b1.ToTable("Quotes");
+
+                            b1.WithOwner()
+                                .HasForeignKey("QuoteId");
+                        });
+
+                    b.OwnsOne("Potel.Api.Data.InvoiceParty", "Seller", b1 =>
+                        {
+                            b1.Property<int>("QuoteId")
+                                .HasColumnType("INTEGER");
+
+                            b1.Property<string>("Address")
+                                .HasColumnType("TEXT");
+
+                            b1.Property<string>("City")
+                                .HasColumnType("TEXT");
+
+                            b1.Property<string>("Contact")
+                                .HasColumnType("TEXT");
+
+                            b1.Property<string>("Country")
+                                .HasColumnType("TEXT");
+
+                            b1.Property<string>("Email")
+                                .HasColumnType("TEXT");
+
+                            b1.Property<string>("Iban")
+                                .HasColumnType("TEXT");
+
+                            b1.Property<string>("Kvk")
+                                .HasColumnType("TEXT");
+
+                            b1.Property<string>("Name")
+                                .IsRequired()
+                                .HasColumnType("TEXT");
+
+                            b1.Property<string>("Phone")
+                                .HasColumnType("TEXT");
+
+                            b1.Property<string>("VatNumber")
+                                .HasColumnType("TEXT");
+
+                            b1.Property<string>("Website")
+                                .HasColumnType("TEXT");
+
+                            b1.HasKey("QuoteId");
+
+                            b1.ToTable("Quotes");
+
+                            b1.WithOwner()
+                                .HasForeignKey("QuoteId");
+                        });
+
+                    b.Navigation("Buyer");
+
+                    b.Navigation("Customer");
+
+                    b.Navigation("Lead");
+
+                    b.Navigation("Seller");
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.QuoteLine", b =>
+                {
+                    b.HasOne("Potel.Api.Data.Quote", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("QuoteId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.QuoteLink", b =>
+                {
+                    b.HasOne("Potel.Api.Data.Quote", null)
+                        .WithMany()
+                        .HasForeignKey("QuoteId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Potel.Api.Data.RecurringInvoice", b =>
                 {
                     b.HasOne("Potel.Api.Data.Customer", "Customer")
@@ -1747,6 +2089,11 @@ namespace Potel.Api.Data.Migrations
                 {
                     b.Navigation("Credits");
 
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.Quote", b =>
+                {
                     b.Navigation("Lines");
                 });
 

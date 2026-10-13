@@ -538,6 +538,108 @@ public class InvoiceLink : IWorkspaceOwned
     public int? PortalLinkId { get; set; }
 }
 
+// De status van een offerte. Verlopen staat nooit in de database: een verstuurde offerte is verlopen zodra de dag na
+// de geldigheidsdatum begint. Ingetrokken: de freelancer haalde hem terug (of verstuurde een nieuwe versie).
+public static class QuoteStatus
+{
+    public const string Draft = "concept";
+    public const string Sent = "verstuurd";
+    public const string Accepted = "geaccepteerd";
+    public const string Rejected = "afgewezen";
+    public const string Withdrawn = "ingetrokken";
+    public const string Expired = "verlopen";
+
+    // Wat de offerte op een dag is, met verlopen erbij.
+    public static string Of(Quote q, DateTime today) => q.Status == Sent && today > q.ValidUntil.Date ? Expired : q.Status;
+}
+
+// Een offerte aan een klant of een lead. Net als een factuur ligt hij vast zodra hij verstuurd is: dan krijgt hij een nummer
+// (OFF-2026-001) en leggen we de gegevens van beide partijen vast. Wil je iets veranderen, dan maak je een nieuwe versie.
+// De klant accepteert of wijst af via een geheime link; dat kan één keer, vóór het einde van de geldigheid en niet na intrekken.
+public class Quote : IWorkspaceOwned, IDemoData
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
+    public string? Number { get; set; }
+    // Voor een klant of voor een lead, nooit allebei. Wordt een lead klant (bij accepteren), dan komt de klant erbij.
+    public int? CustomerId { get; set; }
+    public Customer? Customer { get; set; }
+    public int? LeadId { get; set; }
+    public Lead? Lead { get; set; }
+    // Versie 2 en verder vervangen een eerdere offerte. Bewust zonder databasekoppeling, zodat oude versies los blijven staan.
+    public int Version { get; set; } = 1;
+    public int? PreviousVersionId { get; set; }
+    public DateTime IssueDate { get; set; } = DateTime.UtcNow.Date;
+    // De laatste dag waarop de klant kan accepteren (tot en met).
+    public DateTime ValidUntil { get; set; } = DateTime.UtcNow.Date.AddDays(30);
+    public string Status { get; set; } = QuoteStatus.Draft;
+    public string VatRegime { get; set; } = VatRegimes.Normal;
+    public string? Subject { get; set; }
+    public string? Intro { get; set; }
+    public string? Terms { get; set; }
+    // Een aanbetaling bij akkoord, als percentage van het totaal.
+    public decimal? DepositPercent { get; set; }
+    public DateTime? SentAt { get; set; }
+    // Het besluit van de klant: wanneer (UTC), met welke naam, vanaf welk IP-adres, en bij afwijzen eventueel waarom.
+    public DateTime? DecidedAt { get; set; }
+    public string? DecidedName { get; set; }
+    public string? DecidedIp { get; set; }
+    public string? RejectReason { get; set; }
+    public DateTime? WithdrawnAt { get; set; }
+    public DateTime? MailedAt { get; set; }
+    public string? MailedTo { get; set; }
+    public InvoiceParty? Seller { get; set; }
+    public InvoiceParty? Buyer { get; set; }
+    public List<QuoteLine> Lines { get; set; } = [];
+    // Wat er na akkoord van gemaakt is (nooit vanzelf): een project, een factuur voor de aanbetaling en een factuur voor het geheel.
+    public int? ProjectId { get; set; }
+    public int? DepositInvoiceId { get; set; }
+    public int? InvoiceId { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    [NotMapped] public InvoiceTotals Totals => Money.Totals(Lines.Select(l => l.AsInvoiceLine()));
+    [NotMapped] public bool Demo => IsDemo;
+    // Vult de API in: de status van vandaag (met verlopen), het nummer van de vorige versie en of er een nieuwere versie is.
+    [NotMapped] public string? State { get; set; }
+    [NotMapped] public string? PreviousNumber { get; set; }
+    [NotMapped] public int? NewerVersionId { get; set; }
+}
+
+// Een regel van een offerte, net als een factuurregel.
+public class QuoteLine
+{
+    public int Id { get; set; }
+    public int QuoteId { get; set; }
+    [JsonIgnore] public int Position { get; set; }
+    public string Description { get; set; } = "";
+    public decimal Quantity { get; set; } = 1;
+    public string Unit { get; set; } = "stuk";
+    public decimal UnitPrice { get; set; }
+    public decimal VatRate { get; set; } = 21;
+
+    // Om met dezelfde afronding als facturen te rekenen.
+    public InvoiceLine AsInvoiceLine() => new() { Description = Description, Quantity = Quantity, Unit = Unit, UnitPrice = UnitPrice, VatRate = VatRate };
+}
+
+// Een geheime link naar één verstuurde offerte, net als de factuurlink: alleen de SHA-256-hash van het token staat hier.
+// Hij werkt tot een jaar na de geldigheidsdatum, zodat je klant later nog kan zien wat hij accepteerde.
+public class QuoteLink : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int QuoteId { get; set; }
+    [JsonIgnore] public string TokenHash { get; set; } = "";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public string? CreatedBy { get; set; }
+    public DateTime ExpiresAt { get; set; }
+    public DateTime? RevokedAt { get; set; }
+    public DateTime? LastOpenedAt { get; set; }
+    public int Opens { get; set; }
+
+    public bool Works(DateTime utcNow) => RevokedAt is null && ExpiresAt > utcNow;
+}
+
 // Wat een klant in zijn portaal ziet. Hooguit één rij per klant; zonder rij gelden de standaardwaarden hieronder.
 public class CustomerPortal : IWorkspaceOwned
 {
@@ -702,6 +804,8 @@ public class Settings : IWorkspaceOwned
     public string? Iban { get; set; }
     public decimal DefaultHourlyRate { get; set; } = 95;
     public int PaymentTermDays { get; set; } = 14;
+    // Hoeveel dagen een nieuwe offerte geldig is.
+    public int QuoteValidDays { get; set; } = 30;
     // Standaard btw-regeling voor nieuwe facturen: normaal, KOR (kleineondernemersregeling) of vrijgesteld.
     public string VatRegime { get; set; } = VatRegimes.Normal;
     public int WeeklyHoursTarget { get; set; } = 32;

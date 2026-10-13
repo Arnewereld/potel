@@ -38,6 +38,9 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
     public DbSet<GitHubSettings> GitHubSettings => Set<GitHubSettings>();
     public DbSet<GitHubAuthor> GitHubAuthors => Set<GitHubAuthor>();
     public DbSet<GitHubCommit> GitHubCommits => Set<GitHubCommit>();
+    public DbSet<Quote> Quotes => Set<Quote>();
+    public DbSet<QuoteLine> QuoteLines => Set<QuoteLine>();
+    public DbSet<QuoteLink> QuoteLinks => Set<QuoteLink>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -106,6 +109,20 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         b.Entity<GitHubCommit>().HasOne<Project>().WithMany().HasForeignKey(c => c.ProjectId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<GitHubCommit>().HasOne<TimeEntry>().WithMany().HasForeignKey(c => c.TimeEntryId).OnDelete(DeleteBehavior.SetNull);
         b.Entity<GitHubCommit>().HasIndex(c => new { c.WorkspaceId, c.Sha }).IsUnique();
+        // Offertes: per werkruimte een eigen nummerreeks, de regels en links gaan mee als een concept weggaat. Een klant met
+        // offertes kan niet weg; een lead wel (de offerte houdt dan de vastgelegde gegevens). Een project of factuur die uit
+        // een offerte kwam, mag weg; de offerte wijst er dan niet meer naar.
+        b.Entity<Quote>().HasIndex(q => new { q.WorkspaceId, q.Number }).IsUnique();
+        b.Entity<Quote>().HasMany(q => q.Lines).WithOne().HasForeignKey(l => l.QuoteId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<Quote>().HasOne(q => q.Customer).WithMany().HasForeignKey(q => q.CustomerId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<Quote>().HasOne(q => q.Lead).WithMany().HasForeignKey(q => q.LeadId).OnDelete(DeleteBehavior.SetNull);
+        b.Entity<Quote>().HasOne<Project>().WithMany().HasForeignKey(q => q.ProjectId).OnDelete(DeleteBehavior.SetNull);
+        b.Entity<Quote>().HasOne<Invoice>().WithMany().HasForeignKey(q => q.DepositInvoiceId).OnDelete(DeleteBehavior.SetNull);
+        b.Entity<Quote>().HasOne<Invoice>().WithMany().HasForeignKey(q => q.InvoiceId).OnDelete(DeleteBehavior.SetNull);
+        b.Entity<Quote>().OwnsOne(q => q.Seller);
+        b.Entity<Quote>().OwnsOne(q => q.Buyer);
+        b.Entity<QuoteLink>().HasOne<Quote>().WithMany().HasForeignKey(l => l.QuoteId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<QuoteLink>().HasIndex(l => l.TokenHash).IsUnique();
         FilterByWorkspace(b);
     }
 
@@ -118,6 +135,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         Filter<Expense>(b); Filter<ExpenseReceipt>(b); Filter<RecurringInvoice>(b);
         Filter<InvoiceMail>(b); Filter<InvoiceLink>(b); Filter<ReminderSettings>(b); Filter<CustomerPortal>(b); Filter<PortalLink>(b);
         Filter<GitHubSettings>(b); Filter<GitHubAuthor>(b); Filter<GitHubCommit>(b);
+        Filter<Quote>(b); Filter<QuoteLink>(b);
     }
 
     void Filter<T>(ModelBuilder b) where T : class, IWorkspaceOwned

@@ -2,13 +2,13 @@ import { useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Euro, Clock, Target, Activity, CalendarDays, TrendingUp, Plus, LayoutDashboard, AlertTriangle, Timer, Hourglass, Landmark,
-  Award, FolderKanban,
+  Award, FolderKanban, FileSignature,
 } from 'lucide-react'
 import { useApi } from '../lib/useApi'
 import { useOnTimeChanged } from '../lib/timer'
 import type { Dashboard } from '../lib/types'
 import { euro, date, dateTime, hm, hours, relative, toDateInput } from '../lib/format'
-import { kindColor, leadStatuses } from '../lib/status'
+import { kindColor, leadStatuses, quoteStatuses } from '../lib/status'
 import { ErrorBox, Loading, PageHeader } from '../components/ui'
 
 const monthName = (m: string) => new Date(`${m}-01T00:00:00`).toLocaleDateString('nl-NL', { month: 'short' })
@@ -120,6 +120,7 @@ export function DashboardPage() {
           </div>
         </div>
 
+        <div className="dash-stack">
         <div className="card">
           <div className="card-head"><h3><Target size={16} /> Leads per fase</h3><button className="btn btn-sm btn-ghost" onClick={() => navigate('/leads')}>Bekijk</button></div>
           <div className="card-body">
@@ -143,6 +144,8 @@ export function DashboardPage() {
               })}
             </div>
           </div>
+        </div>
+        <QuotesCard quotes={data.quotes} onOpen={navigate} />
         </div>
       </div>
 
@@ -209,6 +212,48 @@ function Stat({ icon, label, value, sub, accent, onClick }: { icon: React.ReactN
         <div className="stat-label">{label}</div>
         <div className="stat-value">{value}</div>
         <div className="stat-sub">{sub}</div>
+      </div>
+    </div>
+  )
+}
+
+const toneColor: Record<string, string> = { green: 'var(--green)', red: 'var(--red)', blue: 'var(--blue)', yellow: 'var(--yellow)', gray: 'var(--muted)' }
+
+// Openstaande offertes en hoeveel er geaccepteerd worden, met de laatste besluiten van klanten.
+function QuotesCard({ quotes, onOpen }: { quotes: Dashboard['quotes']; onOpen: (path: string) => void }) {
+  return (
+    <div className="card">
+      <div className="card-head"><h3><FileSignature size={16} /> Offertes</h3><button className="btn btn-sm btn-ghost" onClick={() => onOpen('/offertes')}>Bekijk</button></div>
+      <div className="card-body">
+        <div className="quote-tile">
+          <div>
+            <div className="stat-label">Openstaand</div>
+            <div className="quote-tile-value">{euro(quotes.openValue)}</div>
+            <div className="cell-sub">{quotes.open === 1 ? '1 offerte' : `${quotes.open} offertes`}{quotes.expiringSoon > 0 ? `, ${quotes.expiringSoon} verloopt binnen 7 dagen` : ''}</div>
+          </div>
+          <div>
+            <div className="stat-label">Geaccepteerd</div>
+            <div className="quote-tile-value">{quotes.acceptanceRate === null ? '–' : `${quotes.acceptanceRate}%`}</div>
+            <div className="cell-sub">{quotes.decided ? `${quotes.accepted} van ${quotes.decided}, afgelopen 12 maanden` : 'Nog geen besluiten'}</div>
+          </div>
+        </div>
+        {quotes.recent.length > 0 && (
+          <div className="list">
+            {quotes.recent.map(q => {
+              const info = quoteStatuses.find(s => s.id === q.status)
+              return (
+                <div key={q.id} className="list-item clickable" onClick={() => onOpen(`/offertes/${q.id}`)}>
+                  <span className="legend-dot" style={{ background: toneColor[info?.tone ?? 'gray'] }} />
+                  <div className="grow">
+                    <div className="truncate">{q.number} · {q.buyer ?? 'Onbekend'}</div>
+                    <div className="cell-sub">{info?.label.toLowerCase()}{q.decidedName ? ` door ${q.decidedName}` : ''} · {relative(q.decidedAt)}</div>
+                  </div>
+                  <strong>{euro(q.subtotal)}</strong>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )

@@ -57,6 +57,7 @@ public static partial class SettingsEndpoints
             if (string.IsNullOrWhiteSpace(input.CompanyName)) return Results.BadRequest(new { error = "Bedrijfsnaam is verplicht" });
             if (input.DefaultHourlyRate < 0 || input.PaymentTermDays < 0 || input.WeeklyHoursTarget < 0 || input.YearlyHoursTarget < 0)
                 return Results.BadRequest(new { error = "Getallen kunnen niet negatief zijn" });
+            if (input.QuoteValidDays is < 1 or > 365) return Results.BadRequest(new { error = "Een offerte is standaard 1 tot 365 dagen geldig." });
             var logo = string.IsNullOrWhiteSpace(input.LogoDataUrl) ? null : input.LogoDataUrl.Trim();
             if (logo is not null && CheckLogo(logo) is { } logoError) return Results.BadRequest(new { error = logoError });
             var color = string.IsNullOrWhiteSpace(input.BrandColor) ? null : input.BrandColor.Trim();
@@ -66,7 +67,7 @@ public static partial class SettingsEndpoints
             s.CompanyName = input.CompanyName.Trim(); s.OwnerName = input.OwnerName; s.Address = input.Address; s.City = input.City;
             s.Email = input.Email; s.Phone = input.Phone; s.Website = input.Website; s.Kvk = input.Kvk; s.Btw = InvoiceParty.NormalizeVatId(input.Btw); s.Iban = input.Iban;
             s.DefaultHourlyRate = input.DefaultHourlyRate; s.PaymentTermDays = input.PaymentTermDays; s.VatRegime = input.VatRegime;
-            s.WeeklyHoursTarget = input.WeeklyHoursTarget; s.YearlyHoursTarget = input.YearlyHoursTarget;
+            s.WeeklyHoursTarget = input.WeeklyHoursTarget; s.YearlyHoursTarget = input.YearlyHoursTarget; s.QuoteValidDays = input.QuoteValidDays;
             s.LogoDataUrl = logo;
             if (color is not null) s.BrandColor = color.ToLower();
             db.Log("systeem", "Bedrijfsgegevens bijgewerkt");

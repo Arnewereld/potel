@@ -12,6 +12,7 @@ import { PublicSite } from './pages/public/PublicSite'
 import { ResetPasswordPage, VerifyEmailPage } from './pages/public/AccountLinks'
 import { ProcessorAgreementPage, PrivacyPage, TermsPage } from './pages/public/Legal'
 import { PublicInvoicePage } from './pages/public/PublicInvoice'
+import { PublicQuotePage } from './pages/public/PublicQuote'
 import { PortalPage } from './pages/public/Portal'
 import { UsersPage } from './pages/Users'
 import { DashboardPage } from './pages/Dashboard'
@@ -20,6 +21,8 @@ import { CustomerDetailPage } from './pages/CustomerDetail'
 import { LeadsPage } from './pages/Leads'
 import { InvoicesPage } from './pages/Invoices'
 import { InvoiceEditorPage } from './pages/InvoiceEditor'
+import { QuotesPage } from './pages/Quotes'
+import { QuoteEditorPage } from './pages/QuoteEditor'
 import { RecurringEditorPage } from './pages/RecurringInvoices'
 import { ExpensesPage } from './pages/Expenses'
 import { VatReturnPage } from './pages/VatReturn'
@@ -44,6 +47,8 @@ const standalone: Record<string, () => React.ReactNode> = {
   '/verwerkersovereenkomst': ProcessorAgreementPage,
   // De factuur achter de link in een mail aan een klant.
   '/factuur': PublicInvoicePage,
+  // De offerte achter de link, waar de klant hem ook accepteert of afwijst.
+  '/offerte': PublicQuotePage,
   // Het klantportaal achter de geheime link per klant.
   '/portaal': PortalPage,
 }
@@ -87,6 +92,8 @@ function AppRoutes({ location }: { location: string }) {
       <Route path="/klanten" element={<CustomersPage />} />
       <Route path="/klanten/:id" element={<CustomerDetailPage />} />
       <Route path="/leads" element={<LeadsPage />} />
+      <Route path="/offertes" element={<QuotesPage />} />
+      <Route path="/offertes/:id" element={<QuoteEditorPage />} />
       <Route path="/facturen" element={<InvoicesPage />} />
       <Route path="/facturen/:id" element={<InvoiceEditorPage />} />
       <Route path="/facturen/terugkerend/:id" element={<RecurringEditorPage />} />

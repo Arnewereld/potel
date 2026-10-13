@@ -39,6 +39,13 @@ public static class DashboardEndpoints
             var paidIds = invoices.Where(i => i.Status == InvoiceStatus.Paid).Select(i => i.Id).ToHashSet();
             var received = invoices.Where(i => i.Status == InvoiceStatus.Paid && (i.CreditForInvoiceId is not { } original || paidIds.Contains(original))).ToList();
 
+            // Offertes: wat er openstaat en hoeveel van de offertes van de afgelopen 12 maanden geaccepteerd zijn. Ingetrokken
+            // offertes tellen niet mee in dat percentage; daar heeft je klant niet over besloten.
+            var quotes = await db.Quotes.Include(q => q.Lines).AsSplitQuery().AsNoTracking().Where(q => q.Status != QuoteStatus.Draft).ToListAsync();
+            var openQuotes = quotes.Where(q => QuoteStatus.Of(q, today) == QuoteStatus.Sent).ToList();
+            var decided = quotes.Where(q => q.IssueDate >= today.AddMonths(-12)).Select(q => QuoteStatus.Of(q, today))
+                .Where(s => s is QuoteStatus.Accepted or QuoteStatus.Rejected or QuoteStatus.Expired).ToList();
+
             return new
             {
                 customers = await db.Customers.CountAsync(),
@@ -66,6 +73,18 @@ public static class DashboardEndpoints
                     byDay = Enumerable.Range(0, 7).Select(d => weekStart.AddDays(d)).Select(d => new { date = d.ToString("yyyy-MM-dd"), minutes = week.Where(t => t.Date == d).Sum(t => t.Minutes) }),
                 },
                 unbilled = new { minutes = unbilledMinutes, value = projects.Sum(p => p.UnbilledValue) },
+                quotes = new
+                {
+                    open = openQuotes.Count,
+                    // Zonder btw, zoals de waarde van leads.
+                    openValue = openQuotes.Sum(q => q.Totals.Subtotal),
+                    expiringSoon = openQuotes.Count(q => q.ValidUntil.Date <= today.AddDays(7)),
+                    accepted = decided.Count(s => s == QuoteStatus.Accepted),
+                    decided = decided.Count,
+                    acceptanceRate = decided.Count == 0 ? (int?)null : (int)Math.Round(100m * decided.Count(s => s == QuoteStatus.Accepted) / decided.Count, MidpointRounding.AwayFromZero),
+                    recent = quotes.Where(q => q.DecidedAt != null).OrderByDescending(q => q.DecidedAt).Take(3)
+                        .Select(q => new { q.Id, q.Number, q.Status, q.DecidedAt, q.DecidedName, buyer = q.Buyer?.Name, subtotal = q.Totals.Subtotal }),
+                },
                 vat = new
                 {
                     label = vatReturn.Label,
@@ -99,7 +118,13 @@ public static class DashboardEndpoints
             var projects = await db.Projects.Include(p => p.Customer)
                 .Where(p => p.Name.ToLower().Contains(q) || (p.Customer!.Company ?? p.Customer!.Name).ToLower().Contains(q))
                 .Take(5).Select(p => new { type = "project", id = p.Id, title = p.Name, subtitle = (string?)(p.Customer!.Company ?? p.Customer!.Name) }).ToListAsync();
-            return Results.Ok(projects.Concat(customers).Concat(leads).Concat(invoices));
+            var quotes = await db.Quotes
+                .Where(x => (x.Number ?? "").ToLower().Contains(q) || (x.Subject ?? "").ToLower().Contains(q)
+                            || (x.Customer != null && (x.Customer.Company ?? x.Customer.Name).ToLower().Contains(q))
+                            || (x.Lead != null && (x.Lead.Company ?? x.Lead.Name).ToLower().Contains(q)))
+                .OrderByDescending(x => x.Id).Take(5)
+                .Select(x => new { type = "offerte", id = x.Id, title = x.Number ?? "Conceptofferte", subtitle = x.Customer != null ? (x.Customer.Company ?? x.Customer.Name) : x.Lead != null ? (x.Lead.Company ?? x.Lead.Name) : null }).ToListAsync();
+            return Results.Ok(projects.Concat(customers).Concat(leads).Concat(invoices).Concat(quotes));
         });
     }
 }

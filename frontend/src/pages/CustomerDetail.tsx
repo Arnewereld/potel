@@ -170,7 +170,13 @@ export function CustomerDetailPage() {
           )}
         </div>
         <div className="card">
-          <div className="card-head"><h3>Facturen</h3><button className="btn btn-sm btn-primary" onClick={() => navigate(`/facturen/nieuw?klant=${customer.id}`)}><Plus size={14} /> Factuur</button></div>
+          <div className="card-head">
+            <h3>Facturen</h3>
+            <div className="row" style={{ gap: 6 }}>
+              <button className="btn btn-sm" onClick={() => navigate(`/offertes/nieuw?klant=${customer.id}`)}><Plus size={14} /> Offerte</button>
+              <button className="btn btn-sm btn-primary" onClick={() => navigate(`/facturen/nieuw?klant=${customer.id}`)}><Plus size={14} /> Factuur</button>
+            </div>
+          </div>
           {mine.length === 0 ? <Empty icon={<Receipt size={22} />} title="Nog geen facturen" /> : (
             <div className="table-wrap" style={{ marginTop: 10 }}>
               <table>

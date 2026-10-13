@@ -1,4 +1,4 @@
-import { Zap, Mail, ListTodo, Tag, Clock, GitBranch, Receipt, Globe, CalendarClock, MousePointerClick, UserPlus, BadgeEuro, Users, AlarmClock, type LucideIcon } from 'lucide-react'
+import { Zap, Mail, ListTodo, Tag, Clock, GitBranch, Receipt, Globe, CalendarClock, MousePointerClick, UserPlus, BadgeEuro, Users, AlarmClock, FileSignature, type LucideIcon } from 'lucide-react'
 
 export interface NodeField {
   key: string
@@ -31,6 +31,7 @@ export const nodeTypes: NodeType[] = [
   { type: 'trigger.customer', label: 'Nieuwe klant', group: 'Triggers', color: '#ff6d5a', icon: Users, description: 'Als er een klant wordt toegevoegd' },
   { type: 'trigger.paid', label: 'Factuur betaald', group: 'Triggers', color: '#ff6d5a', icon: BadgeEuro, description: 'Als een factuur op betaald gaat' },
   { type: 'trigger.overdue', label: 'Factuur te laat', group: 'Triggers', color: '#ff6d5a', icon: AlarmClock, description: 'Als de vervaldatum van een factuur voorbij is' },
+  { type: 'trigger.quoteAccepted', label: 'Offerte geaccepteerd', group: 'Triggers', color: '#ff6d5a', icon: FileSignature, description: 'Als een klant een offerte accepteert via de link' },
   {
     type: 'trigger.schedule', label: 'Schema', group: 'Triggers', color: '#ff6d5a', icon: CalendarClock, description: 'Elk uur, elke dag of elke week',
     fields: [
@@ -88,6 +89,7 @@ export const nodeTypes: NodeType[] = [
     fields: [
       { key: 'field', label: 'Veld', type: 'select', default: 'lead.value', options: [
         'lead.value', 'lead.status', 'lead.source', 'lead.email', 'lead.company', 'customer.city', 'customer.email', 'invoice.total', 'invoice.open', 'invoice.status',
+        'quote.subtotal', 'quote.total', 'quote.subject',
       ].map(v => ({ value: v, label: v })) },
       { key: 'operator', label: 'Is', type: 'select', default: '>', options: [
         { value: '>', label: 'groter dan' }, { value: '>=', label: 'groter of gelijk' }, { value: '<', label: 'kleiner dan' }, { value: '<=', label: 'kleiner of gelijk' },
@@ -118,4 +120,5 @@ export const variables = [
   'lead.name', 'lead.company', 'lead.email', 'lead.phone', 'lead.value', 'lead.status', 'lead.source',
   'customer.name', 'customer.company', 'customer.email', 'customer.city',
   'invoice.number', 'invoice.total', 'invoice.open', 'invoice.status', 'invoice.dueDate',
+  'quote.number', 'quote.subject', 'quote.subtotal', 'quote.total', 'quote.deposit', 'quote.acceptedBy', 'quote.validUntil',
 ]

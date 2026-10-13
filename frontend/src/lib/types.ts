@@ -208,6 +208,61 @@ export interface PublicInvoice {
   hours?: HourSpec | null
 }
 
+// Een offerte: dezelfde regels als een factuur, voor een klant of een lead. Verlopen is geen opgeslagen status maar volgt
+// uit de geldigheidsdatum (state). Ingetrokken zet je zelf, of komt door een nieuwe versie.
+export type QuoteStatus = 'concept' | 'verstuurd' | 'geaccepteerd' | 'afgewezen' | 'ingetrokken'
+export type QuoteState = QuoteStatus | 'verlopen'
+
+export interface Quote {
+  id: number
+  number: string | null
+  customerId: number | null
+  customer?: Customer | null
+  leadId: number | null
+  lead?: Lead | null
+  version: number
+  previousVersionId?: number | null
+  previousNumber?: string | null
+  newerVersionId?: number | null
+  issueDate: string
+  validUntil: string
+  status: QuoteStatus
+  state?: QuoteState
+  vatRegime: VatRegime
+  subject?: string | null
+  intro?: string | null
+  terms?: string | null
+  depositPercent?: number | null
+  sentAt?: string | null
+  decidedAt?: string | null
+  decidedName?: string | null
+  decidedIp?: string | null
+  rejectReason?: string | null
+  withdrawnAt?: string | null
+  mailedAt?: string | null
+  mailedTo?: string | null
+  seller?: InvoiceParty | null
+  buyer?: InvoiceParty | null
+  lines: InvoiceLine[]
+  totals?: InvoiceTotals
+  projectId?: number | null
+  depositInvoiceId?: number | null
+  invoiceId?: number | null
+  demo?: boolean
+  createdAt?: string
+}
+
+export interface QuoteLinks { active: number; lastOpenedAt?: string | null; opens: number; mailedAt?: string | null; mailedTo?: string | null }
+export interface QuoteMailPreview { to?: string | null; subject: string; body: string; problem?: string | null }
+
+// Wat de openbare offertepagina krijgt: alleen wat op de offerte staat, of de klant nog kan besluiten, plus logo en kleur.
+export interface PublicQuote {
+  quote: Omit<Quote, 'id' | 'customerId' | 'leadId' | 'status'> & { state: QuoteState; newerNumber?: string | null; newerVersion?: number | null }
+  canDecide: boolean
+  problem?: string | null
+  brand: { logoDataUrl?: string | null; brandColor: string }
+}
+
 export interface RecurringPreview { periods: RecurringPeriod[]; dueNow: number; lines: string[]; error?: string | null }
 
 export interface Appointment {
@@ -354,6 +409,8 @@ export interface Settings {
   brandColor?: string
   // Standaard btw-regeling voor nieuwe facturen: normaal, KOR of vrijgesteld.
   vatRegime?: VatRegime
+  // Zoveel dagen is een nieuwe offerte geldig.
+  quoteValidDays?: number
 }
 
 export interface Workspace {
@@ -399,6 +456,16 @@ export interface Dashboard {
     byDay: { date: string; minutes: number }[]
   }
   unbilled: { minutes: number; value: number }
+  // Openstaande offertes (bedrag zonder btw) en hoeveel van de offertes van het afgelopen jaar geaccepteerd zijn.
+  quotes: {
+    open: number
+    openValue: number
+    expiringSoon: number
+    accepted: number
+    decided: number
+    acceptanceRate: number | null
+    recent: { id: number; number: string | null; status: QuoteStatus; decidedAt: string; decidedName?: string | null; buyer?: string | null; subtotal: number }[]
+  }
   // De btw-aangifte van dit kwartaal: positief is te betalen, negatief terug te vragen. Met de KOR is er geen datum.
   vat: { label: string; year: number; quarter: number; amount: number; revenue: number; dueDate: string | null; kor: boolean }
   projects: Project[]

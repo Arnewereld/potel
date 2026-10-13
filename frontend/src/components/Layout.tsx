@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
-  LayoutDashboard, CalendarDays, Users, Target, Receipt, Workflow, Blocks, X, Search,
+  LayoutDashboard, CalendarDays, Users, Target, Receipt, Workflow, Blocks, X, Search, FileSignature,
   ChevronsLeft, ChevronsRight, Moon, Sun, Plus, ShieldCheck, LogOut, KeyRound, Timer, FolderKanban, Settings, Square, Crown, Wallet, Landmark, CalendarRange,
 } from 'lucide-react'
 import { clock, useTimer } from '../lib/timer'
@@ -27,6 +27,7 @@ const nav = [
   { to: '/planning', label: 'Planning', icon: CalendarDays, group: 'Werk' },
   { to: '/klanten', label: 'Klanten', icon: Users, group: 'Klanten en sales' },
   { to: '/leads', label: 'Leads', icon: Target, group: 'Klanten en sales' },
+  { to: '/offertes', label: 'Offertes', icon: FileSignature, group: 'Klanten en sales' },
   { to: '/btw-aangifte', label: 'Btw-aangifte', icon: Landmark, group: 'Belasting' },
   { to: '/jaaroverzicht', label: 'Jaaroverzicht', icon: CalendarRange, group: 'Belasting' },
   { to: '/werkstromen', label: 'Werkstromen', icon: Workflow, group: 'Systeem' },

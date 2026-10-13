@@ -777,6 +777,41 @@ a.btn { text-decoration: none; color: inherit; display: inline-flex; align-items
 .hours-fold-toggle { display: inline-flex; align-items: center; gap: 8px; background: none; border: 0; padding: 0; font: inherit; font-weight: 600; color: var(--text); cursor: pointer; }
 .hours-folded { display: none; }
 
+/* ---------- Offertes ---------- */
+/* Een offerte met inleiding en voorwaarden is vaak langer dan het scherm; dan scrolt hij gewoon mee. */
+.invoice-papers:has(.quote-paper) { position: static; }
+.quote-subject { font-size: 16px; font-weight: 700; margin: 0 0 8px; color: var(--ink); }
+.quote-text { margin: 0 0 18px; white-space: pre-wrap; }
+.quote-terms-label { margin-top: 22px; }
+.quote-terms { color: var(--soft); margin: 0; }
+.quote-accept { margin-top: 22px; padding: 12px 16px; border-radius: 10px; border: 1px dashed #d6d6e2; background: #fafafc; }
+.paper-stamp-muted { border-color: #a0a0b4; color: #a0a0b4; }
+.quote-decision { margin-bottom: 12px; }
+.quote-decision .section-title { display: flex; align-items: center; gap: 8px; }
+.quote-decision-ok { border-color: color-mix(in srgb, var(--green) 45%, var(--border)); }
+.quote-decision-ok .section-title { color: var(--green); }
+.quote-decision-no { border-color: color-mix(in srgb, var(--red) 35%, var(--border)); }
+.quote-reason { margin: 10px 0 0; padding: 8px 12px; border-left: 3px solid var(--border); color: var(--text-2); white-space: pre-wrap; font-size: 13px; }
+.notice-ok { background: color-mix(in srgb, var(--green) 14%, var(--panel)); border-color: color-mix(in srgb, var(--green) 45%, transparent); }
+.quote-decide h3 { font-size: 17px; }
+.quote-decide-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.quote-choice { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 14px; border-radius: 12px; border: 1.5px solid var(--border); background: var(--panel-2); font: inherit; font-weight: 600; color: var(--text); cursor: pointer; }
+.quote-choice:hover { border-color: var(--primary); }
+.quote-choice.active.ok { border-color: var(--green); background: color-mix(in srgb, var(--green) 12%, var(--panel)); }
+.quote-choice.active.no { border-color: var(--red); background: color-mix(in srgb, var(--red) 10%, var(--panel)); }
+.quote-decide-form { display: grid; gap: 12px; margin-top: 16px; }
+.quote-decide-form .check-row-top { margin-top: 0; }
+.quote-tile { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 6px; }
+.quote-tile-value { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+.dash-stack { display: grid; gap: 16px; align-content: start; }
+@media (max-width: 640px) {
+  .quote-decide-choices { grid-template-columns: 1fr; }
+  .public-quote .quote-subject { font-size: 14px; }
+}
+@media print {
+  .quote-accept { break-inside: avoid; }
+}
+
 @page { size: A4; margin: 14mm; }
 @media print {
   .sidebar, .tabbar, .no-print, .toasts, .modal-backdrop { display: none !important; }

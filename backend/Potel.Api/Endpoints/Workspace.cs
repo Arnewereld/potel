@@ -158,9 +158,11 @@ public static partial class WorkspaceEndpoints
             await using var tx = await WriteLock.BeginAsync(db);
             // Voorbeelduren die je zelf op een echte factuur zette, blijven staan; die factuur moet blijven kloppen.
             db.TimeEntries.RemoveRange(db.TimeEntries.Where(t => t.IsDemo && (t.InvoiceId == null || db.Invoices.Any(i => i.Id == t.InvoiceId && i.IsDemo))));
+            // Voorbeeldoffertes gaan weg, met hun regels en links. Een voorbeeldlead met een eigen offerte van jou blijft staan.
+            db.Quotes.RemoveRange(db.Quotes.Where(q => q.IsDemo));
             db.Invoices.RemoveRange(db.Invoices.Where(i => i.IsDemo && !i.Credits.Any()));
             db.RecurringInvoices.RemoveRange(db.RecurringInvoices.Where(r => r.IsDemo));
-            db.Leads.RemoveRange(db.Leads.Where(l => l.IsDemo));
+            db.Leads.RemoveRange(db.Leads.Where(l => l.IsDemo && !db.Quotes.Any(q => q.LeadId == l.Id && !q.IsDemo)));
             db.Appointments.RemoveRange(db.Appointments.Where(a => a.IsDemo));
             db.CustomRecords.RemoveRange(db.CustomRecords.Where(r => r.IsDemo));
             var workflows = await db.Workflows.Where(w => w.IsDemo).Select(w => w.Id).ToListAsync();
@@ -175,7 +177,7 @@ public static partial class WorkspaceEndpoints
             await db.SaveChangesAsync();
             var customers = await db.Customers
                 .Where(c => c.IsDemo && !db.Invoices.Any(i => i.CustomerId == c.Id) && !db.Projects.Any(p => p.CustomerId == c.Id) && !db.Expenses.Any(e => e.CustomerId == c.Id)
-                            && !db.RecurringInvoices.Any(r => r.CustomerId == c.Id))
+                            && !db.RecurringInvoices.Any(r => r.CustomerId == c.Id) && !db.Quotes.Any(q => q.CustomerId == c.Id && !q.IsDemo))
                 .Select(c => c.Id).ToListAsync();
             await db.Appointments.Where(a => a.CustomerId != null && customers.Contains(a.CustomerId.Value)).ExecuteUpdateAsync(x => x.SetProperty(a => a.CustomerId, (int?)null));
             await db.Leads.Where(l => l.CustomerId != null && customers.Contains(l.CustomerId.Value)).ExecuteUpdateAsync(x => x.SetProperty(l => l.CustomerId, (int?)null));
@@ -221,6 +223,8 @@ public static partial class WorkspaceEndpoints
             await Write("invoiceHourSpecifications", (await db.Invoices.Where(i => i.HoursSnapshot != null).OrderBy(i => i.Id)
                 .Select(i => new { i.Id, i.Number, i.HoursSnapshot }).ToListAsync())
                 .Select(i => new { invoiceId = i.Id, number = i.Number, specification = Invoicing.HourSpecs.Parse(i.HoursSnapshot) }));
+            // Offertes met hun regels en het akkoord van de klant (naam, tijd en IP-adres). De links zelf gaan niet mee.
+            await Write("quotes", await db.Quotes.Include(q => q.Lines.OrderBy(l => l.Position)).OrderBy(q => q.Id).ToListAsync());
             await Write("recurringInvoices", await db.RecurringInvoices.Include(r => r.Lines).ToListAsync());
             await Write("invoiceMails", await db.InvoiceMails.OrderBy(m => m.Id).ToListAsync());
             await Write("reminderSettings", await db.ReminderSettings.FirstOrDefaultAsync());
@@ -280,6 +284,9 @@ public static partial class WorkspaceEndpoints
             await db.Expenses.ExecuteDeleteAsync();
             await db.InvoiceMails.ExecuteDeleteAsync();
             await db.InvoiceLinks.ExecuteDeleteAsync();
+            // Offerteregels gaan mee met hun offerte (cascade in de database).
+            await db.QuoteLinks.ExecuteDeleteAsync();
+            await db.Quotes.ExecuteDeleteAsync();
             await db.PortalLinks.ExecuteDeleteAsync();
             await db.CustomerPortals.ExecuteDeleteAsync();
             await db.GitHubCommits.ExecuteDeleteAsync();

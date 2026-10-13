@@ -116,6 +116,7 @@ export function SettingsPage() {
             <div className="card-body form-grid">
               <Field label="Standaard uurtarief (excl. btw)"><input step="0.01" {...num('defaultHourlyRate')} /></Field>
               <Field label="Betaaltermijn in dagen"><input {...num('paymentTermDays')} /></Field>
+              <Field label="Geldigheid van offertes in dagen"><input max={365} {...num('quoteValidDays')} min={1} /></Field>
               <Field label="Uren per week (doel)"><input {...num('weeklyHoursTarget')} /></Field>
               <Field label="Uren per jaar (urencriterium)"><input {...num('yearlyHoursTarget')} /></Field>
               <p className="muted field-full" style={{ margin: 0, fontSize: 13 }}>

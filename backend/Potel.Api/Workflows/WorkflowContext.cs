@@ -43,6 +43,20 @@ public static partial class WorkflowContext
         else ctx["customer.id"] = i.CustomerId.ToString();
     }
 
+    public static void AddQuote(Dictionary<string, string> ctx, Quote q)
+    {
+        var totals = q.Totals;
+        ctx["quote.id"] = q.Id.ToString();
+        ctx["quote.number"] = q.Number ?? "";
+        ctx["quote.subject"] = q.Subject ?? "";
+        ctx["quote.subtotal"] = Money(totals.Subtotal);
+        ctx["quote.total"] = Money(totals.Total);
+        ctx["quote.validUntil"] = q.ValidUntil.ToString("yyyy-MM-dd");
+        ctx["quote.acceptedBy"] = q.DecidedName ?? "";
+        ctx["quote.deposit"] = q.DepositPercent is { } d ? Money(Data.Money.Round(totals.Subtotal * d / 100)) : "";
+        if (q.CustomerId is { } cid) ctx["customer.id"] = cid.ToString();
+    }
+
     [GeneratedRegex(@"\{\{\s*([\w.]+)\s*\}\}")]
     private static partial Regex Placeholder();
 

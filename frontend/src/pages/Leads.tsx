@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Target, Plus, KanbanSquare, List, Building2, UserCheck, Trash2 } from 'lucide-react'
+import { Target, Plus, KanbanSquare, List, Building2, UserCheck, Trash2, FileSignature } from 'lucide-react'
 import { useApi } from '../lib/useApi'
 import { api } from '../lib/api'
 import { useToast } from '../lib/toast'
@@ -177,6 +177,12 @@ function LeadForm({ lead, onClose, onSaved }: { lead: Partial<Lead>; onClose: ()
         {lead.id && (
           <button className="btn" type="button" onClick={convert}>
             <UserCheck size={15} /> {lead.customerId ? 'Open klant' : 'Maak klant'}
+          </button>
+        )}
+        {lead.id && (
+          // Een offerte voor de lead, of voor de klant als hij dat al is. Accepteert de lead hem, dan wordt hij vanzelf klant.
+          <button className="btn" type="button" onClick={() => { onClose(); navigate(lead.customerId ? `/offertes/nieuw?klant=${lead.customerId}` : `/offertes/nieuw?lead=${lead.id}`) }}>
+            <FileSignature size={15} /> Offerte maken
           </button>
         )}
         <span className="spacer" />
