@@ -9,6 +9,8 @@ export interface Customer {
   // Land van vestiging; leeg of Nederland is een Nederlandse klant.
   country?: string | null
   vatNumber?: string | null
+  // Rekeningnummer waarvan de klant betaalt; daarmee herkent de pagina Bank zijn betalingen.
+  iban?: string | null
   notes?: string | null
   // Geen automatische betalingsherinneringen voor deze klant.
   remindersOff?: boolean
@@ -731,3 +733,89 @@ export interface GitHubSuggestions {
   skippedRepos: string[]
   rules: GitHubRules
 }
+
+// De pagina Bank: regels uit je bankafschrift, met voorstellen om te koppelen.
+export type BankFilter = 'open' | 'gekoppeld' | 'prive' | 'negeren' | 'alle'
+export type BankMark = 'prive' | 'negeren'
+
+export interface BankProposal {
+  kind: 'invoice' | 'payment' | 'expense'
+  reason: string
+  invoiceId?: number | null
+  number?: string | null
+  customer?: string | null
+  open?: number | null
+  partial: boolean
+  paymentId?: number | null
+  paymentDate?: string | null
+  expenseId?: number | null
+  supplier?: string | null
+  expenseDate?: string | null
+  rememberIban?: string | null
+}
+
+export interface BankNewExpense {
+  supplier?: string | null
+  date: string
+  amount: number
+  description?: string | null
+  category?: ExpenseCategory | null
+  vatRate?: number | null
+  fromHistory: boolean
+}
+
+export type BankLink =
+  | { kind: 'invoice'; invoiceId: number; number?: string | null; customer?: string | null; paymentId: number; created: boolean }
+  | { kind: 'expense'; expenseId: number; supplier: string; date: string; amount: number; category: string }
+
+export interface BankTransaction {
+  id: number
+  date: string
+  amount: number
+  counterpartyName?: string | null
+  counterpartyIban?: string | null
+  description?: string | null
+  account?: string | null
+  mark?: BankMark | null
+  state: 'open' | 'factuur' | 'kosten' | BankMark
+  link?: BankLink | null
+  proposals: BankProposal[]
+  newExpense?: BankNewExpense | null
+  hint?: string | null
+  ibanValid: boolean
+}
+
+export interface BankImport {
+  id: number
+  fileName: string
+  format: string
+  added: number
+  skipped: number
+  importedAt: string
+  importedBy?: string | null
+}
+
+export interface BankCsvMapping {
+  date: string
+  amount: string
+  description?: string | null
+  name?: string | null
+  iban?: string | null
+  sign?: string | null
+}
+
+export interface BankOverview {
+  filter: BankFilter
+  counts: { open: number; linked: number; prive: number; negeren: number; all: number }
+  transactions: BankTransaction[]
+  total: number
+  more: boolean
+  imports: BankImport[]
+  mapping: BankCsvMapping | null
+  openInvoices: { id: number; number: string; customer: string; open: number; customerIban?: string | null }[]
+  expenses: { id: number; date: string; supplier: string; amount: number }[]
+}
+
+export type BankImportResult =
+  | { needsMapping: true; headers: string[]; sample: string[][]; mapping: BankCsvMapping | null }
+  | { needsMapping: false; importId: number | null; format: string; added: number; skipped: number; skippedOtherCurrency: number; skippedNotBooked: number }

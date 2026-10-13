@@ -146,6 +146,8 @@ public class Customer : IWorkspaceOwned, IDemoData
     // Bepaalt welke btw-regeling mag: btw verlegd alleen voor een ander EU-land, "buiten de EU" alleen daarbuiten.
     public string Country { get; set; } = Countries.Netherlands;
     public string? VatNumber { get; set; }
+    // Het rekeningnummer waarvan de klant betaalt. Daarmee herkent Potel zijn betalingen in je bankafschrift.
+    public string? Iban { get; set; }
     public string? Notes { get; set; }
     // Geen automatische herinneringen aan deze klant.
     public bool RemindersOff { get; set; }
@@ -957,6 +959,68 @@ public class Expense : IWorkspaceOwned, IDemoData
     public static decimal VatFor(decimal amount, decimal? rate, bool reverseCharge) => rate is not > 0
         ? 0
         : Money.Round(reverseCharge ? amount * rate.Value / 100 : amount * rate.Value / (100 + rate.Value));
+}
+
+// Wat je met een regel uit je bankafschrift doet als hij niet bij een factuur of uitgave hoort.
+public static class BankMarks
+{
+    public const string Private = "prive";
+    public const string Ignore = "negeren";
+    public static readonly string[] All = [Private, Ignore];
+}
+
+// Een regel uit een ingelezen bankafschrift. Amount is positief voor geld dat binnenkwam en negatief voor geld dat eraf ging.
+// Een regel hoort bij hooguit één ding: een betaling op een factuur (InvoicePayment.BankTransactionId), een uitgave
+// (ExpenseId), of hij staat op privé of genegeerd. Potel koppelt nooit vanzelf; het doet alleen voorstellen.
+public class BankTransaction : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int ImportId { get; set; }
+    // Je eigen rekening, zoals hij in het afschrift staat.
+    public string? Account { get; set; }
+    public DateTime Date { get; set; }
+    public decimal Amount { get; set; }
+    public string? CounterpartyName { get; set; }
+    public string? CounterpartyIban { get; set; }
+    public string? Description { get; set; }
+    // Het kenmerk van de bank, als het afschrift er een heeft.
+    public string? BankReference { get; set; }
+    // Herkent dezelfde regel als je een afschrift nog eens inleest (uniek per werkruimte), zie StatementParser.DedupeKeys.
+    [JsonIgnore] public string DedupeKey { get; set; } = "";
+    public string? Mark { get; set; }
+    public int? ExpenseId { get; set; }
+    // Of de betaling op de factuur door deze koppeling is gemaakt. Dan gaat hij weer weg als je de koppeling ongedaan maakt;
+    // een betaling die je zelf al had ingevuld blijft staan.
+    public bool PaymentCreated { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+// Eén keer een afschrift inlezen: welk bestand, hoeveel nieuwe regels en hoeveel er al waren.
+public class BankImport : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public string FileName { get; set; } = "";
+    public string Format { get; set; } = "";
+    public int Added { get; set; }
+    public int Skipped { get; set; }
+    public DateTime ImportedAt { get; set; } = DateTime.UtcNow;
+    public string? ImportedBy { get; set; }
+}
+
+// Welke kolom van een CSV wat is, voor een bank die we niet herkennen. Eén per werkruimte, met de namen uit de kopregel.
+public class BankCsvMapping : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public string DateColumn { get; set; } = "";
+    public string AmountColumn { get; set; } = "";
+    public string? DescriptionColumn { get; set; }
+    public string? NameColumn { get; set; }
+    public string? IbanColumn { get; set; }
+    public string? SignColumn { get; set; }
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
 
 // Het bonnetje bij een uitgave (PNG, JPEG, WebP of PDF), in de database van de werkruimte. Los van de uitgave,

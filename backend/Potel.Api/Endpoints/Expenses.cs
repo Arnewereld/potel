@@ -76,8 +76,9 @@ public static class ExpenseEndpoints
 
     static async Task<ExpenseDto> OneAsync(AppDb db, int id) => (await ListAsync(db, q => q.Where(e => e.Id == id))).Single();
 
-    // Controleert de invoer en zet hem op de uitgave. Elke koppeling moet in de eigen werkruimte bestaan.
-    static async Task<string?> ApplyAsync(AppDb db, Expense e, ExpenseInput input)
+    // Controleert de invoer en zet hem op de uitgave. Elke koppeling moet in de eigen werkruimte bestaan. Ook voor een
+    // uitgave die je vanuit je bankafschrift maakt.
+    public static async Task<string?> ApplyAsync(AppDb db, Expense e, ExpenseInput input)
     {
         if (input.Date == default || input.Date.Year < 2000 || input.Date.Year > 2100) return "Vul de datum van de uitgave in.";
         var supplier = input.Supplier?.Trim() ?? "";

@@ -3,6 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, CalendarDays, Users, Target, Receipt, Workflow, Blocks, X, Search, FileSignature,
   ChevronsLeft, ChevronsRight, Moon, Sun, Plus, ShieldCheck, LogOut, KeyRound, Timer, FolderKanban, Settings, Square, Crown, Wallet, Landmark, CalendarRange,
+  ArrowLeftRight,
 } from 'lucide-react'
 import { clock, useTimer } from '../lib/timer'
 import { useWorkspace } from '../lib/workspace'
@@ -24,6 +25,8 @@ const nav = [
   { to: '/projecten', label: 'Projecten', icon: FolderKanban, group: 'Werk' },
   { to: '/facturen', label: 'Facturen', icon: Receipt, group: 'Werk' },
   { to: '/kosten', label: 'Kosten', icon: Wallet, group: 'Werk' },
+  // Alleen voor beheerders: een bankafschrift laat al je geldzaken zien.
+  { to: '/bank', label: 'Bank', icon: ArrowLeftRight, group: 'Werk', admin: true },
   { to: '/planning', label: 'Planning', icon: CalendarDays, group: 'Werk' },
   { to: '/klanten', label: 'Klanten', icon: Users, group: 'Klanten en sales' },
   { to: '/leads', label: 'Leads', icon: Target, group: 'Klanten en sales' },
@@ -105,7 +108,7 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
           {navGroups.map(group => (
             <Fragment key={group}>
               <div className="nav-label">{group}</div>
-              {navLinks(nav.filter(n => n.group === group))}
+              {navLinks(nav.filter(n => n.group === group && (!n.admin || user.role === 'beheerder')))}
             </Fragment>
           ))}
 

@@ -237,6 +237,10 @@ public static partial class WorkspaceEndpoints
             await Write("githubAuthors", await db.GitHubAuthors.OrderBy(a => a.Id).ToListAsync());
             await Write("githubCommits", await db.GitHubCommits.OrderBy(c => c.Id).ToListAsync());
             await Write("expenses", await db.Expenses.OrderBy(e => e.Id).ToListAsync());
+            // Ingelezen bankafschriften: de regels, de imports en de kolomindeling voor CSV.
+            await Write("bankImports", await db.BankImports.OrderBy(i => i.Id).ToListAsync());
+            await Write("bankTransactions", await db.BankTransactions.OrderBy(t => t.Id).ToListAsync());
+            await Write("bankCsvMapping", await db.BankCsvMappings.FirstOrDefaultAsync());
             await Write("leads", await db.Leads.ToListAsync());
             await Write("appointments", await db.Appointments.ToListAsync());
             await Write("modules", await db.CustomModules.ToListAsync());
@@ -284,6 +288,9 @@ public static partial class WorkspaceEndpoints
 
             // Volgorde maakt uit vanwege de koppelingen tussen tabellen. Bonnetjes direct in de database, zonder ze eerst in te lezen.
             await db.ExpenseReceipts.ExecuteDeleteAsync();
+            await db.BankTransactions.ExecuteDeleteAsync();
+            await db.BankImports.ExecuteDeleteAsync();
+            await db.BankCsvMappings.ExecuteDeleteAsync();
             await db.Expenses.ExecuteDeleteAsync();
             await db.InvoiceMails.ExecuteDeleteAsync();
             await db.InvoicePayments.ExecuteDeleteAsync();

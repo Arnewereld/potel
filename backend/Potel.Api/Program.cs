@@ -258,6 +258,7 @@ api.MapInvoiceMail();
 api.MapInvoiceIdeal();
 api.MapQuotes();
 api.MapExpenses();
+api.MapBank();
 api.MapTax();
 api.MapAppointments();
 api.MapModules();

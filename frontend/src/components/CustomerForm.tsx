@@ -5,7 +5,7 @@ import { useToast } from '../lib/toast'
 import { euCountries, inEu, isNetherlands, netherlands, otherCountries } from '../lib/invoice'
 import { Field, Modal } from './ui'
 
-const empty: Omit<Customer, 'id'> = { name: '', company: '', email: '', phone: '', address: '', city: '', country: netherlands, vatNumber: '', notes: '' }
+const empty: Omit<Customer, 'id'> = { name: '', company: '', email: '', phone: '', address: '', city: '', country: netherlands, vatNumber: '', iban: '', notes: '' }
 const otherEu = euCountries.filter(c => c !== netherlands)
 
 export function CustomerForm({ customer, onClose, onSaved }: {
@@ -73,6 +73,9 @@ export function CustomerForm({ customer, onClose, onSaved }: {
         <Field label="Btw-nummer">
           <input value={form.vatNumber ?? ''} onChange={set('vatNumber')}
             placeholder={isNetherlands(country) ? 'Bijv. NL001234567B01' : inEu(country) ? 'Nodig voor btw verlegd, bijv. DE123456789' : 'Optioneel'} />
+        </Field>
+        <Field label="Rekeningnummer (IBAN)">
+          <input value={form.iban ?? ''} onChange={set('iban')} placeholder="Optioneel, bijv. NL91 ABNA 0417 1643 00" autoComplete="off" spellCheck={false} />
         </Field>
         <Field label="Notities" full><textarea value={form.notes ?? ''} onChange={set('notes')} /></Field>
         <label className="row field-full" style={{ gap: 8 }}>

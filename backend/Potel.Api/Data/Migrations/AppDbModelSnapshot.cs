@@ -134,6 +134,149 @@ namespace Potel.Api.Data.Migrations
                     b.ToTable("Appointments");
                 });
 
+            modelBuilder.Entity("Potel.Api.Data.BankCsvMapping", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AmountColumn")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DateColumn")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DescriptionColumn")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("IbanColumn")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NameColumn")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SignColumn")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WorkspaceId")
+                        .IsUnique();
+
+                    b.ToTable("BankCsvMappings");
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.BankImport", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Added")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Format")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("ImportedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ImportedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Skipped")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.ToTable("BankImports");
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.BankTransaction", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Account")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("BankReference")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CounterpartyIban")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CounterpartyName")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("Date")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DedupeKey")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("ExpenseId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ImportId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Mark")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("PaymentCreated")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpenseId")
+                        .IsUnique()
+                        .HasFilter("\"ExpenseId\" IS NOT NULL");
+
+                    b.HasIndex("ImportId");
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.HasIndex("WorkspaceId", "Date");
+
+                    b.HasIndex("WorkspaceId", "DedupeKey")
+                        .IsUnique();
+
+                    b.ToTable("BankTransactions");
+                });
+
             modelBuilder.Entity("Potel.Api.Data.CustomModule", b =>
                 {
                     b.Property<int>("Id")
@@ -223,6 +366,9 @@ namespace Potel.Api.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Email")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Iban")
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("IsDemo")
@@ -1824,6 +1970,20 @@ namespace Potel.Api.Data.Migrations
                     b.HasOne("Potel.Api.Data.User", null)
                         .WithMany()
                         .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.BankTransaction", b =>
+                {
+                    b.HasOne("Potel.Api.Data.Expense", null)
+                        .WithMany()
+                        .HasForeignKey("ExpenseId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Potel.Api.Data.BankImport", null)
+                        .WithMany()
+                        .HasForeignKey("ImportId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

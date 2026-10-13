@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Potel.Api.Banking;
 using Potel.Api.Data;
 using Potel.Api.Workflows;
 
@@ -6,6 +7,16 @@ namespace Potel.Api.Endpoints;
 
 public static class CustomerEndpoints
 {
+    public const string IbanError = "Dit rekeningnummer klopt niet. Vul een IBAN in, zoals NL91 ABNA 0417 1643 00, of laat het veld leeg.";
+
+    // Het rekeningnummer zonder spaties en in hoofdletters; leeg mag, een IBAN dat niet klopt niet.
+    static bool TryIban(string? input, out string? iban)
+    {
+        iban = Ibans.Normalize(input);
+        if (string.IsNullOrWhiteSpace(input)) return true;
+        return Ibans.IsValid(iban);
+    }
+
     public static void MapCustomers(this RouteGroupBuilder api)
     {
         var g = api.MapGroup("/customers");
@@ -18,6 +29,8 @@ public static class CustomerEndpoints
         g.MapPost("/", async (AppDb db, WorkflowEngine engine, Customer input) =>
         {
             if (string.IsNullOrWhiteSpace(input.Name)) return Results.BadRequest(new { error = "Naam is verplicht" });
+            if (!TryIban(input.Iban, out var iban)) return Results.BadRequest(new { error = IbanError });
+            input.Iban = iban;
             input.Id = 0;
             input.CreatedAt = DateTime.UtcNow;
             input.Country = Countries.Normalize(input.Country);
@@ -35,6 +48,8 @@ public static class CustomerEndpoints
             var c = await db.Customers.FindAsync(id);
             if (c is null) return Results.NotFound();
             if (string.IsNullOrWhiteSpace(input.Name)) return Results.BadRequest(new { error = "Naam is verplicht" });
+            if (!TryIban(input.Iban, out var iban)) return Results.BadRequest(new { error = IbanError });
+            c.Iban = iban;
             c.Name = input.Name; c.Company = input.Company; c.Email = input.Email; c.Phone = input.Phone;
             c.Address = input.Address; c.City = input.City; c.Country = Countries.Normalize(input.Country); c.VatNumber = input.VatNumber; c.Notes = input.Notes;
             c.RemindersOff = input.RemindersOff;

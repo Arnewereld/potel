@@ -44,6 +44,9 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
     public DbSet<Quote> Quotes => Set<Quote>();
     public DbSet<QuoteLine> QuoteLines => Set<QuoteLine>();
     public DbSet<QuoteLink> QuoteLinks => Set<QuoteLink>();
+    public DbSet<BankTransaction> BankTransactions => Set<BankTransaction>();
+    public DbSet<BankImport> BankImports => Set<BankImport>();
+    public DbSet<BankCsvMapping> BankCsvMappings => Set<BankCsvMapping>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -136,6 +139,15 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         b.Entity<Quote>().OwnsOne(q => q.Buyer);
         b.Entity<QuoteLink>().HasOne<Quote>().WithMany().HasForeignKey(l => l.QuoteId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<QuoteLink>().HasIndex(l => l.TokenHash).IsUnique();
+        // Bankafschriften: elke regel staat er per werkruimte één keer, ook als je hetzelfde afschrift opnieuw inleest. Een
+        // uitgave hoort bij hooguit één regel; gaat de uitgave weg, dan staat de regel weer open. Een import ongedaan maken
+        // haalt zijn regels mee weg.
+        b.Entity<BankTransaction>().HasIndex(t => new { t.WorkspaceId, t.DedupeKey }).IsUnique();
+        b.Entity<BankTransaction>().HasIndex(t => new { t.WorkspaceId, t.Date });
+        b.Entity<BankTransaction>().HasOne<BankImport>().WithMany().HasForeignKey(t => t.ImportId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<BankTransaction>().HasOne<Expense>().WithMany().HasForeignKey(t => t.ExpenseId).OnDelete(DeleteBehavior.SetNull);
+        b.Entity<BankTransaction>().HasIndex(t => t.ExpenseId).IsUnique().HasFilter("\"ExpenseId\" IS NOT NULL");
+        b.Entity<BankCsvMapping>().HasIndex(m => m.WorkspaceId).IsUnique();
         FilterByWorkspace(b);
     }
 
@@ -150,6 +162,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         Filter<GitHubSettings>(b); Filter<GitHubAuthor>(b); Filter<GitHubCommit>(b);
         Filter<Quote>(b); Filter<QuoteLink>(b);
         Filter<InvoicePayment>(b); Filter<MollieAccount>(b); Filter<OnlinePayment>(b);
+        Filter<BankTransaction>(b); Filter<BankImport>(b); Filter<BankCsvMapping>(b);
     }
 
     void Filter<T>(ModelBuilder b) where T : class, IWorkspaceOwned
