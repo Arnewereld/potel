@@ -1,12 +1,16 @@
 import { useRef, useState } from 'react'
-import { Download, Paperclip, Trash2, Upload } from 'lucide-react'
+import { Download, Lock, Paperclip, Trash2, Upload } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useAuth } from '../lib/auth'
 import { useToast } from '../lib/toast'
-import type { Customer, Expense, ExpenseCategory, Project } from '../lib/types'
-import { euro, toDateInput } from '../lib/format'
-import { expenseCategories, expenseVat, expenseVatRates, fileSize, MaxReceiptBytes, receiptTypes } from '../lib/expenses'
+import type { Customer, Expense, ExpenseCategory, Project, Settings } from '../lib/types'
+import { date as formatDate, euro, toDateInput } from '../lib/format'
+import {
+  costForProfit, DefaultUsefulLife, depreciationPreview, expenseCategories, expenseVat, expenseVatRates, fileSize, InvestmentThreshold,
+  MaxReceiptBytes, MaxUsefulLife, receiptTypes,
+} from '../lib/expenses'
 import { Field, Modal } from './ui'
 
 // Leest een bestand als data-URL; de server haalt de base64 eruit en kijkt zelf wat het is.
@@ -17,9 +21,11 @@ const readFile = (file: File) => new Promise<string>((resolve, reject) => {
   reader.readAsDataURL(file)
 })
 
-export function ExpenseForm({ expense, date, onClose, onSaved }: {
+export function ExpenseForm({ expense, date, asInvestment, onClose, onSaved }: {
   expense?: Expense | null
   date?: string
+  // Een nieuwe uitgave die meteen als investering begint, vanaf de pagina Investeringen.
+  asInvestment?: boolean
   onClose: () => void
   onSaved: () => void
 }) {
@@ -27,17 +33,22 @@ export function ExpenseForm({ expense, date, onClose, onSaved }: {
   const admin = user.role === 'beheerder'
   const { data: projects } = useApi<Project[]>('/projects')
   const { data: customers } = useApi<Customer[]>('/customers')
+  const { data: settings } = useApi<Settings>('/settings')
   const [form, setForm] = useState(() => ({
     date: expense?.date.slice(0, 10) ?? date ?? toDateInput(new Date()),
     supplier: expense?.supplier ?? '',
     description: expense?.description ?? '',
-    category: expense?.category ?? 'software' as ExpenseCategory,
+    category: expense?.category ?? (asInvestment ? 'hardware' : 'software') as ExpenseCategory,
     amount: expense ? String(expense.amount) : '',
     vatRate: expense ? expense.vatRate : 21 as number | null,
     reverseCharge: expense?.reverseCharge ?? false,
     supplierRegion: expense?.supplierRegion ?? 'eu',
     projectId: expense?.projectId ?? 0,
     customerId: expense?.customerId ?? 0,
+    investment: expense?.investment ?? asInvestment ?? false,
+    usefulLifeYears: String(expense?.usefulLifeYears ?? DefaultUsefulLife),
+    residualValue: expense?.residualValue != null ? String(expense.residualValue) : '',
+    passengerCar: expense?.passengerCar ?? false,
   }))
   // Een zelf ingevuld btw-bedrag, voor een bon die net anders is afgerond. Leeg is: laat de server het uitrekenen.
   const [vatOverride, setVatOverride] = useState<string | null>(() => {
@@ -60,6 +71,15 @@ export function ExpenseForm({ expense, date, onClose, onSaved }: {
   const selectable = (projects ?? []).filter(p => p.status !== 'afgerond' || p.id === form.projectId)
   // Bestaat er al een bonnetje, dan mag alleen een beheerder het vervangen.
   const canPickFile = !receipt || admin
+  // De aanschafprijs voor je winst: zonder btw, of met btw als je die niet aftrekt (KOR of vrijgestelde omzet).
+  const noDeduction = settings?.vatRegime === 'kor' || settings?.vatRegime === 'vrijgesteld'
+  const cost = Number.isFinite(amount) ? costForProfit({ amount, amountExclVat: reverse ? amount : amount - vat, vatAmount: vat, reverseCharge: reverse }, noDeduction) : 0
+  const disposed = expense?.disposedOn != null
+  const canInvest = cost >= InvestmentThreshold || form.investment
+  const years = Number(form.usefulLifeYears)
+  const residual = Number(form.residualValue.replace(',', '.')) || 0
+  const preview = form.investment && years >= 1 && years <= MaxUsefulLife && cost >= InvestmentThreshold && residual < cost
+    ? depreciationPreview(cost, residual, years, form.date) : null
 
   const pickProject = (id: number) => {
     const p = projects?.find(x => x.id === id)
@@ -83,6 +103,8 @@ export function ExpenseForm({ expense, date, onClose, onSaved }: {
       amount, vatRate: form.vatRate, vatAmount: vatOverride !== null && form.vatRate ? Number(vatOverride) : null,
       reverseCharge: reverse, supplierRegion: reverse ? form.supplierRegion : null,
       projectId: form.projectId || null, customerId: form.customerId || null,
+      investment: form.investment, usefulLifeYears: form.investment ? years || null : null,
+      residualValue: form.investment && residual ? residual : null, passengerCar: form.investment && form.passengerCar,
     }
     try {
       const saved = expense ? await api.put<Expense>(`/expenses/${expense.id}`, body) : await api.post<Expense>('/expenses', body)
@@ -130,7 +152,7 @@ export function ExpenseForm({ expense, date, onClose, onSaved }: {
   return (
     <Modal
       wide
-      title={expense ? 'Uitgave bewerken' : 'Uitgave toevoegen'}
+      title={expense ? (expense.investment ? 'Investering bewerken' : 'Uitgave bewerken') : asInvestment ? 'Investering toevoegen' : 'Uitgave toevoegen'}
       onClose={onClose}
       footer={<>
         {expense && admin && <button className="btn btn-danger" type="button" onClick={remove}>Verwijderen</button>}
@@ -204,6 +226,51 @@ export function ExpenseForm({ expense, date, onClose, onSaved }: {
             {(customers ?? []).map(c => <option key={c.id} value={c.id}>{c.company || c.name}</option>)}
           </select>
         </Field>
+
+        {canInvest && (
+          <label className="check-row field-full">
+            <input type="checkbox" checked={form.investment} disabled={disposed} onChange={e => set('investment', e.target.checked)} />
+            <span>Dit is een investering</span>
+            <span className="muted">· iets wat je een paar jaar gebruikt, zoals een laptop of bureau. Je schrijft het af in plaats van alles in één keer.</span>
+          </label>
+        )}
+        {form.investment && (<>
+          <Field label="Gebruiksduur in jaren">
+            <div className="input-with-chips">
+              <input type="number" min={1} max={MaxUsefulLife} step={1} inputMode="numeric" required value={form.usefulLifeYears}
+                onChange={e => set('usefulLifeYears', e.target.value)} />
+              {[3, 5].map(n => (
+                <button type="button" key={n} className={`chip ${years === n ? 'active' : ''}`} onClick={() => set('usefulLifeYears', String(n))}>{n} jaar</button>
+              ))}
+            </div>
+          </Field>
+          <Field label="Restwaarde (optioneel)">
+            <input type="number" min={0} step="0.01" inputMode="decimal" value={form.residualValue} onChange={e => set('residualValue', e.target.value)} placeholder="0,00" />
+          </Field>
+          <label className="check-row field-full">
+            <input type="checkbox" checked={form.passengerCar} onChange={e => set('passengerCar', e.target.checked)} />
+            <span>Personenauto</span>
+            <span className="muted">· telt niet mee voor de kleinschaligheidsinvesteringsaftrek, behalve als hij bedoeld is voor beroepsvervoer, zoals een taxi</span>
+          </label>
+          <div className="notice field-full" style={{ marginBottom: 0 }}>
+            {cost < InvestmentThreshold
+              ? `Een investering kost minstens ${euro(InvestmentThreshold)}${noDeduction ? '' : ' zonder btw'}. Een goedkoper bedrijfsmiddel trek je in één keer af als kosten.`
+              : preview
+                ? <>
+                    De aanschafprijs is {euro(cost)} {noDeduction ? 'met' : 'zonder'} btw. Je schrijft {euro(preview.perYear)} per jaar af{residual ? `, tot de restwaarde van ${euro(residual)}` : ''}.
+                    {preview.aboveMaximum && ' Let op: dat is meer dan 20% van de aanschafprijs per jaar. Fiscaal mag dat meestal niet; kies 5 jaar of meer, of een hogere restwaarde.'}
+                    {' '}In {form.date.slice(0, 4)} schrijf je {euro(preview.firstYear)} af, vanaf de maand van aankoop.
+                    {!noDeduction && ' De btw trek je gewoon af in de btw-aangifte van het kwartaal waarin je het kocht.'}
+                  </>
+                : residual >= cost ? 'De restwaarde moet lager zijn dan de aanschafprijs.' : `Kies een gebruiksduur van 1 tot en met ${MaxUsefulLife} jaar.`}
+          </div>
+          {disposed && (
+            <div className="notice field-full" style={{ marginBottom: 0 }}>
+              <Lock size={13} /> {expense?.disposalPrice ? `Verkocht op ${formatDate(expense.disposedOn!)} voor ${euro(expense.disposalPrice)}.` : `Weggedaan op ${formatDate(expense!.disposedOn!)}.`}
+              {' '}Zolang dat zo staat, blijft dit een investering. Je past het aan bij <Link to="/investeringen" onClick={onClose}>Investeringen</Link>.
+            </div>
+          )}
+        </>)}
 
         <div className="field-full">
           <div className="field-label">Bonnetje (optioneel)</div>

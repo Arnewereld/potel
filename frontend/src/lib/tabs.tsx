@@ -43,6 +43,7 @@ export function defaultTitle(fullPath: string) {
   if (path === '/bank') return 'Bank'
   if (path === '/btw-aangifte') return 'Btw-aangifte'
   if (path === '/jaaroverzicht') return 'Jaaroverzicht'
+  if (path === '/investeringen') return 'Investeringen'
   if (path === '/werkstromen') return 'Werkstromen'
   if (path.startsWith('/werkstromen/')) return 'Werkstroom'
   if (path === '/modules') return 'Eigen modules'

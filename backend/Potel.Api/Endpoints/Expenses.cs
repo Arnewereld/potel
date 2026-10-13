@@ -5,10 +5,12 @@ using Potel.Api.Data;
 
 namespace Potel.Api.Endpoints;
 
-// Wat de frontend meestuurt. Zonder btw-bedrag rekenen we het zelf uit; vatRate null is "geen btw".
+// Wat de frontend meestuurt. Zonder btw-bedrag rekenen we het zelf uit; vatRate null is "geen btw". Een investering krijgt
+// een gebruiksduur (standaard 5 jaar) en eventueel een restwaarde.
 public record ExpenseInput(
     DateTime Date, string? Supplier, string? Description, string? Category, decimal Amount, decimal? VatRate, decimal? VatAmount,
-    bool ReverseCharge, string? SupplierRegion, int? ProjectId, int? CustomerId);
+    bool ReverseCharge, string? SupplierRegion, int? ProjectId, int? CustomerId,
+    bool Investment = false, int? UsefulLifeYears = null, decimal? ResidualValue = null, bool PassengerCar = false);
 
 // Een bonnetje als base64 (of als data-URL, zoals de browser hem leest) met de naam van het bestand.
 public record ReceiptUpload(string? FileName, string? Data);
@@ -18,10 +20,11 @@ public record ReceiptInfo(string FileName, string ContentType, int Size, DateTim
 public record ExpenseDto(
     int Id, DateTime Date, string Supplier, string? Description, string Category, decimal Amount, decimal? VatRate, decimal VatAmount,
     decimal AmountExclVat, bool ReverseCharge, string? SupplierRegion, int? ProjectId, string? ProjectName, int? CustomerId, string? CustomerName,
-    bool Demo, ReceiptInfo? Receipt, DateTime CreatedAt);
+    bool Demo, ReceiptInfo? Receipt, DateTime CreatedAt,
+    bool Investment, int? UsefulLifeYears, decimal? ResidualValue, bool PassengerCar, DateTime? DisposedOn, decimal? DisposalPrice);
 
-// Zakelijke kosten met hun btw en bonnetje. Iedereen in de werkruimte mag kosten toevoegen, bekijken en aanpassen;
-// verwijderen, en een bonnetje vervangen of weghalen, mag alleen een beheerder. Bonnetjes moet je bewaren.
+// Zakelijke kosten met hun btw en bonnetje. Iedereen in de werkruimte mag kosten toevoegen, bekijken en aanpassen, ook als
+// investering markeren; verwijderen, en een bonnetje vervangen of weghalen, mag alleen een beheerder. Bonnetjes moet je bewaren.
 public static class ExpenseEndpoints
 {
     public const int MaxReceiptBytes = 5 * 1024 * 1024;
@@ -71,7 +74,8 @@ public static class ExpenseEndpoints
             e.Id, e.Date, e.Supplier, e.Description, e.Category, e.Amount, e.VatRate, e.VatAmount, e.AmountExclVat, e.ReverseCharge, e.SupplierRegion,
             e.ProjectId, e.ProjectId is { } p ? projects.GetValueOrDefault(p) : null,
             e.CustomerId, e.CustomerId is { } c ? customers.GetValueOrDefault(c) : null,
-            e.IsDemo, receipts.GetValueOrDefault(e.Id), e.CreatedAt)).ToList();
+            e.IsDemo, receipts.GetValueOrDefault(e.Id), e.CreatedAt,
+            e.Investment, e.UsefulLifeYears, e.ResidualValue, e.PassengerCar, e.DisposedOn, e.DisposalPrice)).ToList();
     }
 
     static async Task<ExpenseDto> OneAsync(AppDb db, int id) => (await ListAsync(db, q => q.Where(e => e.Id == id))).Single();
@@ -117,9 +121,31 @@ public static class ExpenseEndpoints
         }
         if (customerId is { } cid && !await db.Customers.AnyAsync(c => c.Id == cid)) return "Kies een klant uit je eigen werkruimte.";
 
+        // Een investering kost minstens € 450: zonder btw als je de btw aftrekt, met btw als je dat niet kunt.
+        int? years = null;
+        decimal? residual = null;
+        if (input.Investment)
+        {
+            var settings = await SettingsEndpoints.GetAsync(db);
+            var deduction = settings.VatRegime is not (VatRegimes.Kor or VatRegimes.Exempt);
+            var cost = new Expense { Amount = amount, VatAmount = vat, ReverseCharge = input.ReverseCharge }.CostForProfit(deduction);
+            if (cost < TaxYears.DepreciationThreshold)
+                return $"Een investering kost minstens € 450{(deduction ? " zonder btw" : "")}. Een goedkoper bedrijfsmiddel trek je in één keer af als kosten.";
+            years = input.UsefulLifeYears ?? Depreciation.DefaultYears;
+            if (years is < 1 or > Depreciation.MaxYears) return $"Kies een gebruiksduur van 1 tot en met {Depreciation.MaxYears} jaar.";
+            residual = input.ResidualValue is { } rv && rv != 0 ? Money.Round(rv) : null;
+            if (residual < 0) return "De restwaarde kan niet negatief zijn.";
+            if (residual >= cost) return $"De restwaarde moet lager zijn dan de aanschafprijs van {cost.ToString("C", System.Globalization.CultureInfo.GetCultureInfo("nl-NL"))}.";
+        }
+        else if (e.DisposedOn is not null)
+            return "Dit bedrijfsmiddel staat als verkocht of weggedaan. Maak dat eerst ongedaan bij Investeringen; daarna kun je er weer gewone kosten van maken.";
+        if (e.DisposedOn is { } disposed && input.Date.Date > disposed)
+            return "De aankoopdatum kan niet na de datum liggen waarop je het bedrijfsmiddel verkocht of wegdeed.";
+
         e.Date = input.Date.Date; e.Supplier = supplier; e.Description = description; e.Category = category; e.Amount = amount;
         e.VatRate = input.VatRate; e.VatAmount = vat; e.ReverseCharge = input.ReverseCharge; e.SupplierRegion = region;
         e.ProjectId = input.ProjectId; e.CustomerId = customerId;
+        e.Investment = input.Investment; e.UsefulLifeYears = years; e.ResidualValue = residual; e.PassengerCar = input.Investment && input.PassengerCar;
         return null;
     }
 

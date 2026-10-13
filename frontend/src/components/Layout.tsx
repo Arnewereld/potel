@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, CalendarDays, Users, Target, Receipt, Workflow, Blocks, X, Search, FileSignature,
   ChevronsLeft, ChevronsRight, Moon, Sun, Plus, ShieldCheck, LogOut, KeyRound, Timer, FolderKanban, Settings, Square, Crown, Wallet, Landmark, CalendarRange,
-  ArrowLeftRight, Car,
+  ArrowLeftRight, Car, Package,
 } from 'lucide-react'
 import { clock, useTimer } from '../lib/timer'
 import { useWorkspace } from '../lib/workspace'
@@ -34,6 +34,7 @@ const nav = [
   { to: '/offertes', label: 'Offertes', icon: FileSignature, group: 'Klanten en sales' },
   { to: '/btw-aangifte', label: 'Btw-aangifte', icon: Landmark, group: 'Belasting' },
   { to: '/jaaroverzicht', label: 'Jaaroverzicht', icon: CalendarRange, group: 'Belasting' },
+  { to: '/investeringen', label: 'Investeringen', icon: Package, group: 'Belasting' },
   { to: '/werkstromen', label: 'Werkstromen', icon: Workflow, group: 'Systeem' },
   { to: '/instellingen', label: 'Instellingen', icon: Settings, group: 'Systeem' },
 ]

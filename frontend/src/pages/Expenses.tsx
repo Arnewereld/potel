@@ -38,6 +38,8 @@ export function ExpensesPage() {
   // Met de KOR of alleen vrijgestelde omzet vraag je geen btw terug; dan zijn de kosten inclusief btw je echte kosten.
   const noDeduction = settings?.vatRegime === 'kor' || settings?.vatRegime === 'vrijgesteld'
   const newDate = isThisMonth ? today : from
+  // Een investering telt niet in één keer mee voor je winst, maar via de afschrijving.
+  const investments = filtered.filter(e => e.investment).length
 
   return (
     <>
@@ -64,8 +66,8 @@ export function ExpensesPage() {
         <div className="grid grid-stats" style={{ marginBottom: 18 }}>
           <MiniStat icon={<Wallet size={18} />} accent="var(--primary)" label="Betaald" value={euro(sum(e => e.amount))}
             sub="Wat je overmaakte, met btw" />
-          <MiniStat icon={<Receipt size={18} />} accent="var(--blue)" label="Kosten voor je winst" value={euro(sum(e => costForProfit(e, noDeduction)))}
-            sub={noDeduction ? 'Met btw, want die vraag je niet terug' : 'Zonder btw, want die vraag je terug'} />
+          <MiniStat icon={<Receipt size={18} />} accent="var(--blue)" label="Kosten voor je winst" value={euro(sum(e => e.investment ? 0 : costForProfit(e, noDeduction)))}
+            sub={`${noDeduction ? 'Met btw, want die vraag je niet terug' : 'Zonder btw, want die vraag je terug'}${investments ? `. Zonder ${investments === 1 ? 'de investering' : `${investments} investeringen`}, die schrijf je af` : ''}`} />
           <MiniStat icon={<Percent size={18} />} accent="var(--green)" label="Btw op je kosten" value={euro(sum(e => e.vatAmount))}
             sub={noDeduction ? 'Met jouw btw-regeling trek je dit niet af' : 'Voorbelasting voor je btw-aangifte'} />
           <MiniStat icon={<FileWarning size={18} />} accent="var(--yellow)" label="Zonder bonnetje" value={String(missing)}
@@ -94,6 +96,7 @@ export function ExpensesPage() {
                       <td>
                         <strong>{e.supplier}</strong>
                         {e.demo && <span className="badge badge-gray" style={{ marginLeft: 8 }}>voorbeeld</span>}
+                        {e.investment && <span className="badge badge-blue" style={{ marginLeft: 8 }}>{e.disposedOn ? (e.disposalPrice ? 'investering, verkocht' : 'investering, weggedaan') : 'investering'}</span>}
                         {e.description && <div className="cell-sub">{e.description}</div>}
                       </td>
                       <td className="muted">{categoryLabel(e.category)}</td>

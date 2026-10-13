@@ -1018,6 +1018,17 @@ public class Expense : IWorkspaceOwned, IDemoData
     public int? CustomerId { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    // Een investering (bedrijfsmiddel) schrijf je af over de gebruiksduur in plaats van de prijs in één keer af te trekken.
+    public bool Investment { get; set; }
+    public int? UsefulLifeYears { get; set; }
+    // Wat het bedrijfsmiddel aan het eind van de gebruiksduur vermoedelijk nog waard is; daar schrijf je niet onder.
+    public decimal? ResidualValue { get; set; }
+    // Een personenauto die niet bedoeld is voor beroepsvervoer telt niet mee voor de kleinschaligheidsinvesteringsaftrek.
+    public bool PassengerCar { get; set; }
+    // Verkocht of weggedaan: vanaf dan stopt de afschrijving. De verkoopprijs is zonder btw; null of 0 is niets gekregen.
+    public DateTime? DisposedOn { get; set; }
+    public decimal? DisposalPrice { get; set; }
+
     // Het bedrag zonder btw. Bij btw verlegd betaalde je al geen btw.
     [NotMapped] public decimal AmountExclVat => ReverseCharge ? Amount : Amount - VatAmount;
     [NotMapped] public bool Demo => IsDemo;

@@ -613,6 +613,75 @@ export interface Expense {
   demo: boolean
   receipt?: ReceiptInfo | null
   createdAt: string
+  // Een investering schrijf je af over de gebruiksduur (standaard 5 jaar) in plaats van in één keer.
+  investment: boolean
+  usefulLifeYears?: number | null
+  residualValue?: number | null
+  passengerCar: boolean
+  disposedOn?: string | null
+  disposalPrice?: number | null
+}
+
+export interface DepreciationYear {
+  year: number
+  depreciation: number
+  bookValue: number
+}
+
+export interface Investment {
+  id: number
+  date: string
+  supplier: string
+  description?: string | null
+  category: ExpenseCategory
+  // De aanschafprijs voor je winst: zonder btw, of met btw als je die niet aftrekt.
+  cost: number
+  residual: number
+  years: number
+  passengerCar: boolean
+  countsForKia: boolean
+  perYear: number
+  // Meer dan 20% van de aanschafprijs per jaar.
+  aboveMaximum: boolean
+  // In het gekozen jaar.
+  depreciation: number
+  bookValue: number
+  disposedOn?: string | null
+  disposalPrice?: number | null
+  bookValueAtDisposal?: number | null
+  // Positief is boekwinst, negatief is afgeboekte boekwaarde.
+  disposalResult?: number | null
+  demo: boolean
+  schedule: DepreciationYear[]
+}
+
+// Zonder voorbeelddata, zoals op het jaaroverzicht.
+export interface InvestmentSummary {
+  count: number
+  depreciation: number
+  bookValue: number
+  disposalLoss: number
+  disposalGain: number
+  invested: number
+  qualifying: number
+  kia: number
+  kiaKnown: boolean
+  kiaSource: string
+  assumptions: string[]
+  kiaNotes: string[]
+  warnings: string[]
+}
+
+export interface InvestmentYear {
+  year: number
+  deduction: boolean
+  investments: Investment[]
+  summary: InvestmentSummary
+  // Of de totalen nu ook de voorbeelddata bevatten.
+  includesDemo: boolean
+  depreciationSource: string
+  calculationSource: string
+  kiaExclusionsSource: string
 }
 
 export interface VatRubric {
@@ -675,6 +744,8 @@ export interface TaxIndication {
   taxableProfit: number
   notes: string[]
   sources: string[]
+  // De kleinschaligheidsinvesteringsaftrek; die gaat van de winst af voor de ondernemersaftrek.
+  investmentDeduction: number
 }
 
 export interface AnnualOverview {
@@ -690,13 +761,15 @@ export interface AnnualOverview {
   indication: TaxIndication
   invoices: number
   expenses: number
-  // Hardware van € 450 of meer: die schrijf je af in plaats van in één keer.
-  investments: number
+  // Hardware van € 450 of meer die nog geen investering is: die schrijf je af in plaats van in één keer.
+  possibleInvestments: number
   demoData: boolean
   hoursSource: string
   depreciationSource: string
   // Ritten van het jaar: alleen zakelijke kilometers met je eigen auto geven aftrek.
   mileage: { trips: number; businessKm: number; companyCarKm: number; privateKm: number; rate: number | null; deduction: number; source: string; note?: string | null }
+  // Afschrijving, verkopen en de kleinschaligheidsinvesteringsaftrek van dit jaar.
+  investments: InvestmentSummary
 }
 
 // Het klantportaal: wat de klant ziet en de stand van de link. Het token zelf bewaart de server niet.

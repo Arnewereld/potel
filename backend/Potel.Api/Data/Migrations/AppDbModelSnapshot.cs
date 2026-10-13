@@ -468,11 +468,26 @@ namespace Potel.Api.Data.Migrations
                     b.Property<string>("Description")
                         .HasColumnType("TEXT");
 
+                    b.Property<decimal?>("DisposalPrice")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("DisposedOn")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Investment")
+                        .HasColumnType("INTEGER");
+
                     b.Property<bool>("IsDemo")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("PassengerCar")
                         .HasColumnType("INTEGER");
 
                     b.Property<int?>("ProjectId")
                         .HasColumnType("INTEGER");
+
+                    b.Property<decimal?>("ResidualValue")
+                        .HasColumnType("TEXT");
 
                     b.Property<bool>("ReverseCharge")
                         .HasColumnType("INTEGER");
@@ -483,6 +498,9 @@ namespace Potel.Api.Data.Migrations
 
                     b.Property<string>("SupplierRegion")
                         .HasColumnType("TEXT");
+
+                    b.Property<int?>("UsefulLifeYears")
+                        .HasColumnType("INTEGER");
 
                     b.Property<decimal>("VatAmount")
                         .HasColumnType("TEXT");

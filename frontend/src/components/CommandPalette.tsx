@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Users, Target, Receipt, FileSignature, CornerDownLeft, Plus, LayoutDashboard, CalendarDays, Workflow, Timer, FolderKanban, Settings, Wallet, Landmark, CalendarRange, Car } from 'lucide-react'
+import { Search, Users, Target, Receipt, FileSignature, CornerDownLeft, Plus, LayoutDashboard, CalendarDays, Workflow, Timer, FolderKanban, Settings, Wallet, Landmark, CalendarRange, Car, Package } from 'lucide-react'
 import { api } from '../lib/api'
 
 interface Hit { type: string; id: number; title: string; subtitle?: string | null }
@@ -16,6 +16,7 @@ const quick: Item[] = [
   { key: 'q-rit', label: 'Ritten', icon: <Car size={16} />, to: '/ritten' },
   { key: 'q-btw', label: 'Btw-aangifte', icon: <Landmark size={16} />, to: '/btw-aangifte' },
   { key: 'q-jaar', label: 'Jaaroverzicht', icon: <CalendarRange size={16} />, to: '/jaaroverzicht' },
+  { key: 'q-invest', label: 'Investeringen', icon: <Package size={16} />, to: '/investeringen' },
   { key: 'q-cus', label: 'Klanten', icon: <Users size={16} />, to: '/klanten' },
   { key: 'q-lead', label: 'Leads', icon: <Target size={16} />, to: '/leads' },
   { key: 'q-off', label: 'Offertes', icon: <FileSignature size={16} />, to: '/offertes' },

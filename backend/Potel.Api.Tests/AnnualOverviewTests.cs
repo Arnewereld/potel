@@ -71,7 +71,7 @@ public class AnnualOverviewTests(MayInAmsterdamFactory factory) : IClassFixture<
         Assert.Equal(2317.99m, y.GetProperty("costs").GetDecimal());
         Assert.Equal(7682.01m, y.GetProperty("result").GetDecimal());
         Assert.True(y.GetProperty("deduction").GetBoolean());
-        Assert.Equal(1, y.GetProperty("investments").GetInt32());
+        Assert.Equal(1, y.GetProperty("possibleInvestments").GetInt32());
         var categories = y.GetProperty("costsByCategory").EnumerateArray().ToDictionary(x => x.GetProperty("category").GetString()!, x => x.GetProperty("amount").GetDecimal());
         Assert.Equal(new Dictionary<string, decimal> { ["hardware"] = 2000m, ["software"] = 289m, ["reiskosten"] = 28.99m }, categories);
         Assert.Equal(10000m, y.GetProperty("months")[4].GetProperty("revenue").GetDecimal());

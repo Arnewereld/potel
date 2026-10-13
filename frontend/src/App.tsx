@@ -29,6 +29,7 @@ import { TripsPage } from './pages/Trips'
 import { BankPage } from './pages/Bank'
 import { VatReturnPage } from './pages/VatReturn'
 import { AnnualPage } from './pages/Annual'
+import { InvestmentsPage } from './pages/Investments'
 import { PlanningPage } from './pages/Planning'
 import { WorkflowsPage } from './pages/Workflows'
 import { WorkflowEditorPage } from './pages/WorkflowEditor'
@@ -104,6 +105,7 @@ function AppRoutes({ location }: { location: string }) {
       <Route path="/bank" element={<BankPage />} />
       <Route path="/btw-aangifte" element={<VatReturnPage />} />
       <Route path="/jaaroverzicht" element={<AnnualPage />} />
+      <Route path="/investeringen" element={<InvestmentsPage />} />
       <Route path="/werkstromen" element={<WorkflowsPage />} />
       <Route path="/werkstromen/:id" element={<WorkflowEditorPage />} />
       <Route path="/modules" element={<ModulesPage />} />

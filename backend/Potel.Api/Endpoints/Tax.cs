@@ -169,24 +169,28 @@ public record CategoryCost(string Category, string Label, decimal Amount, int Co
 public record MonthTotals(string Month, decimal Revenue, decimal Costs);
 public record HoursSummary(int Minutes, int BillableMinutes, int NonBillableMinutes, int Criterion, bool Met);
 
-// Een indicatie van de ondernemersaftrek en de MKB-winstvrijstelling, met de bedragen uit TaxYears.
+// Een indicatie van de kleinschaligheidsinvesteringsaftrek, de ondernemersaftrek en de MKB-winstvrijstelling, met de bedragen uit TaxYears.
 public record TaxIndication(
     bool Available, decimal Profit, bool HoursMet, bool Starter, decimal SelfEmployedDeduction, decimal StarterDeduction,
-    decimal ProfitAfterDeductions, decimal? SmePercentage, decimal SmeExemption, decimal TaxableProfit, List<string> Notes, string[] Sources);
+    decimal ProfitAfterDeductions, decimal? SmePercentage, decimal SmeExemption, decimal TaxableProfit, List<string> Notes, string[] Sources,
+    decimal InvestmentDeduction = 0);
 
 // Ritten van het jaar. Alleen zakelijke kilometers met je eigen auto geven aftrek: kilometers maal het bedrag per kilometer van dat jaar.
 public record MileageSummary(int Trips, decimal BusinessKm, decimal CompanyCarKm, decimal PrivateKm, decimal? Rate, decimal Deduction, string Source, string? Note);
 
+// Costs is zonder investeringen: die tellen mee via de afschrijving (en afgeboekte boekwaarde) in Investments. Result is
+// omzet min kosten plus boekwinst. PossibleInvestments zijn uitgaven voor hardware van € 450 of meer die geen investering zijn.
 public record AnnualDto(
     int Year, decimal Revenue, decimal Costs, decimal Result, bool Deduction, List<CategoryCost> CostsByCategory, List<MonthTotals> Months,
-    HoursSummary Hours, TaxIndication Indication, int Invoices, int Expenses, int Investments, bool DemoData,
-    string HoursSource, string DepreciationSource, MileageSummary Mileage);
+    HoursSummary Hours, TaxIndication Indication, int Invoices, int Expenses, int PossibleInvestments, bool DemoData,
+    string HoursSource, string DepreciationSource, MileageSummary Mileage, InvestmentSummary Investments);
 
 // Het jaaroverzicht voor de aangifte inkomstenbelasting: omzet, kosten, resultaat, uren en een indicatie van de aftrekposten.
 // Zonder concepten en voorbeelddata. Een indicatie, geen belastingadvies.
 public static class AnnualOverview
 {
-    public record Data(AnnualDto Summary, List<Invoice> Invoices, List<Expense> Expenses, HashSet<int> ReceiptIds, List<TripRow> Trips);
+    public record Data(AnnualDto Summary, List<Invoice> Invoices, List<Expense> Expenses, HashSet<int> ReceiptIds, List<TripRow> Trips,
+        List<InvestmentDto> Investments);
 
     public record TripRow(Trip Trip, string? Customer, string? Project, string? InvoiceNumber);
 
@@ -231,25 +235,33 @@ public static class AnnualOverview
         var mileageByMonth = SplitByMonth(trips.Where(t => t.Kind == TripKinds.Business), kmRate.Rate);
         var mileage = new MileageSummary(trips.Count, businessKm, companyCarKm, privateKm, kmRate.Rate, mileageByMonth.Sum(), kmRate.Source, kmRate.Note);
 
+        // Een investering telt niet in één keer mee, maar via de afschrijving over de jaren dat je hem gebruikt.
+        var plain = expenses.Where(e => !e.Investment).ToList();
+        var (assets, investments, assetsByMonth) = await InvestmentEndpoints.YearAsync(db, year, deduction);
+
         var revenue = invoices.Sum(i => i.Totals.Subtotal);
-        var costs = expenses.Sum(e => e.CostForProfit(deduction)) + mileage.Deduction;
-        var result = revenue - costs;
+        var costs = plain.Sum(e => e.CostForProfit(deduction)) + mileage.Deduction + investments.Depreciation + investments.DisposalLoss;
+        var result = revenue - costs + investments.DisposalGain;
         var byCategory = ExpenseCategories.All
-            .Select(c => new CategoryCost(c, ExpenseCategories.Label(c), expenses.Where(e => e.Category == c).Sum(e => e.CostForProfit(deduction)), expenses.Count(e => e.Category == c)))
+            .Select(c => new CategoryCost(c, ExpenseCategories.Label(c), plain.Where(e => e.Category == c).Sum(e => e.CostForProfit(deduction)), plain.Count(e => e.Category == c)))
             .Where(c => c.Count > 0).ToList();
         var months = Enumerable.Range(1, 12).Select(m => new MonthTotals($"{year}-{m:00}",
             invoices.Where(i => i.IssueDate.Month == m).Sum(i => i.Totals.Subtotal),
-            expenses.Where(e => e.Date.Month == m).Sum(e => e.CostForProfit(deduction)) + mileageByMonth[m - 1])).ToList();
+            plain.Where(e => e.Date.Month == m).Sum(e => e.CostForProfit(deduction)) + mileageByMonth[m - 1] + assetsByMonth[m - 1])).ToList();
         var minutes = hours.Sum(h => h.Minutes);
         var billable = hours.Where(h => h.Billable).Sum(h => h.Minutes);
         var hoursSummary = new HoursSummary(minutes, billable, minutes - billable, TaxYears.HoursCriterion, minutes >= TaxYears.HoursCriterion * 60);
-        var investments = expenses.Count(e => e.Category == ExpenseCategories.Hardware && e.CostForProfit(deduction) >= TaxYears.DepreciationThreshold);
+        var possibleInvestments = plain.Count(e => e.Category == ExpenseCategories.Hardware && e.CostForProfit(deduction) >= TaxYears.DepreciationThreshold);
         var demoData = await db.Invoices.AnyAsync(i => i.IsDemo) || await db.Expenses.AnyAsync(e => e.IsDemo) || await db.TimeEntries.AnyAsync(t => t.IsDemo)
             || await db.Trips.AnyAsync(t => t.IsDemo);
 
+        var indication = Indicate(TaxYears.For(year), year, result, hoursSummary, starter, investments.Kia);
+        // Bij de indicatie alleen wat over dit jaar gaat: de KIA als je iets kocht, en de waarschuwingen.
+        if (indication.Available && investments.Invested > 0) indication.Notes.AddRange(investments.KiaNotes);
+        if (indication.Available) indication.Notes.AddRange(investments.Warnings);
         var summary = new AnnualDto(year, revenue, costs, result, deduction, byCategory, months, hoursSummary,
-            Indicate(TaxYears.For(year), year, result, hoursSummary, starter), invoices.Count, expenses.Count, investments, demoData,
-            TaxYears.HoursSource, TaxYears.DepreciationSource, mileage);
+            indication, invoices.Count, expenses.Count, possibleInvestments, demoData,
+            TaxYears.HoursSource, TaxYears.DepreciationSource, mileage, investments);
         var ids = expenses.Select(e => e.Id).ToList();
         var receiptIds = (await db.ExpenseReceipts.Where(r => ids.Contains(r.ExpenseId)).Select(r => r.ExpenseId).ToListAsync()).ToHashSet();
         var projects = await db.Projects.AsNoTracking().ToDictionaryAsync(p => p.Id, p => p.Name);
@@ -258,12 +270,13 @@ public static class AnnualOverview
         var numbers = await db.Invoices.Where(i => invoiceIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id, i => i.Number);
         var tripRows = trips.Select(t => new TripRow(t, t.CustomerId is { } c ? customers.GetValueOrDefault(c) : null,
             t.ProjectId is { } p ? projects.GetValueOrDefault(p) : null, t.InvoiceId is { } i ? numbers.GetValueOrDefault(i) ?? "concept" : null)).ToList();
-        return new Data(summary, invoices, expenses, receiptIds, tripRows);
+        return new Data(summary, invoices, expenses, receiptIds, tripRows, assets.Where(a => !a.Demo).ToList());
     }
 
-    // Zelfstandigenaftrek (met het urencriterium, niet hoger dan de winst behalve voor starters), startersaftrek
-    // en daarna de MKB-winstvrijstelling over de winst na ondernemersaftrek; bij verlies maakt die het verlies kleiner.
-    public static TaxIndication Indicate(TaxYear? t, int year, decimal profit, HoursSummary hours, bool starter)
+    // Eerst de kleinschaligheidsinvesteringsaftrek (die verlaagt je winst), dan de zelfstandigenaftrek (met het urencriterium,
+    // niet hoger dan die winst behalve voor starters), startersaftrek en daarna de MKB-winstvrijstelling over de winst na
+    // ondernemersaftrek; bij verlies maakt die het verlies kleiner.
+    public static TaxIndication Indicate(TaxYear? t, int year, decimal profit, HoursSummary hours, bool starter, decimal kia = 0)
     {
         var notes = new List<string>();
         if (t is null)
@@ -273,22 +286,23 @@ public static class AnnualOverview
         }
         if (!hours.Met)
             notes.Add($"Je hebt {Thousands(hours.Minutes / 60)} van de {Thousands(TaxYears.HoursCriterion)} uur. Zonder het urencriterium krijg je geen zelfstandigenaftrek en geen startersaftrek.");
+        var winst = profit - kia;
         var selfEmployed = hours.Met ? t.SelfEmployedDeduction : 0;
-        if (!starter && selfEmployed > Math.Max(0, profit))
+        if (!starter && selfEmployed > Math.Max(0, winst))
         {
-            selfEmployed = Math.Max(0, profit);
+            selfEmployed = Math.Max(0, winst);
             notes.Add("De zelfstandigenaftrek is niet hoger dan je winst, behalve als je starter bent.");
         }
         var starterDeduction = hours.Met && starter ? t.StarterDeduction ?? 0 : 0;
-        var after = profit - selfEmployed - starterDeduction;
+        var after = winst - selfEmployed - starterDeduction;
         var sme = t.SmeProfitExemption is { } pct ? Money.Round(after * pct / 100) : 0;
         if (t.Note is not null) notes.Add(t.Note);
         notes.Add("Heb je aan het begin van het jaar de AOW-leeftijd, dan is de zelfstandigenaftrek de helft.");
-        notes.Add("Andere aftrekposten, zoals afschrijvingen, investeringsaftrek en de meewerkaftrek, tellen hier niet mee.");
-        return new TaxIndication(true, profit, hours.Met, starter, selfEmployed, starterDeduction, after, t.SmeProfitExemption, sme, after - sme, notes, t.Sources);
+        notes.Add("Andere aftrekposten, zoals de energie-investeringsaftrek, de milieu-investeringsaftrek en de meewerkaftrek, tellen hier niet mee.");
+        return new TaxIndication(true, profit, hours.Met, starter, selfEmployed, starterDeduction, after, t.SmeProfitExemption, sme, after - sme, notes, t.Sources, kia);
     }
 
-    // Eén CSV-bestand voor je boekhouder: de samenvatting, de facturen en de kosten. UTF-8 met BOM, puntkomma's en
+    // Eén CSV-bestand voor je boekhouder: de samenvatting, de facturen, de kosten, de investeringen en de ritten. UTF-8 met BOM, puntkomma's en
     // Nederlandse bedragen, zodat Excel het meteen goed opent.
     public static byte[] Csv(Data data, string company)
     {
@@ -304,6 +318,17 @@ public static class AnnualOverview
         Line("Omzet zonder btw", CsvNumber(s.Revenue));
         Line(s.Deduction ? "Kosten zonder btw" : "Kosten met btw (je trekt geen btw af)", CsvNumber(s.Costs));
         foreach (var c in s.CostsByCategory) Line(CsvText($"Kosten {c.Label.ToLowerInvariant()}"), CsvNumber(c.Amount));
+        var inv = s.Investments;
+        if (data.Investments.Count > 0)
+        {
+            Line("Afschrijving bedrijfsmiddelen", CsvNumber(inv.Depreciation));
+            if (inv.DisposalLoss > 0) Line("Afgeboekte boekwaarde bij verkoop of wegdoen", CsvNumber(inv.DisposalLoss));
+            if (inv.DisposalGain > 0) Line("Boekwinst bij verkoop", CsvNumber(inv.DisposalGain));
+            Line(CsvText($"Investeringen in {s.Year} (aanschafprijs)"), CsvNumber(inv.Invested));
+            Line("Investeringen die meetellen voor de KIA", CsvNumber(inv.Qualifying));
+            Line(inv.KiaKnown ? "Kleinschaligheidsinvesteringsaftrek (indicatie)" : "Kleinschaligheidsinvesteringsaftrek (bedragen nog niet bekend)", CsvNumber(inv.Kia));
+            Line(CsvText($"Boekwaarde bedrijfsmiddelen 31-12-{s.Year}"), CsvNumber(inv.BookValue));
+        }
         if (s.Mileage.Trips > 0)
         {
             Line("Zakelijke kilometers eigen auto", CsvNumber(s.Mileage.BusinessKm));
@@ -329,12 +354,25 @@ public static class AnnualOverview
         }
         Line();
         Line("Kosten");
-        Line("Datum", "Leverancier", "Omschrijving", "Categorie", "Bedrag", "Btw-tarief", "Btw", "Bedrag zonder btw", "Btw verlegd", "Leverancier zit", "Bonnetje");
+        Line("Datum", "Leverancier", "Omschrijving", "Categorie", "Bedrag", "Btw-tarief", "Btw", "Bedrag zonder btw", "Btw verlegd", "Leverancier zit", "Bonnetje",
+            "Investering (telt mee via de afschrijving)");
         foreach (var e in data.Expenses)
             Line(CsvDate(e.Date), CsvText(e.Supplier), CsvText(e.Description), CsvText(ExpenseCategories.Label(e.Category)), CsvNumber(e.Amount),
                 e.VatRate is { } r ? CsvNumber(r) : "geen", CsvNumber(e.VatAmount), CsvNumber(e.AmountExclVat), e.ReverseCharge ? "ja" : "nee",
                 e.SupplierRegion == SupplierRegions.Eu ? "EU" : e.SupplierRegion == SupplierRegions.OutsideEu ? "buiten de EU" : "",
-                data.ReceiptIds.Contains(e.Id) ? "ja" : "nee");
+                data.ReceiptIds.Contains(e.Id) ? "ja" : "nee", e.Investment ? "ja" : "nee");
+        if (data.Investments.Count > 0)
+        {
+            Line();
+            Line("Investeringen");
+            Line("Aankoopdatum", "Leverancier", "Omschrijving", "Aanschafprijs", "Restwaarde", "Gebruiksduur in jaren", CsvText($"Afschrijving {s.Year}"),
+                CsvText($"Boekwaarde 31-12-{s.Year}"), "Verkocht of weggedaan op", "Verkoopprijs zonder btw", "Boekwinst of -verlies", CsvText($"Telt mee voor de KIA {s.Year}"));
+            foreach (var a in data.Investments)
+                Line(CsvDate(a.Date), CsvText(a.Supplier), CsvText(a.Description), CsvNumber(a.Cost), CsvNumber(a.Residual),
+                    a.Years.ToString(System.Globalization.CultureInfo.InvariantCulture), CsvNumber(a.Depreciation), CsvNumber(a.BookValue),
+                    a.DisposedOn is { } d ? CsvDate(d) : "", a.DisposedOn is null ? "" : CsvNumber(a.DisposalPrice ?? 0),
+                    a.DisposalResult is { } result ? CsvNumber(result) : "", a.Date.Year != s.Year ? "" : a.CountsForKia ? "ja" : "nee");
+        }
         if (data.Trips.Count > 0)
         {
             Line();

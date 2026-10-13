@@ -43,3 +43,24 @@ export const fileSize = (bytes: number) => bytes >= 1024 * 1024
 // bij de kosten, ook de verlegde btw die je zelf afdraagt. Zelfde regel als het jaaroverzicht op de server.
 export const costForProfit = (e: Pick<Expense, 'amount' | 'amountExclVat' | 'vatAmount' | 'reverseCharge'>, noDeduction: boolean) =>
   noDeduction ? e.amount + (e.reverseCharge ? e.vatAmount : 0) : e.amountExclVat
+
+// Een bedrijfsmiddel van € 450 of meer (zonder btw, of met btw als je die niet aftrekt) kun je als investering afschrijven.
+// Zelfde grens en standaard als de server (TaxYears.DepreciationThreshold en Depreciation.DefaultYears).
+export const InvestmentThreshold = 450
+export const DefaultUsefulLife = 5
+export const MaxUsefulLife = 20
+
+const round2 = (n: number) => (Math.sign(n) * Math.round(Number(Math.abs(n * 100).toPrecision(15))) || 0) / 100
+
+// Zelfde som als Depreciation op de server: lineair vanaf de maand van aankoop, nooit onder de restwaarde.
+export function depreciationPreview(cost: number, residual: number, years: number, date: string) {
+  const depreciable = Math.max(0, cost - residual)
+  const month = Number(date.slice(5, 7)) || 1
+  const firstMonths = Math.min(13 - month, years * 12)
+  return {
+    perYear: round2(depreciable / years),
+    firstYear: round2(depreciable * firstMonths / (years * 12)),
+    // Fiscaal meestal hooguit 20% van de aanschafprijs per jaar.
+    aboveMaximum: cost > 0 && depreciable / years > cost * 0.2,
+  }
+}

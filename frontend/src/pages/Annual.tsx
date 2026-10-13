@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { CalendarRange, ChevronLeft, ChevronRight, Download, Euro, Wallet, TrendingUp, Timer, Info } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useToast } from '../lib/toast'
@@ -37,6 +38,7 @@ export function AnnualPage() {
   const max = Math.max(1, ...(data?.months.map(m => Math.max(m.revenue, m.costs)) ?? []))
   const ind = data?.indication
   const criterionMinutes = (data?.hours.criterion ?? 1225) * 60
+  const inv = data?.investments
 
   return (
     <>
@@ -66,17 +68,19 @@ export function AnnualPage() {
           <MiniStat icon={<Euro size={18} />} accent="var(--green)" label="Omzet" value={euro(data.revenue)} sub="Zonder btw, op factuurdatum" />
           <MiniStat icon={<Wallet size={18} />} accent="var(--primary)" label="Kosten" value={euro(data.costs)}
             sub={data.deduction ? 'Zonder btw' : 'Met btw, want die trek je niet af'} />
-          <MiniStat icon={<TrendingUp size={18} />} accent="var(--blue)" label="Resultaat voor belasting" value={euro(data.result)} sub="Omzet min kosten" />
+          <MiniStat icon={<TrendingUp size={18} />} accent="var(--blue)" label="Resultaat voor belasting" value={euro(data.result)}
+            sub={inv && inv.disposalGain > 0 ? `Omzet min kosten, plus ${euro(inv.disposalGain)} boekwinst` : 'Omzet min kosten'} />
           <MiniStat icon={<Timer size={18} />} accent={data.hours.met ? 'var(--green)' : 'var(--yellow)'} label="Urencriterium"
             value={`${Math.floor(data.hours.minutes / 60).toLocaleString('nl-NL')} uur`} progress={data.hours.minutes / criterionMinutes}
             sub={data.hours.met ? `Gehaald: ${data.hours.criterion.toLocaleString('nl-NL')} uur of meer`
               : `Nog ${Math.ceil((criterionMinutes - data.hours.minutes) / 60).toLocaleString('nl-NL')} uur tot ${data.hours.criterion.toLocaleString('nl-NL')}`} />
         </div>
 
-        {data.investments > 0 && (
+        {data.possibleInvestments > 0 && (
           <div className="notice">
-            Er {data.investments === 1 ? 'staat 1 uitgave' : `staan ${data.investments} uitgaven`} voor hardware van € 450 of meer in. Zo'n bedrijfsmiddel schrijf je af over
-            de jaren dat je het gebruikt; hier telt het nog helemaal mee in dit jaar. <a href={data.depreciationSource} target="_blank" rel="noreferrer">Bron: Belastingdienst</a>
+            Er {data.possibleInvestments === 1 ? 'staat 1 uitgave' : `staan ${data.possibleInvestments} uitgaven`} voor hardware van € 450 of meer in die geen investering
+            {data.possibleInvestments === 1 ? ' is' : ' zijn'}. Zo'n bedrijfsmiddel schrijf je af over de jaren dat je het gebruikt; nu telt het nog helemaal mee in dit jaar.
+            Markeer het bij <Link to="/kosten">Kosten</Link> als investering. <a href={data.depreciationSource} target="_blank" rel="noreferrer">Bron: Belastingdienst</a>
           </div>
         )}
 
@@ -98,7 +102,7 @@ export function AnnualPage() {
 
           <div className="card">
             <div className="card-head"><h3>Kosten per categorie</h3><span className="muted">{data.deduction ? 'Zonder btw' : 'Met btw'}</span></div>
-            {data.costsByCategory.length === 0 && data.mileage.trips === 0 ? (
+            {data.costsByCategory.length === 0 && data.mileage.trips === 0 && data.investments.count === 0 ? (
               <div className="card-body muted">Nog geen kosten in {data.year}.</div>
             ) : (
               <div className="table-wrap">
@@ -119,6 +123,20 @@ export function AnnualPage() {
                         </td>
                         <td className="num">{euro(data.mileage.deduction)}</td>
                       </tr>
+                    )}
+                    {data.investments.count > 0 && (
+                      <tr>
+                        <td>
+                          Afschrijving
+                          <div className="cell-sub">
+                            {data.investments.count} {data.investments.count === 1 ? 'bedrijfsmiddel' : 'bedrijfsmiddelen'} · <Link to="/investeringen">Investeringen</Link>
+                          </div>
+                        </td>
+                        <td className="num">{euro(data.investments.depreciation)}</td>
+                      </tr>
+                    )}
+                    {data.investments.disposalLoss > 0 && (
+                      <tr><td>Afgeboekte boekwaarde<div className="cell-sub">Verkocht of weggedaan</div></td><td className="num">{euro(data.investments.disposalLoss)}</td></tr>
                     )}
                   </tbody>
                   <tfoot><tr><td>Totaal</td><td className="num"><strong>{euro(data.costs)}</strong></td></tr></tfoot>
@@ -157,6 +175,18 @@ export function AnnualPage() {
                   <table>
                     <tbody>
                       <tr><td>Resultaat voor belasting</td><td className="num">{euro(ind.profit)}</td></tr>
+                      {(ind.investmentDeduction > 0 || data.investments.invested > 0) && (
+                        <tr>
+                          <td>
+                            Kleinschaligheidsinvesteringsaftrek
+                            <div className="cell-sub">
+                              {data.investments.kiaKnown ? `Over ${euro(data.investments.qualifying)} aan investeringen` : 'Bedragen nog niet bekend'}
+                              {' · '}<a href={data.investments.kiaSource} target="_blank" rel="noreferrer">Bron</a>
+                            </div>
+                          </td>
+                          <td className="num">{euro(-ind.investmentDeduction)}</td>
+                        </tr>
+                      )}
                       <tr><td>Zelfstandigenaftrek</td><td className="num">{euro(-ind.selfEmployedDeduction)}</td></tr>
                       {starter && <tr><td>Startersaftrek</td><td className="num">{euro(-ind.starterDeduction)}</td></tr>}
                       <tr><td>Na ondernemersaftrek</td><td className="num">{euro(ind.profitAfterDeductions)}</td></tr>

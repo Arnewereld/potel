@@ -321,16 +321,18 @@ public static class Seed
         // Kosten van een freelance developer: elke maand dezelfde abonnementen en een paar losse aankopen, met de btw zoals op de bon.
         // Buitenlandse leveranciers rekenen geen btw; die is naar jou verlegd (GitHub en Frontend Masters van buiten de EU, Hetzner en JetBrains uit de EU).
         var expenses = new List<Expense>();
-        void Spend(DateTime date, string supplier, string description, string category, decimal amount, decimal? rate,
+        Expense? Spend(DateTime date, string supplier, string description, string category, decimal amount, decimal? rate,
             string? reverseFrom = null, Project? project = null)
         {
-            if (date > today) return;
-            expenses.Add(new Expense
+            if (date > today) return null;
+            var e = new Expense
             {
                 IsDemo = true, Date = date, Supplier = supplier, Description = description, Category = category, Amount = amount, VatRate = rate,
                 VatAmount = Expense.VatFor(amount, rate, reverseFrom is not null), ReverseCharge = reverseFrom is not null, SupplierRegion = reverseFrom,
                 ProjectId = project?.Id, CustomerId = project?.CustomerId,
-            });
+            };
+            expenses.Add(e);
+            return e;
         }
         for (var m = 1; m <= today.Month; m++)
         {
@@ -341,7 +343,18 @@ public static class Seed
             Spend(month.AddDays(19), "Odido Zakelijk", "Mobiel abonnement", ExpenseCategories.Phone, 30.25m, 21);
         }
         Spend(new DateTime(today.Year, 1, 8), "JetBrains s.r.o.", "All Products Pack, jaarlicentie", ExpenseCategories.Software, 289m, 21, SupplierRegions.Eu);
-        Spend(new DateTime(today.Year, 2, 12), "Coolblue", "MacBook Pro 14 inch", ExpenseCategories.Hardware, 2899m, 21);
+        // Investeringen: de nieuwe MacBook en een bureau van vorig jaar schrijf je af over 5 jaar. De oude ThinkPad uit
+        // 2023 is verkocht toen de MacBook kwam.
+        var macBook = Spend(new DateTime(today.Year, 2, 12), "Coolblue", "MacBook Pro 14 inch", ExpenseCategories.Hardware, 2899m, 21);
+        if (macBook is not null) { macBook.Investment = true; macBook.UsefulLifeYears = 5; macBook.ResidualValue = 300; }
+        var desk = Spend(new DateTime(today.Year - 1, 9, 15), "Ahrend", "Zit-sta-bureau en bureaustoel", ExpenseCategories.Office, 1149m, 21);
+        if (desk is not null) { desk.Investment = true; desk.UsefulLifeYears = 5; }
+        var thinkPad = Spend(new DateTime(today.Year - 3, 3, 6), "Lenovo", "ThinkPad X1 Carbon", ExpenseCategories.Hardware, 1815m, 21);
+        if (thinkPad is not null)
+        {
+            thinkPad.Investment = true; thinkPad.UsefulLifeYears = 5; thinkPad.ResidualValue = 150;
+            if (macBook is not null) { thinkPad.DisposedOn = macBook.Date; thinkPad.DisposalPrice = 450; }
+        }
         Spend(new DateTime(today.Year, 3, 3), "TransIP", "Domeinnaam pixelwerk.dev, 1 jaar", ExpenseCategories.Hosting, 18.15m, 21);
         Spend(new DateTime(today.Year, 4, 16), "Frontend Masters", "Jaarabonnement cursussen", ExpenseCategories.Training, 390m, 21, SupplierRegions.OutsideEu);
         Spend(new DateTime(today.Year, 6, 9), "NS", "Treinkaartjes sprint review in Rotterdam", ExpenseCategories.Travel, 31.60m, 9, project: projects[1]);
