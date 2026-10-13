@@ -100,8 +100,18 @@ export interface Invoice {
   seller?: InvoiceParty | null
   buyer?: InvoiceParty | null
   totals?: InvoiceTotals
+  // De urenspecificatie gaat mee (standaard aan), eventueel met een bedrag per boeking.
+  hourSpecification?: boolean
+  hourAmounts?: boolean
   lines: InvoiceLine[]
 }
+
+// De urenspecificatie bij een factuur: per project de boekingen, met subtotalen en een totaal dat gelijk is aan de urenregels.
+export interface HourSpecEntry { date: string; description: string; who?: string | null; hours: number; amount?: number | null }
+export interface HourSpecProject { name: string; entries: HourSpecEntry[]; hours: number; amount?: number | null }
+export interface HourSpec { projects: HourSpecProject[]; hours: number; amount?: number | null; showWho: boolean; showAmounts: boolean }
+// Wat de editor krijgt: de specificatie, wat er niet klopt (bij een concept) en de schakelaars.
+export interface InvoiceHours { spec: HourSpec | null; problem: string | null; enabled: boolean; amounts: boolean }
 
 export type RecurringInterval = 'maand' | 'kwartaal' | 'jaar'
 export type RecurringPeriodRule = 'vooraf' | 'achteraf'
@@ -195,6 +205,7 @@ export interface ReminderSettings {
 export interface PublicInvoice {
   invoice: Omit<Invoice, 'id' | 'customerId'> & { isCredit: boolean; openAmount: number; fullyCredited: boolean }
   brand: { logoDataUrl?: string | null; brandColor: string }
+  hours?: HourSpec | null
 }
 
 export interface RecurringPreview { periods: RecurringPeriod[]; dueNow: number; lines: string[]; error?: string | null }

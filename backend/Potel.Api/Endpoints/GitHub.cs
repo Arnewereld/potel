@@ -280,7 +280,7 @@ public static partial class GitHubEndpoints
             if (!await db.Projects.AnyAsync(p => p.Id == req.ProjectId)) return Results.BadRequest(new { error = "Kies een project" });
             if (await db.GitHubCommits.AnyAsync(c => shas.Contains(c.Sha)))
                 return Results.Conflict(new { error = "Deze commits zijn al geboekt of overgeslagen. Haal de voorstellen opnieuw op." });
-            var entry = new TimeEntry { ProjectId = req.ProjectId, Date = req.Date.Date, Minutes = req.Minutes, Description = description, Billable = req.Billable };
+            var entry = new TimeEntry { ProjectId = req.ProjectId, Date = req.Date.Date, Minutes = req.Minutes, Description = description, Billable = req.Billable, UserId = user.UserId() };
             db.TimeEntries.Add(entry);
             await db.SaveChangesAsync();
             foreach (var sha in shas)

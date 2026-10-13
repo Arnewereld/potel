@@ -296,6 +296,13 @@ public class Invoice : IWorkspaceOwned, IDemoData
     public DateTime? RecurringPeriodStart { get; set; }
     // Geen automatische herinneringen voor deze factuur. Mag ook na versturen nog aan of uit: het staat niet op de factuur.
     public bool RemindersOff { get; set; }
+    // Urenspecificatie meesturen: een extra pagina met de boekingen op deze factuur. Telt alleen als er uren aan hangen.
+    public bool HourSpecification { get; set; } = true;
+    // Op de urenspecificatie ook het bedrag per boeking, voor boekingen op een regel per uur.
+    public bool HourAmounts { get; set; }
+    // De urenspecificatie zoals hij bij versturen was (JSON, zie Invoicing/HourSpecs.cs). Een verstuurde factuur toont deze,
+    // nooit de boekingen van nu, zodat een latere wijziging aan uren of projecten hem niet verandert.
+    [JsonIgnore] public string? HoursSnapshot { get; set; }
     // De gegevens van jou en je klant zoals ze bij versturen waren. Een verstuurde factuur toont deze, niet de huidige.
     public InvoiceParty? Seller { get; set; }
     public InvoiceParty? Buyer { get; set; }
@@ -670,6 +677,9 @@ public class TimeEntry : IWorkspaceOwned, IDemoData
     public int? InvoiceId { get; set; }
     // De factuurregel met deze uren. Gaat die regel van een concept af, dan komen de uren weer vrij.
     public int? InvoiceLineId { get; set; }
+    // Wie de uren boekte, voor de urenspecificatie in een team. Leeg bij boekingen van voor deze kolom. Bewust zonder
+    // databasekoppeling: die zou de hele tabel met uren laten herbouwen. De naam zoeken we op binnen de eigen werkruimte.
+    public int? UserId { get; set; }
     // Kenmerk dat de timer meestuurt, zodat dubbel stoppen maar één boeking oplevert.
     public string? ClientId { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

@@ -217,6 +217,10 @@ public static partial class WorkspaceEndpoints
             await Write("projects", await db.Projects.ToListAsync());
             await Write("timeEntries", await db.TimeEntries.ToListAsync());
             await Write("invoices", await db.Invoices.Include(i => i.Lines).ToListAsync());
+            // De urenspecificaties zoals ze bij versturen zijn vastgelegd.
+            await Write("invoiceHourSpecifications", (await db.Invoices.Where(i => i.HoursSnapshot != null).OrderBy(i => i.Id)
+                .Select(i => new { i.Id, i.Number, i.HoursSnapshot }).ToListAsync())
+                .Select(i => new { invoiceId = i.Id, number = i.Number, specification = Invoicing.HourSpecs.Parse(i.HoursSnapshot) }));
             await Write("recurringInvoices", await db.RecurringInvoices.Include(r => r.Lines).ToListAsync());
             await Write("invoiceMails", await db.InvoiceMails.OrderBy(m => m.Id).ToListAsync());
             await Write("reminderSettings", await db.ReminderSettings.FirstOrDefaultAsync());

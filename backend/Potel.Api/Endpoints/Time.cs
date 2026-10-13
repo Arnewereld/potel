@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Potel.Api.Data;
 
@@ -47,7 +48,7 @@ public static class TimeEndpoints
             });
         });
 
-        g.MapPost("/", async (AppDb db, TimeEntry input) =>
+        g.MapPost("/", async (AppDb db, ClaimsPrincipal user, TimeEntry input) =>
         {
             if (Validate(db, input) is { } error) return Results.BadRequest(new { error });
             var clientId = string.IsNullOrWhiteSpace(input.ClientId) ? null : input.ClientId.Trim();
@@ -59,6 +60,8 @@ public static class TimeEndpoints
             {
                 ProjectId = input.ProjectId, Date = input.Date.Date, Minutes = input.Minutes,
                 Description = input.Description?.Trim() ?? "", Billable = input.Billable, ClientId = clientId,
+                // Wie boekt, altijd uit de inlog en nooit uit wat de browser meestuurt.
+                UserId = user.UserId(),
             };
             db.TimeEntries.Add(t);
             try

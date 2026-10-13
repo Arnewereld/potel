@@ -710,6 +710,9 @@ a.btn { text-decoration: none; color: inherit; display: inline-flex; align-items
   .public-invoice .paper-parties > div:last-child { text-align: left; }
   .public-invoice .paper-table td.nowrap { white-space: normal; }
   .public-invoice .paper-table th, .public-invoice .paper-table td { padding-left: 3px; padding-right: 3px; }
+  .public-invoice .paper-head { flex-wrap: wrap; row-gap: 8px; }
+  .public-invoice .paper-doc { margin-left: auto; }
+  .public-invoice .hours-paper .paper-doc { font-size: 22px; }
 }
 @media print {
   .public-invoice { padding: 0; background: #fff; min-height: 0; }
@@ -762,6 +765,18 @@ a.btn { text-decoration: none; color: inherit; display: inline-flex; align-items
 .paper-notes { margin: 18px 0 0; color: var(--soft); white-space: pre-wrap; }
 .paper-foot { margin-top: auto; padding-top: 26px; border-top: 1px solid var(--line); color: var(--soft); font-size: 10.5px; text-align: center; }
 
+/* ---------- Factuur: urenspecificatie (extra pagina) ---------- */
+.invoice-papers { display: flex; flex-direction: column; gap: 18px; position: sticky; top: 0; }
+.invoice-papers > .invoice-paper { position: relative; }
+.invoice-papers:has(.hours-paper) { position: static; }
+.hours-paper { min-height: 0; }
+.hours-table .hours-project td { padding-top: 18px; font-weight: 700; font-size: 13px; }
+.hours-table .hours-subtotal td { font-weight: 600; border-bottom: 0; padding-bottom: 4px; }
+.hours-table .hours-total td { font-weight: 800; font-size: 14px; border-top: 1.5px solid var(--ink); border-bottom: 0; padding-top: 12px; }
+.hours-fold { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.hours-fold-toggle { display: inline-flex; align-items: center; gap: 8px; background: none; border: 0; padding: 0; font: inherit; font-weight: 600; color: var(--text); cursor: pointer; }
+.hours-folded { display: none; }
+
 @page { size: A4; margin: 14mm; }
 @media print {
   .sidebar, .tabbar, .no-print, .toasts, .modal-backdrop { display: none !important; }
@@ -773,6 +788,11 @@ a.btn { text-decoration: none; color: inherit; display: inline-flex; align-items
   .invoice-layout { display: block; }
   .invoice-paper { box-shadow: none; position: static; padding: 0; min-height: calc(297mm - 28mm); border-radius: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .invoice-paper::before { display: none; }
+  /* De urenspecificatie begint op een eigen A4, ook als hij op het scherm is ingeklapt. */
+  .invoice-papers { display: block; }
+  .hours-paper { break-before: page; }
+  .hours-folded { display: block !important; }
+  .hours-table tr { break-inside: avoid; }
 }
 
 /* ---------- Verkoopsite ---------- */

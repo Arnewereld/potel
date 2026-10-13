@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { CheckCircle2, Clock, FileWarning, Printer } from 'lucide-react'
+import { CheckCircle2, ChevronDown, ChevronRight, Clock, Download, FileWarning, Printer } from 'lucide-react'
 import { api } from '../../lib/api'
-import { date, euro, invoiceTotals } from '../../lib/format'
+import { date, euro, invoiceTotals, num } from '../../lib/format'
 import { product } from '../../lib/plans'
 import type { PublicInvoice, Settings } from '../../lib/types'
 import { InvoicePaper } from '../../components/InvoicePaper'
+import { HourSpecPaper } from '../../components/HourSpecPaper'
 import { usePrivatePage } from '../../lib/privatePage'
 
 // De factuur achter de link in de mail. Werkt zonder inloggen en laat alleen deze ene factuur zien. Het token staat
@@ -17,6 +18,9 @@ export function PublicInvoicePage() {
   const [error, setError] = useState<string | null>(token ? null : 'Deze link is niet compleet. Kopieer de hele link uit de mail, of vraag de afzender om een nieuwe link.')
   const started = useRef(false)
   const [today] = useState(() => new Date(new Date().toDateString()))
+  // De urenspecificatie staat op het scherm ingeklapt, maar gaat altijd mee in de PDF.
+  const [showHours, setShowHours] = useState(false)
+  const [csvError, setCsvError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!token || started.current) return
@@ -57,6 +61,13 @@ export function PublicInvoicePage() {
           + (late ? `. De betaaltermijn is verstreken op ${date(inv.dueDate)}.` : `, uiterlijk op ${date(inv.dueDate)}.`),
       }
 
+  const hours = data.hours
+  const paper = { ...inv, customerId: 0, creditForInvoiceId: inv.isCredit ? 0 : null }
+  const downloadHours = () => {
+    setCsvError(null)
+    api.download('/public/invoice/hours', `urenspecificatie-${inv.number ?? 'factuur'}.csv`, { token }).catch(e => setCsvError((e as Error).message))
+  }
+
   return (
     <div className="public-invoice">
       <div className="public-invoice-inner">
@@ -64,9 +75,24 @@ export function PublicInvoicePage() {
           <div className={`notice ${late ? 'text-red' : ''}`} style={{ margin: 0, flex: 1, minWidth: 220 }}>{status.icon} {status.text}</div>
           <button className="btn btn-primary" onClick={() => window.print()}><Printer size={15} /> Opslaan als PDF of printen</button>
         </div>
-        <InvoicePaper invoice={{ ...inv, customerId: 0, creditForInvoiceId: inv.isCredit ? 0 : null }} company={company} />
+        <InvoicePaper invoice={paper} company={company} />
+        {hours && (<>
+          <div className="card no-print">
+            <div className="card-body hours-fold">
+              <button className="hours-fold-toggle" aria-expanded={showHours} onClick={() => setShowHours(v => !v)}>
+                {showHours ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                Urenspecificatie ({num(hours.hours)} uur)
+              </button>
+              <button className="btn btn-sm" onClick={downloadHours}><Download size={14} /> Download als CSV</button>
+              {csvError && <p className="text-red" style={{ margin: 0, flexBasis: '100%', fontSize: 13 }}>{csvError}</p>}
+            </div>
+          </div>
+          <div className={showHours ? undefined : 'hours-folded'}>
+            <HourSpecPaper spec={hours} invoice={paper} company={company} />
+          </div>
+        </>)}
         <p className="muted public-invoice-foot no-print">
-          Kies in het afdrukvenster voor "Opslaan als PDF" om de factuur te bewaren. Deze factuur is verstuurd met {product.name}.
+          Kies in het afdrukvenster voor "Opslaan als PDF" om de factuur te bewaren{hours ? ', met de urenspecificatie als extra pagina' : ''}. Deze factuur is verstuurd met {product.name}.
         </p>
       </div>
     </div>

@@ -34,8 +34,9 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
 }
 
 // Haalt een bestand op en laat de browser het opslaan, met dezelfde foutmeldingen als de rest van de API.
-async function download(url: string, fileName: string) {
-  const res = await send('GET', url)
+// Met body gaat het via POST, zoals bij de openbare factuur waar het token niet in de URL mag staan.
+async function download(url: string, fileName: string, body?: unknown) {
+  const res = await send(body === undefined ? 'GET' : 'POST', url, body)
   const href = URL.createObjectURL(await res.blob())
   const a = Object.assign(document.createElement('a'), { href, download: fileName })
   a.click()

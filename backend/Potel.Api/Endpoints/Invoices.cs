@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Potel.Api.Data;
+using Potel.Api.Invoicing;
 using Potel.Api.Workflows;
 
 namespace Potel.Api.Endpoints;
@@ -158,11 +159,19 @@ public static partial class InvoiceEndpoints
     // De factuurdatum is de dag van versturen: een oud concept wordt niet teruggedateerd (en is dus niet meteen verlopen),
     // en de nummers lopen gelijk op met de datums. De vervaldatum schuift mee, zodat de betaaltermijn hetzelfde blijft.
     // Een creditnota houdt de klantgegevens van de factuur die hij corrigeert. Alleen binnen een WriteLock aanroepen.
+    // Moet de urenspecificatie mee, dan leggen we die nu ook vast; klopt hij niet met de urenregels, dan gaat de factuur niet weg.
     static async Task<InvoiceProblem?> SendAsync(AppDb db, BusinessClock clock, Invoice inv)
     {
         var settings = await SettingsEndpoints.GetAsync(db);
         var customer = await db.Customers.FirstAsync(c => c.Id == inv.CustomerId);
         if (await CheckSendableAsync(db, inv, settings, customer) is { } problem) return problem;
+        HourSpec? hours = null;
+        if (inv.HourSpecification && inv.CreditForInvoiceId is null)
+        {
+            (hours, var hoursProblem) = await HourSpecs.LiveAsync(db, inv);
+            if (hours is not null && hoursProblem is not null) return new(hoursProblem);
+        }
+        inv.HoursSnapshot = hours is null ? null : HourSpecs.Serialize(hours);
         var today = clock.Today;
         if (inv.IssueDate.Date != today)
         {
@@ -290,7 +299,7 @@ public static partial class InvoiceEndpoints
                 CustomerId = input.CustomerId, IssueDate = input.IssueDate.Date, DueDate = input.DueDate.Date, Reference = input.Reference,
                 // Zonder leverdatum gaan we uit van de factuurdatum; in het concept is dat nog aan te passen.
                 VatRegime = input.VatRegime, DeliveryFrom = (input.DeliveryFrom ?? input.IssueDate).Date, DeliveryTo = input.DeliveryTo?.Date, Notes = input.Notes,
-                Lines = CopyLines(input.Lines, input.VatRegime),
+                HourSpecification = input.HourSpecification, HourAmounts = input.HourAmounts, Lines = CopyLines(input.Lines, input.VatRegime),
             };
             db.Invoices.Add(inv);
             db.Log("factuur", $"Conceptfactuur voor {CustomerName(customer)} aangemaakt");
@@ -337,6 +346,7 @@ public static partial class InvoiceEndpoints
             inv.CustomerId = input.CustomerId; inv.IssueDate = input.IssueDate.Date; inv.DueDate = input.DueDate.Date;
             inv.Reference = input.Reference; inv.VatRegime = input.VatRegime; inv.Notes = input.Notes;
             inv.DeliveryFrom = input.DeliveryFrom?.Date; inv.DeliveryTo = input.DeliveryTo?.Date;
+            inv.HourSpecification = input.HourSpecification; inv.HourAmounts = input.HourAmounts;
             var removed = inv.Lines.Where(l => !keptIds.Contains(l.Id)).ToList();
             db.InvoiceLines.RemoveRange(removed);
             inv.Lines.RemoveAll(removed.Contains);
@@ -384,7 +394,8 @@ public static partial class InvoiceEndpoints
             var inv = new Invoice
             {
                 CustomerId = source.CustomerId, IssueDate = today, DueDate = today.AddDays(settings.PaymentTermDays), Reference = source.Reference,
-                VatRegime = source.VatRegime, DeliveryFrom = today, Notes = source.Notes, Lines = CopyLines(source.Lines, source.VatRegime),
+                VatRegime = source.VatRegime, DeliveryFrom = today, Notes = source.Notes, HourSpecification = source.HourSpecification,
+                HourAmounts = source.HourAmounts, Lines = CopyLines(source.Lines, source.VatRegime),
             };
             db.Invoices.Add(inv);
             db.Log("factuur", $"Conceptfactuur gemaakt als kopie van {Label(source)}");
@@ -453,6 +464,27 @@ public static partial class InvoiceEndpoints
             await db.SaveChangesAsync();
             await tx.CommitAsync();
             return Results.Ok(await Full(db).AsNoTracking().FirstAsync(i => i.Id == id));
+        });
+
+        // De urenspecificatie: bij een concept uit de boekingen van nu (met wat er niet klopt), daarna zoals hij bij versturen was.
+        g.MapGet("/{id:int}/hours", async (AppDb db, int id) =>
+        {
+            var inv = await db.Invoices.AsNoTracking().Include(i => i.Lines).FirstOrDefaultAsync(i => i.Id == id);
+            if (inv is null) return Results.NotFound();
+            var (spec, problem) = await HourSpecs.ForAsync(db, inv);
+            return Results.Ok(new { spec, problem, enabled = inv.HourSpecification, amounts = inv.HourAmounts });
+        });
+
+        // Dezelfde specificatie als CSV, om aan de klant te geven of zelf te bewaren.
+        g.MapGet("/{id:int}/hours.csv", async (AppDb db, HttpContext http, int id) =>
+        {
+            var inv = await db.Invoices.AsNoTracking().Include(i => i.Lines).FirstOrDefaultAsync(i => i.Id == id);
+            if (inv is null) return Results.NotFound();
+            var (spec, _) = await HourSpecs.ForAsync(db, inv);
+            if (spec is null) return Results.NotFound(new { error = "Op deze factuur staan geen uren, dus er is geen urenspecificatie." });
+            var seller = inv.Seller?.Name ?? (await SettingsEndpoints.GetAsync(db)).CompanyName;
+            http.Response.Headers.CacheControl = "private, no-store";
+            return Results.File(HourSpecs.Csv(spec, inv.Number, seller), "text/csv; charset=utf-8", HourSpecs.CsvFileName(inv.Number));
         });
 
         // Alleen een concept mag weg. Een verstuurde factuur moet je bewaren; corrigeren doe je met een creditnota.

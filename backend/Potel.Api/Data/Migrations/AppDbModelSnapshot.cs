@@ -517,6 +517,15 @@ namespace Potel.Api.Data.Migrations
                     b.Property<DateTime>("DueDate")
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("HourAmounts")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("HourSpecification")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("HoursSnapshot")
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("IsDemo")
                         .HasColumnType("INTEGER");
 
@@ -1219,6 +1228,9 @@ namespace Potel.Api.Data.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<int>("ProjectId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("UserId")
                         .HasColumnType("INTEGER");
 
                     b.Property<int>("WorkspaceId")

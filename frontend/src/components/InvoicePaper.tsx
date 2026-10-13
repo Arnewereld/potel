@@ -1,4 +1,4 @@
-import type { Customer, Invoice, Settings } from '../lib/types'
+import type { Customer, Invoice, InvoiceParty, Settings } from '../lib/types'
 import { date, euro, invoiceTotals, lineAmount, num } from '../lib/format'
 import { buyerFrom, isCredit, isNetherlands, sellerFrom, zeroVat } from '../lib/invoice'
 
@@ -19,18 +19,7 @@ export function InvoicePaper({ invoice, customer, company }: { invoice: Draft; c
 
   return (
     <div className="invoice-paper" style={{ '--accent': company.brandColor || '#ff6d5a' } as React.CSSProperties}>
-      <header className="paper-head">
-        <div className="paper-brand">
-          {company.logoDataUrl
-            ? <img className="paper-logo-img" src={company.logoDataUrl} alt="" />
-            : <div className="paper-logo">{seller.name.slice(0, 1)}</div>}
-          <div>
-            <strong>{seller.name}</strong>
-            {seller.website && <div className="paper-muted">{seller.website}</div>}
-          </div>
-        </div>
-        <h2 className="paper-doc">{credit ? 'Creditnota' : 'Factuur'}</h2>
-      </header>
+      <PaperHead seller={seller} company={company} title={credit ? 'Creditnota' : 'Factuur'} />
 
       <div className="paper-parties">
         <div>
@@ -125,10 +114,35 @@ export function InvoicePaper({ invoice, customer, company }: { invoice: Draft; c
       {regime === 'buiten-eu' && <p className="paper-reverse">Btw niet van toepassing: dienst aan een afnemer buiten de EU.</p>}
       {invoice.notes && <p className="paper-notes">{invoice.notes}</p>}
 
-      <footer className="paper-foot">
-        {[seller.name, seller.kvk && `KvK ${seller.kvk}`, seller.vatNumber && `Btw ${seller.vatNumber}`, seller.iban && `IBAN ${seller.iban}`, seller.email]
-          .filter(Boolean).join('  ·  ')}
-      </footer>
+      <PaperFoot seller={seller} />
     </div>
+  )
+}
+
+
+// Kop en voet van elk document op papier: logo en naam, de soort document, en onderaan je bedrijfsgegevens.
+export function PaperHead({ seller, company, title }: { seller: InvoiceParty; company: Settings; title: string }) {
+  return (
+    <header className="paper-head">
+      <div className="paper-brand">
+        {company.logoDataUrl
+          ? <img className="paper-logo-img" src={company.logoDataUrl} alt="" />
+          : <div className="paper-logo">{seller.name.slice(0, 1)}</div>}
+        <div>
+          <strong>{seller.name}</strong>
+          {seller.website && <div className="paper-muted">{seller.website}</div>}
+        </div>
+      </div>
+      <h2 className="paper-doc">{title}</h2>
+    </header>
+  )
+}
+
+export function PaperFoot({ seller }: { seller: InvoiceParty }) {
+  return (
+    <footer className="paper-foot">
+      {[seller.name, seller.kvk && `KvK ${seller.kvk}`, seller.vatNumber && `Btw ${seller.vatNumber}`, seller.iban && `IBAN ${seller.iban}`, seller.email]
+        .filter(Boolean).join('  ·  ')}
+    </footer>
   )
 }

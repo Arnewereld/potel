@@ -39,6 +39,26 @@ public static class InvoiceMailEndpoints
 
     static string Normalize(string? s) => (s ?? "").Replace("\r\n", "\n").Trim();
 
+    // De link en de factuur achter een token, of null als het token niet (meer) werkt. Een onbekend, ingetrokken of fout
+    // token, een concept, een voorbeeldfactuur of een dichte portaallink: voor de buitenwereld allemaal hetzelfde.
+    static async Task<(InvoiceLink Link, Invoice Invoice)?> OpenLinkAsync(AppDb db, BusinessClock clock, string? token)
+    {
+        token = token?.Trim();
+        if (string.IsNullOrEmpty(token) || token.Length > 100) return null;
+        var hash = InvoiceMailer.Hash(token);
+        var link = await db.InvoiceLinks.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(l => l.TokenHash == hash && l.RevokedAt == null);
+        if (link is null) return null;
+        var inv = await db.Invoices.IgnoreQueryFilters().AsNoTracking()
+            .Include(i => i.Lines).Include(i => i.Credits).ThenInclude(c => c.Lines).AsSplitQuery()
+            .FirstOrDefaultAsync(i => i.Id == link.InvoiceId && i.WorkspaceId == link.WorkspaceId);
+        if (inv is null || inv.Status == InvoiceStatus.Draft || inv.IsDemo) return null;
+        // Een link uit het klantportaal werkt alleen zolang dat portaal open staat en facturen daar te zien zijn.
+        if (link.PortalLinkId is { } portalLinkId
+            && !await CustomerPortalEndpoints.InvoiceLinkWorksAsync(db, link.WorkspaceId, portalLinkId, inv.CustomerId, clock.UtcNow))
+            return null;
+        return (link, inv);
+    }
+
     // Een tekst die gelijk is aan de standaardtekst bewaren we als leeg, zodat verbeteringen in de standaardtekst vanzelf meekomen.
     static (string? Subject, string? Body, string? Error) Apply(int step, MailTextInput? input)
     {
@@ -183,19 +203,8 @@ public static class InvoiceMailEndpoints
         api.MapPost("/public/invoice", async (AppDb db, BusinessClock clock, HttpResponse response, PublicInvoiceRequest req) =>
         {
             NoIndex(response);
-            var token = req.Token?.Trim();
-            if (string.IsNullOrEmpty(token) || token.Length > 100) return Results.NotFound(new { error = LinkGone });
-            var hash = InvoiceMailer.Hash(token);
-            var link = await db.InvoiceLinks.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(l => l.TokenHash == hash && l.RevokedAt == null);
-            if (link is null) return Results.NotFound(new { error = LinkGone });
-            var inv = await db.Invoices.IgnoreQueryFilters().AsNoTracking()
-                .Include(i => i.Lines).Include(i => i.Credits).ThenInclude(c => c.Lines).AsSplitQuery()
-                .FirstOrDefaultAsync(i => i.Id == link.InvoiceId && i.WorkspaceId == link.WorkspaceId);
-            if (inv is null || inv.Status == InvoiceStatus.Draft || inv.IsDemo) return Results.NotFound(new { error = LinkGone });
-            // Een link uit het klantportaal werkt alleen zolang dat portaal open staat en facturen daar te zien zijn.
-            if (link.PortalLinkId is { } portalLinkId
-                && !await CustomerPortalEndpoints.InvoiceLinkWorksAsync(db, link.WorkspaceId, portalLinkId, inv.CustomerId, clock.UtcNow))
-                return Results.NotFound(new { error = LinkGone });
+            if (await OpenLinkAsync(db, clock, req.Token) is not { } found) return Results.NotFound(new { error = LinkGone });
+            var (link, inv) = found;
             var brand = await db.Settings.IgnoreQueryFilters().AsNoTracking().Where(s => s.WorkspaceId == link.WorkspaceId).OrderBy(s => s.Id)
                 .Select(s => new { s.LogoDataUrl, s.BrandColor }).FirstOrDefaultAsync();
             var creditFor = inv.CreditForInvoiceId is { } originalId
@@ -217,8 +226,19 @@ public static class InvoiceMailEndpoints
                     creditForNumber = creditFor?.Number, creditForIssueDate = creditFor?.IssueDate,
                     inv.IsCredit, inv.OpenAmount, inv.FullyCredited, inv.Totals,
                 },
+                // De urenspecificatie zoals hij bij versturen is vastgelegd, alleen als die mee moest.
+                hours = HourSpecs.Sent(inv),
                 brand = new { logoDataUrl = brand?.LogoDataUrl, brandColor = brand?.BrandColor ?? "#ff6d5a" },
             });
+        }).AllowAnonymous().RequireRateLimiting("public");
+
+        // De urenspecificatie als CSV, met hetzelfde token. Zonder specificatie hetzelfde antwoord als een foute link.
+        api.MapPost("/public/invoice/hours", async (AppDb db, BusinessClock clock, HttpResponse response, PublicInvoiceRequest req) =>
+        {
+            NoIndex(response);
+            if (await OpenLinkAsync(db, clock, req.Token) is not { Invoice: var inv } || HourSpecs.Sent(inv) is not { } spec)
+                return Results.NotFound(new { error = LinkGone });
+            return Results.File(HourSpecs.Csv(spec, inv.Number, inv.Seller?.Name), "text/csv; charset=utf-8", HourSpecs.CsvFileName(inv.Number));
         }).AllowAnonymous().RequireRateLimiting("public");
     }
 }

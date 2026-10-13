@@ -1,20 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
-  Receipt, Plus, Trash2, Printer, Save, Building, ChevronUp, ChevronDown, Send, CheckCircle2, Copy, Undo2, BellRing, Clock, Mail, Lock, Repeat,
+  Receipt, Plus, Trash2, Printer, Save, Building, ChevronUp, ChevronDown, Send, CheckCircle2, Copy, Undo2, BellRing, Clock, Mail, Lock, Repeat, Download,
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useTabs, useTabTitle } from '../lib/tabs'
 import { useToast } from '../lib/toast'
-import type { Customer, Invoice, InvoiceLine, InvoiceMailInfo, MailServerStatus, MailStep, Project, RecurringInvoice, Settings, VatRegime } from '../lib/types'
-import { date, euro, hours, invoiceTotals, lineAmount, toDateInput } from '../lib/format'
+import type {
+  Customer, Invoice, InvoiceHours, InvoiceLine, InvoiceMailInfo, MailServerStatus, MailStep, Project, RecurringInvoice, Settings, VatRegime,
+} from '../lib/types'
+import { date, euro, hours, invoiceTotals, lineAmount, num, toDateInput } from '../lib/format'
 import { invoiceStatuses } from '../lib/status'
 import {
   daysUntil, defaultRegime, invoiceTitle, isCredit, missingForSending, regimeProblem, reminderMail, sendMail, units, vatRegimes, zeroVat,
 } from '../lib/invoice'
 import { Badge, ErrorBox, Field, Loading, Modal, PageHeader } from '../components/ui'
 import { InvoicePaper } from '../components/InvoicePaper'
+import { HourSpecPaper } from '../components/HourSpecPaper'
 import { MailDialog, MailPanel } from '../components/InvoiceMail'
 
 type Draft = Omit<Invoice, 'id'> & { id?: number }
@@ -50,6 +53,8 @@ export function InvoiceEditorPage() {
   const { data: mailStatus } = useApi<MailServerStatus>('/invoices/mail-status')
   // Wat er over deze factuur gemaild is; alleen voor een verstuurde, echte factuur.
   const { data: mailInfo, reload: reloadMails } = useApi<InvoiceMailInfo>(!isNew && draft && draft.status !== 'concept' && !draft.demo ? `/invoices/${id}/mails` : null)
+  // De urenspecificatie: bij een concept uit de gekoppelde uren van nu, bij een verstuurde factuur zoals hij toen was.
+  const { data: hourInfo, reload: reloadHours } = useApi<InvoiceHours>(!isNew ? `/invoices/${id}/hours` : null)
   // Vanuit de lijst met "Herinnering sturen" staat de herinnering meteen klaar, zodra bekend is welke stap de volgende is.
   const [mailing, setMailing] = useState<{ step: MailStep | null; reminder: boolean } | null>(() => params.get('herinnering') ? { step: null, reminder: true } : null)
   const { retarget, close } = useTabs()
@@ -134,6 +139,7 @@ export function InvoiceEditorPage() {
       setDirty(false)
       // Regels met uren die eraf gingen geven die uren weer vrij.
       reloadProjects(true)
+      await reloadHours(true)
       return saved.id
     } catch (e) {
       toast((e as Error).message, 'error')
@@ -151,6 +157,7 @@ export function InvoiceEditorPage() {
       const saved = await api.post<Invoice>(`/invoices/${id}/status`, { status, paidAt })
       setDraft(fromServer(saved))
       reloadMails(true)
+      reloadHours(true)
       toast(`${invoiceTitle(saved)} is ${invoiceStatuses.find(s => s.id === saved.status)?.label.toLowerCase()}`)
       return saved
     } catch (e) {
@@ -183,6 +190,7 @@ export function InvoiceEditorPage() {
         toast(`${hours(p.minutesUnbilled)} van ${p.name} toegevoegd`)
         setDraft(fromServer(saved))
         setDirty(false)
+        if (!isNew) reloadHours(true)
       } catch (e) {
         toast((e as Error).message, 'error')
       }
@@ -205,6 +213,24 @@ export function InvoiceEditorPage() {
       toast((e as Error).message, 'error')
     }
   }
+
+  // Eerst opslaan, zodat de controles (ook die van de urenspecificatie) gaan over de regels die je ziet.
+  const openSend = async () => {
+    if (dirty && !(await save({}, true))) return
+    setDialog('send')
+  }
+
+  // De schakelaars van de urenspecificatie slaan het concept meteen op, zodat het voorbeeld klopt.
+  const spec = hourInfo?.spec ?? null
+  const specOn = draft.hourSpecification !== false
+  const hoursProblem = specOn && !readOnly && spec ? hourInfo?.problem ?? null : null
+  const setHourOption = async (patch: Pick<Draft, 'hourSpecification'> | Pick<Draft, 'hourAmounts'>) => {
+    if (readOnly) return
+    update(patch)
+    await save(patch, true)
+  }
+  const downloadHours = () =>
+    api.download(`/invoices/${id}/hours.csv`, `urenspecificatie-${draft.number ?? 'concept'}.csv`).catch(e => toast((e as Error).message, 'error'))
 
   const statusInfo = invoiceStatuses.find(s => s.id === draft.status)!
   const subtitle = dirty ? 'Niet opgeslagen wijzigingen'
@@ -229,7 +255,7 @@ export function InvoiceEditorPage() {
             {readOnly && !credit && !demo && !fullyCredited && <button className="btn" onClick={() => copy('credit')}><Undo2 size={15} /> Creditnota maken</button>}
             <button className="btn" onClick={() => window.print()}><Printer size={15} /> PDF</button>
             {!readOnly && <button className="btn" onClick={() => save()} disabled={saving || (!dirty && !isNew)}><Save size={15} /> Opslaan</button>}
-            {!readOnly && !isNew && <button className="btn btn-primary" disabled={saving} onClick={() => setDialog('send')}><Send size={15} /> Versturen</button>}
+            {!readOnly && !isNew && <button className="btn btn-primary" disabled={saving} onClick={openSend}><Send size={15} /> Versturen</button>}
             {canMail && !fullyCredited && <button className="btn" onClick={() => setMailing({ step: 0, reminder: false })}><Mail size={15} /> Mailen</button>}
             {draft.status === 'verlopen' && !fullyCredited && (canMail
               ? <button className="btn" onClick={() => setMailing({ step: mailInfo?.nextStep || 1, reminder: true })}><BellRing size={15} /> Herinnering sturen</button>
@@ -383,6 +409,34 @@ export function InvoiceEditorPage() {
               )}
             </fieldset>
           </div>
+          {spec && (
+            <div className="card">
+              <div className="card-body">
+                <div className="hours-fold">
+                  <h4 className="section-title" style={{ margin: 0 }}><Clock size={15} /> Urenspecificatie</h4>
+                  <button className="btn btn-sm" onClick={downloadHours}><Download size={14} /> CSV</button>
+                </div>
+                <p className="muted" style={{ fontSize: 13 }}>
+                  {num(spec.hours)} uur in {spec.projects.reduce((n, p) => n + p.entries.length, 0)} boekingen
+                  {spec.projects.length > 1 ? ` van ${spec.projects.length} projecten` : ` van ${spec.projects[0]?.name}`}.
+                  {readOnly
+                    ? (specOn ? ' Meegestuurd als extra pagina en vastgelegd bij versturen: latere wijzigingen aan de uren veranderen hem niet.' : ' Niet meegestuurd met deze factuur.')
+                    : ' Je klant krijgt hem als extra pagina na de factuur en kan hem via de link als CSV downloaden.'}
+                </p>
+                {!readOnly && (<>
+                  <label className="check-row">
+                    <input type="checkbox" checked={specOn} disabled={saving} onChange={e => setHourOption({ hourSpecification: e.target.checked })} />
+                    Urenspecificatie meesturen
+                  </label>
+                  <label className="check-row" style={{ marginTop: 8 }}>
+                    <input type="checkbox" checked={!!draft.hourAmounts} disabled={saving || !specOn} onChange={e => setHourOption({ hourAmounts: e.target.checked })} />
+                    Toon bedragen per regel (alleen bij regels per uur)
+                  </label>
+                </>)}
+                {hoursProblem && <p className="text-red" style={{ fontSize: 13, marginBottom: 0 }}>{hoursProblem}</p>}
+              </div>
+            </div>
+          )}
           {readOnly && !demo && mailInfo && (
             <MailPanel
               invoiceId={Number(id)}
@@ -394,14 +448,17 @@ export function InvoiceEditorPage() {
           )}
         </div>
 
-        <InvoicePaper invoice={draft} customer={customer} company={company} />
+        <div className="invoice-papers">
+          <InvoicePaper invoice={draft} customer={customer} company={company} />
+          {spec && specOn && <HourSpecPaper spec={spec} invoice={draft} customer={customer} company={company} />}
+        </div>
       </div>
 
       {dialog === 'send' && (
         <SendDialog
           title={credit ? 'Creditnota versturen' : 'Factuur versturen'}
           missing={missingForSending(draft, customer, company)}
-          problem={regimeError}
+          problem={regimeError ?? hoursProblem}
           number={next?.number}
           issueDate={sendDate}
           dueDate={credit ? null : addDays(sendDate, termDays)}

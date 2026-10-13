@@ -124,6 +124,8 @@ public static class Seed
         };
         var rnd = new Random(11);
         var entries = new List<TimeEntry>();
+        // De voorbeelduren zijn geboekt door de eerste gebruiker van de werkruimte.
+        var booker = db.Users.OrderBy(u => u.Id).Select(u => (int?)u.Id).FirstOrDefault();
         for (var d = new DateTime(today.Year, 1, 2); d < today; d = d.AddDays(1))
         {
             if (d.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday || rnd.Next(12) == 0) continue;
@@ -137,7 +139,7 @@ public static class Seed
                 entries.Add(new TimeEntry
                 {
                     ProjectId = p.Id, Date = d, Minutes = rnd.Next(4, 11) * 15, Description = texts[rnd.Next(texts.Length)],
-                    Billable = p.Billing == Billing.Hourly, IsDemo = true,
+                    Billable = p.Billing == Billing.Hourly, IsDemo = true, UserId = booker,
                 });
             }
         }
@@ -181,6 +183,10 @@ public static class Seed
             db.Invoices.Add(inv);
             db.SaveChanges();
             foreach (var e in linked) { e.InvoiceId = inv.Id; e.InvoiceLineId = inv.Lines[0].Id; }
+            // Met de urenspecificatie zoals hij bij versturen is vastgelegd.
+            if (linked.Count > 0)
+                inv.HoursSnapshot = Invoicing.HourSpecs.Build(inv.Lines, linked, projects.ToDictionary(p => p.Id, p => p.Name), new Dictionary<int, string>(), team: false, showAmounts: false)
+                    .Spec is { } spec ? Invoicing.HourSpecs.Serialize(spec) : null;
         }
 
         // Een terugkerende factuur om te laten zien hoe dat werkt. Als voorbeeld maakt hij nooit echte facturen.
