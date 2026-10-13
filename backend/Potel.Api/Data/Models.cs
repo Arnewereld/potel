@@ -310,6 +310,8 @@ public class Invoice : IWorkspaceOwned, IDemoData
 
     // De creditnota's die deze factuur corrigeren (ook concepten).
     [JsonIgnore] public List<Invoice> Credits { get; set; } = [];
+    // De (deel)betalingen op deze factuur, oudste eerst.
+    public List<InvoicePayment> Payments { get; set; } = [];
 
     [NotMapped] public string? CreditForNumber => CreditFor?.Number;
     [NotMapped] public DateTime? CreditForIssueDate => CreditFor?.IssueDate;
@@ -323,14 +325,47 @@ public class Invoice : IWorkspaceOwned, IDemoData
         Credits.Where(c => c.Status != InvoiceStatus.Draft).OrderBy(c => c.Id).Select(c => new CreditRef(c.Id, c.Number, c.IssueDate, c.Totals.Total)).ToList();
     // Wat er met creditnota's van deze factuur af is gegaan (0 of negatief).
     [NotMapped] public decimal CreditedTotal => CreditNotes.Sum(c => c.Total);
-    // Wat de klant nog moet betalen: het totaal min wat er gecrediteerd is. Alleen voor een verstuurde, onbetaalde factuur.
+    // Wat er al betaald is (alleen bekend als Payments geladen zijn).
+    [NotMapped] public decimal PaidTotal => Payments.Sum(p => p.Amount);
+    // Wat de klant nog moet betalen: het totaal min wat er gecrediteerd en betaald is. Alleen voor een verstuurde, onbetaalde factuur.
     [NotMapped] public decimal OpenAmount =>
-        IsCredit || Status is not (InvoiceStatus.Sent or InvoiceStatus.Overdue) ? 0 : Math.Max(0, Totals.Total + CreditedTotal);
+        IsCredit || Status is not (InvoiceStatus.Sent or InvoiceStatus.Overdue) ? 0 : Math.Max(0, Totals.Total + CreditedTotal - PaidTotal);
     // Helemaal tegengeboekt met creditnota's: niemand hoeft nog iets te betalen.
     [NotMapped] public bool FullyCredited => !IsCredit && CreditNotes.Count > 0 && Totals.Total + CreditedTotal <= 0;
 }
 
 public record CreditRef(int Id, string? Number, DateTime IssueDate, decimal Total);
+
+// Hoe een betaling binnenkwam: zelf ingevuld, met iDEAL via je eigen Mollie, of gekoppeld vanuit je bankafschrift.
+public static class PaymentMethods
+{
+    public const string Manual = "handmatig";
+    public const string Ideal = "ideal";
+    public const string Bank = "bank";
+    public static readonly string[] All = [Manual, Ideal, Bank];
+
+    public static string Label(string method) => method switch { Ideal => "iDEAL", Bank => "bank", _ => "handmatig" };
+}
+
+// Een (deel)betaling op een factuur. Wat er nog open staat is het totaal min verstuurde creditnota's en betalingen; is dat 0,
+// dan is de factuur betaald, met als betaaldatum de datum van de laatste betaling. De btw volgt de factuur, niet de betaling.
+public class InvoicePayment : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int InvoiceId { get; set; }
+    public decimal Amount { get; set; }
+    public DateTime Date { get; set; }
+    public string Method { get; set; } = PaymentMethods.Manual;
+    public string? Note { get; set; }
+    // De regel uit het bankafschrift waar deze betaling uit komt. Per banktransactie hooguit één betaling (unieke index).
+    // Bewust zonder databasekoppeling: de koppeling hoort bij de betaling, en de banktransactie blijft altijd bestaan.
+    public int? BankTransactionId { get; set; }
+    // De betaling bij Mollie (tr_...) via de eigen Mollie van de werkruimte. Elke Mollie-betaling staat hier hooguit één keer.
+    public string? MolliePaymentId { get; set; }
+    public string? CreatedBy { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
 
 // Naam, adres en nummers van een partij op de factuur, vastgelegd bij versturen.
 public class InvoiceParty

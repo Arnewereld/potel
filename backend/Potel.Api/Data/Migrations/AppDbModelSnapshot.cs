@@ -723,6 +723,60 @@ namespace Potel.Api.Data.Migrations
                     b.ToTable("InvoiceMails");
                 });
 
+            modelBuilder.Entity("Potel.Api.Data.InvoicePayment", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("BankTransactionId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("Date")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("InvoiceId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MolliePaymentId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Note")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BankTransactionId")
+                        .IsUnique()
+                        .HasFilter("\"BankTransactionId\" IS NOT NULL");
+
+                    b.HasIndex("InvoiceId");
+
+                    b.HasIndex("MolliePaymentId")
+                        .IsUnique()
+                        .HasFilter("\"MolliePaymentId\" IS NOT NULL");
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.ToTable("InvoicePayments");
+                });
+
             modelBuilder.Entity("Potel.Api.Data.Lead", b =>
                 {
                     b.Property<int>("Id")
@@ -1878,6 +1932,15 @@ namespace Potel.Api.Data.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Potel.Api.Data.InvoicePayment", b =>
+                {
+                    b.HasOne("Potel.Api.Data.Invoice", null)
+                        .WithMany("Payments")
+                        .HasForeignKey("InvoiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Potel.Api.Data.PortalLink", b =>
                 {
                     b.HasOne("Potel.Api.Data.Customer", null)
@@ -2090,6 +2153,8 @@ namespace Potel.Api.Data.Migrations
                     b.Navigation("Credits");
 
                     b.Navigation("Lines");
+
+                    b.Navigation("Payments");
                 });
 
             modelBuilder.Entity("Potel.Api.Data.Quote", b =>

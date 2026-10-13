@@ -7,6 +7,7 @@ import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useTabs, useTabTitle } from '../lib/tabs'
 import { useToast } from '../lib/toast'
+import { useAuth } from '../lib/auth'
 import type {
   Customer, Invoice, InvoiceHours, InvoiceLine, InvoiceMailInfo, MailServerStatus, MailStep, Project, RecurringInvoice, Settings, VatRegime,
 } from '../lib/types'
@@ -19,6 +20,7 @@ import { Badge, ErrorBox, Field, Loading, Modal, PageHeader } from '../component
 import { InvoicePaper } from '../components/InvoicePaper'
 import { HourSpecPaper } from '../components/HourSpecPaper'
 import { MailDialog, MailPanel } from '../components/InvoiceMail'
+import { PaymentsPanel } from '../components/InvoicePayments'
 
 type Draft = Omit<Invoice, 'id'> & { id?: number }
 
@@ -60,6 +62,7 @@ export function InvoiceEditorPage() {
   const { retarget, close } = useTabs()
   const navigate = useNavigate()
   const toast = useToast()
+  const { user } = useAuth()
   useTabTitle(isNew ? 'Nieuwe factuur' : draft ? invoiceTitle(draft) : null)
 
   useEffect(() => {
@@ -233,11 +236,14 @@ export function InvoiceEditorPage() {
     api.download(`/invoices/${id}/hours.csv`, `urenspecificatie-${draft.number ?? 'concept'}.csv`).catch(e => toast((e as Error).message, 'error'))
 
   const statusInfo = invoiceStatuses.find(s => s.id === draft.status)!
+  // Al een deel betaald: dat staat erbij, met wat er nog openstaat.
+  const partly = !credit && !fullyCredited && (draft.status === 'verzonden' || draft.status === 'verlopen') && (draft.paidTotal ?? 0) > 0
+    ? `, nog ${euro(draft.openAmount ?? 0)} open` : ''
   const subtitle = dirty ? 'Niet opgeslagen wijzigingen'
     : fullyCredited ? 'Helemaal gecrediteerd'
     : draft.status === 'betaald' ? `Betaald${draft.paidAt ? ` op ${date(draft.paidAt)}` : ''}`
-    : draft.status === 'verlopen' ? `${-due} dagen te laat`
-    : draft.status === 'verzonden' ? (credit ? `Verstuurd${draft.sentAt ? ` op ${date(draft.sentAt)}` : ''}` : due >= 0 ? `Vervalt over ${due} dagen` : 'Vervallen')
+    : draft.status === 'verlopen' ? `${-due} dagen te laat${partly}`
+    : draft.status === 'verzonden' ? (credit ? `Verstuurd${draft.sentAt ? ` op ${date(draft.sentAt)}` : ''}` : `${due >= 0 ? `Vervalt over ${due} dagen` : 'Vervallen'}${partly}`)
     : 'Concept, nog niet verstuurd'
 
   return (
@@ -303,6 +309,14 @@ export function InvoiceEditorPage() {
                 ? ' De klant hoeft niets meer te betalen.'
                 : draft.status === 'betaald' ? '' : ` Nog te betalen: ${euro(draft.openAmount ?? totals.total)}.`}
             </div>
+          )}
+          {readOnly && !credit && !isNew && (!fullyCredited || (draft.payments?.length ?? 0) > 0) && (
+            <PaymentsPanel
+              invoice={{ ...draft, id: Number(id) }}
+              total={totals.total}
+              admin={user.role === 'beheerder'}
+              onChange={inv => { setDraft(fromServer(inv)); reloadMails(true) }}
+            />
           )}
           {!readOnly && linked && (
             <div className="notice">
@@ -473,7 +487,7 @@ export function InvoiceEditorPage() {
         />
       )}
       {dialog === 'paid' && (
-        <PaidDialog total={credit ? totals.total : draft.openAmount ?? totals.total} onClose={() => setDialog(null)} onConfirm={paidAt => { setDialog(null); setStatus('betaald', paidAt) }} />
+        <PaidDialog total={credit ? totals.total : draft.openAmount ?? totals.total} partly={!credit && (draft.paidTotal ?? 0) > 0} onClose={() => setDialog(null)} onConfirm={paidAt => { setDialog(null); setStatus('betaald', paidAt) }} />
       )}
       {mailing && canMail && (mailing.step !== null || mailInfo) && (
         <MailDialog invoiceId={Number(id)} step={mailing.step ?? mailInfo?.nextStep ?? 1} reminder={mailing.reminder} onClose={() => setMailing(null)} onSent={() => reloadMails(true)} />
@@ -572,13 +586,19 @@ function SendDialog({ title, missing, problem, number, issueDate, dueDate, email
   )
 }
 
-function PaidDialog({ total, onClose, onConfirm }: { total: number; onClose: () => void; onConfirm: (paidAt: string) => void }) {
+function PaidDialog({ total, partly, onClose, onConfirm }: { total: number; partly: boolean; onClose: () => void; onConfirm: (paidAt: string) => void }) {
   const [paidAt, setPaidAt] = useState(toDateInput(new Date()))
   return (
     <Modal title={total < 0 ? 'Creditnota verrekend' : 'Betaling ontvangen'} onClose={onClose} footer={<>
       <button className="btn" onClick={onClose}>Annuleren</button>
       <button className="btn btn-success" onClick={() => onConfirm(paidAt)}><CheckCircle2 size={15} /> {euro(Math.abs(total))} {total < 0 ? 'verrekend' : 'ontvangen'}</button>
     </>}>
+      {total > 0 && (
+        <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+          {partly ? `Er is al een deel betaald. We leggen de rest van ${euro(total)} vast als betaling.` : `We leggen ${euro(total)} vast als betaling.`}
+          {' '}Kreeg je maar een deel? Gebruik dan "Betaling toevoegen" bij de betalingen.
+        </p>
+      )}
       <Field label={total < 0 ? 'Verrekend op' : 'Betaald op'}><input type="date" value={paidAt} onChange={e => setPaidAt(e.target.value)} /></Field>
     </Modal>
   )

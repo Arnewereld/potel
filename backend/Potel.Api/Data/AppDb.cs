@@ -13,6 +13,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
     public DbSet<Lead> Leads => Set<Lead>();
     public DbSet<Invoice> Invoices => Set<Invoice>();
     public DbSet<InvoiceLine> InvoiceLines => Set<InvoiceLine>();
+    public DbSet<InvoicePayment> InvoicePayments => Set<InvoicePayment>();
     public DbSet<Appointment> Appointments => Set<Appointment>();
     public DbSet<CustomModule> CustomModules => Set<CustomModule>();
     public DbSet<CustomRecord> CustomRecords => Set<CustomRecord>();
@@ -52,6 +53,11 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         b.Entity<Invoice>().HasOne(i => i.Customer).WithMany().HasForeignKey(i => i.CustomerId).OnDelete(DeleteBehavior.Restrict);
         // Een creditnota wijst naar de factuur die hij corrigeert; die verstuurde factuur kan toch al niet weg.
         b.Entity<Invoice>().HasOne(i => i.CreditFor).WithMany(i => i.Credits).HasForeignKey(i => i.CreditForInvoiceId).OnDelete(DeleteBehavior.Restrict);
+        // Betalingen horen bij hun factuur. Alleen een concept of voorbeeldfactuur kan weg, en een concept heeft geen betalingen.
+        // Een Mollie-betaling of banktransactie levert hooguit één betaling op, ook als de webhook twee keer tegelijk komt.
+        b.Entity<Invoice>().HasMany(i => i.Payments).WithOne().HasForeignKey(p => p.InvoiceId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<InvoicePayment>().HasIndex(p => p.MolliePaymentId).IsUnique().HasFilter("\"MolliePaymentId\" IS NOT NULL");
+        b.Entity<InvoicePayment>().HasIndex(p => p.BankTransactionId).IsUnique().HasFilter("\"BankTransactionId\" IS NOT NULL");
         b.Entity<Invoice>().OwnsOne(i => i.Seller);
         b.Entity<Invoice>().OwnsOne(i => i.Buyer);
         b.Entity<Invoice>().Property(i => i.VatRegime).HasDefaultValue(VatRegimes.Normal);
@@ -136,6 +142,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         Filter<InvoiceMail>(b); Filter<InvoiceLink>(b); Filter<ReminderSettings>(b); Filter<CustomerPortal>(b); Filter<PortalLink>(b);
         Filter<GitHubSettings>(b); Filter<GitHubAuthor>(b); Filter<GitHubCommit>(b);
         Filter<Quote>(b); Filter<QuoteLink>(b);
+        Filter<InvoicePayment>(b);
     }
 
     void Filter<T>(ModelBuilder b) where T : class, IWorkspaceOwned

@@ -215,7 +215,7 @@ public static partial class CustomerPortalEndpoints
             if (s.ShowInvoices)
             {
                 var list = await db.Invoices.IgnoreQueryFilters().AsNoTracking()
-                    .Include(i => i.Lines).Include(i => i.Credits).ThenInclude(c => c.Lines).AsSplitQuery()
+                    .Include(i => i.Lines).Include(i => i.Credits).ThenInclude(c => c.Lines).Include(i => i.Payments).AsSplitQuery()
                     .Where(i => i.WorkspaceId == ws && i.CustomerId == customer.Id && i.Status != InvoiceStatus.Draft)
                     .OrderByDescending(i => i.IssueDate).ThenByDescending(i => i.Id).Take(MaxInvoices).ToListAsync();
                 var links = await InvoiceLinksAsync(db, link, token, list.Where(i => !i.IsDemo).Select(i => i.Id).ToList(), now);

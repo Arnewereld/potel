@@ -69,7 +69,7 @@ public static class WorkflowEndpoints
             }
             if (req.InvoiceId is { } iid)
             {
-                if (await db.Invoices.Include(i => i.Lines).Include(i => i.Customer).Include(i => i.Credits).ThenInclude(c => c.Lines).AsSplitQuery()
+                if (await db.Invoices.Include(i => i.Lines).Include(i => i.Customer).Include(i => i.Credits).ThenInclude(c => c.Lines).Include(i => i.Payments).AsSplitQuery()
                         .FirstOrDefaultAsync(i => i.Id == iid) is not { } inv)
                     return Results.BadRequest(new { error = "Deze factuur bestaat niet (meer)" });
                 WorkflowContext.AddInvoice(ctx, inv);

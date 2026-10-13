@@ -32,7 +32,7 @@ public class InvoiceMailer(AppDb db, IEmailSender sender, IOptions<WorkflowLimit
     public static string Link(string baseUrl, string token) => $"{baseUrl}{LinkPath}#token={token}";
 
     public static IQueryable<Invoice> WithAll(AppDb db) =>
-        db.Invoices.Include(i => i.Lines).Include(i => i.Customer).Include(i => i.Credits).ThenInclude(c => c.Lines).AsSplitQuery();
+        db.Invoices.Include(i => i.Lines).Include(i => i.Customer).Include(i => i.Credits).ThenInclude(c => c.Lines).Include(i => i.Payments).AsSplitQuery();
 
     // Het e-mailadres van de klant als het precies één geldig adres is, anders null.
     public static string? CustomerEmail(Customer? c) => EmailRules.IsSingleAddress(c?.Email?.Trim()) ? c!.Email!.Trim() : null;

@@ -1,4 +1,4 @@
-import type { Customer, Invoice, InvoiceParty, Settings, VatRegime } from './types'
+import type { Customer, Invoice, InvoiceParty, PaymentMethod, Settings, VatRegime } from './types'
 import { date, euro, invoiceTotals, parseDate } from './format'
 
 export const units = ['uur', 'dag', 'stuk', 'maand', 'jaar']
@@ -116,8 +116,15 @@ export function sendMail(inv: Invoice, c: Customer | null | undefined, s: Settin
     + signature(s))
 }
 
-// Het bedrag dat nog openstaat: het totaal min wat er al gecrediteerd is.
+// Het bedrag dat nog openstaat: het totaal min wat er al gecrediteerd en betaald is.
 export const openAmount = (inv: Invoice) => inv.openAmount ?? invoiceTotals(inv.lines).total
+
+export const paymentMethods: { id: PaymentMethod; label: string }[] = [
+  { id: 'bank', label: 'Overboeking' },
+  { id: 'ideal', label: 'iDEAL' },
+  { id: 'handmatig', label: 'Anders (contant, Tikkie)' },
+]
+export const paymentMethodLabel = (m: PaymentMethod) => (m === 'bank' ? 'overboeking' : m === 'ideal' ? 'iDEAL' : 'handmatig')
 
 export function reminderMail(inv: Invoice, c: Customer | null | undefined, s: Settings) {
   const total = openAmount(inv)

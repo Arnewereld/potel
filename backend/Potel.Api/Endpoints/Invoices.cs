@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Claims;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Potel.Api.Data;
@@ -8,6 +9,7 @@ using Potel.Api.Workflows;
 namespace Potel.Api.Endpoints;
 
 public record StatusRequest(string Status, DateTime? PaidAt);
+public record PaymentRequest(decimal Amount, DateTime? Date, string? Method, string? Note);
 public record AddHoursRequest(int ProjectId, bool Detailed);
 
 // Een melding voor de gebruiker; bij versturen met de lijst van wat er nog ontbreekt.
@@ -43,14 +45,14 @@ public static partial class InvoiceEndpoints
     static string Join(List<string> items) => items.Count == 1 ? items[0] : $"{string.Join(", ", items[..^1])} en {items[^1]}";
 
     // Verzonden facturen voorbij de vervaldatum gaan op verlopen. Een creditnota hoeft niemand te betalen en verloopt nooit,
-    // en een factuur die met creditnota's helemaal is tegengeboekt ook niet. Met een engine starten daarna de werkstromen met
+    // en een factuur die met creditnota's en betalingen helemaal is afgedaan ook niet. Met een engine starten daarna de werkstromen met
     // de trigger "Factuur te laat", alleen voor echte facturen (geen voorbeelddata).
     public static async Task MarkOverdue(AppDb db, BusinessClock clock, WorkflowEngine? engine = null)
     {
         var today = clock.Today;
         var overdue = (await db.Invoices.AsNoTracking().Include(i => i.Lines).Include(i => i.Customer).Include(i => i.Credits).ThenInclude(c => c.Lines)
-                .Where(i => i.Status == InvoiceStatus.Sent && i.DueDate < today && i.CreditForInvoiceId == null).AsSplitQuery().ToListAsync())
-            .Where(i => !i.IsCredit && !i.FullyCredited).ToList();
+                .Include(i => i.Payments).Where(i => i.Status == InvoiceStatus.Sent && i.DueDate < today && i.CreditForInvoiceId == null).AsSplitQuery().ToListAsync())
+            .Where(i => !i.IsCredit && !i.FullyCredited && i.OpenAmount > 0).ToList();
         if (overdue.Count == 0) return;
         var late = new List<Invoice>();
         foreach (var i in overdue)
@@ -210,32 +212,64 @@ public static partial class InvoiceEndpoints
     // Zet een nieuwe status volgens de regels. Een concept wordt daarbij verstuurd; daarna gaat de status alleen nog vooruit.
     // Geeft ook terug of de factuur net betaald is. Een creditnota telt daarvoor niet mee: die start geen werkstroom "Factuur betaald".
     // De factuur moet met zijn regels geladen zijn, en dit hoort binnen een WriteLock.
-    public static async Task<(InvoiceProblem? Problem, bool BecamePaid)> ChangeStatusAsync(AppDb db, BusinessClock clock, Invoice inv, string status, DateTime? paidAt = null)
+    // "Betaald" (Markeer als betaald) legt één betaling vast voor wat er nog openstaat, op de gekozen dag. Een creditnota op
+    // betaald zetten is verrekenen: daar hoort geen betaling bij.
+    public static async Task<(InvoiceProblem? Problem, bool BecamePaid)> ChangeStatusAsync(AppDb db, BusinessClock clock, Invoice inv, string status,
+        DateTime? paidAt = null, string? by = null)
     {
         if (!InvoiceStatus.All.Contains(status)) return (new("Onbekende status"), false);
         if (status == inv.Status)
         {
-            if (status == InvoiceStatus.Paid && paidAt is { } date) inv.PaidAt = date.Date;
+            if (status != InvoiceStatus.Paid || paidAt is not { } date) return (null, false);
+            if (inv.IsCredit) { inv.PaidAt = date.Date; return (null, false); }
+            // Een andere betaaldatum: alleen als er precies één handmatige betaling is, schuift die mee. De betaaldatum volgt de betalingen.
+            var payments = await db.InvoicePayments.Where(p => p.InvoiceId == inv.Id).ToListAsync();
+            if (payments is [{ Method: PaymentMethods.Manual } only] && InvoicePayments.DateProblem(date, clock) is null)
+                inv.PaidAt = only.Date = date.Date;
             return (null, false);
         }
         if (!InvoiceStatus.CanMove(inv.Status, status)) return (new(StatusError(inv, status), Status: StatusCodes.Status409Conflict), false);
         // Een helemaal gecrediteerde factuur hoeft niemand meer te betalen; "betaald" zou omzet en de werkstroom "Factuur betaald" starten.
         if (status == InvoiceStatus.Paid && inv.Status != InvoiceStatus.Draft && inv.CreditForInvoiceId is null && await FullyCreditedAsync(db, inv.Id))
             return (new(FullyCreditedError, Status: StatusCodes.Status409Conflict), false);
+        var paidOn = (paidAt ?? clock.Today).Date;
+        if (status == InvoiceStatus.Paid && !inv.IsCredit && InvoicePayments.DateProblem(paidOn, clock) is { } dateProblem) return (new(dateProblem), false);
         var sending = inv.Status == InvoiceStatus.Draft;
         if (sending && await SendAsync(db, clock, inv) is { } problem) return (problem, false);
         if (sending && inv.CreditForInvoiceId is not null) await ReleaseCreditedHoursAsync(db, inv);
         db.Log("factuur", $"{Label(inv)}: {inv.Status} → {status}");
         inv.Status = status;
+        // Een creditnota kan het restant van een deels betaalde factuur wegstrepen; dan is die factuur nu betaald.
+        if (sending && inv.CreditForInvoiceId is { } originalId)
+        {
+            await db.SaveChangesAsync();
+            await InvoicePayments.SettleAfterCreditAsync(db, originalId);
+        }
         if (status != InvoiceStatus.Paid) return (null, false);
-        inv.PaidAt = (paidAt ?? clock.Today).Date;
-        return (null, !inv.IsCredit);
+        if (inv.IsCredit)
+        {
+            inv.PaidAt = paidOn;
+            return (null, false);
+        }
+        var (net, paid, last) = await InvoicePayments.BalanceAsync(db, inv);
+        if (net > paid)
+        {
+            db.InvoicePayments.Add(new InvoicePayment
+            {
+                InvoiceId = inv.Id, Amount = net - paid, Date = paidOn, Method = PaymentMethods.Manual, CreatedBy = by, CreatedAt = clock.UtcNow,
+                Note = paid > 0 ? "Restant, gemarkeerd als betaald" : null,
+            });
+            db.Log("factuur", $"Betaling van {InvoicePayments.Euro(net - paid)} (handmatig) vastgelegd voor {Label(inv).ToLowerInvariant()}");
+        }
+        // De betaaldatum is die van de laatste betaling.
+        inv.PaidAt = net <= paid ? last ?? paidOn : last is { } l && l > paidOn ? l : paidOn;
+        return (null, true);
     }
 
     static string StatusError(Invoice inv, string to) => to == InvoiceStatus.Draft
         ? "Een verstuurde factuur kan niet terug naar concept. Klopt er iets niet? Maak dan een creditnota."
         : inv.Status == InvoiceStatus.Paid
-            ? "Deze factuur is al betaald; de status kan niet meer terug."
+            ? "Deze factuur is al betaald; de status kan niet meer terug. Klopt een betaling niet? Haal die dan weg bij de betalingen van de factuur."
             : $"Van {inv.Status} naar {to} kan niet: de status van een verstuurde factuur gaat alleen vooruit.";
 
     // Regels overnemen, in dezelfde volgorde. Bij btw verlegd, KOR, vrijgesteld of buiten de EU staat er geen btw op de regels.
@@ -247,9 +281,9 @@ public static partial class InvoiceEndpoints
         }).ToList();
 
     // Een factuur met alles wat de frontend toont: regels op volgorde, klant, de factuur die hij crediteert en zijn creditnota's.
-    static IQueryable<Invoice> Full(AppDb db) =>
+    public static IQueryable<Invoice> Full(AppDb db) =>
         db.Invoices.Include(i => i.Lines.OrderBy(l => l.Position).ThenBy(l => l.Id)).Include(i => i.Customer).Include(i => i.CreditFor)
-            .Include(i => i.Credits).ThenInclude(c => c.Lines).AsSplitQuery();
+            .Include(i => i.Credits).ThenInclude(c => c.Lines).Include(i => i.Payments.OrderBy(p => p.Date).ThenBy(p => p.Id)).AsSplitQuery();
 
     // De leverperiode van de uren op deze factuur.
     public static async Task SetDeliveryFromHoursAsync(AppDb db, Invoice inv)
@@ -367,13 +401,13 @@ public static partial class InvoiceEndpoints
         });
 
         // Alleen de status wijzigen: versturen, verlopen of betaald.
-        g.MapPost("/{id:int}/status", async (AppDb db, BusinessClock clock, WorkflowEngine engine, int id, StatusRequest req) =>
+        g.MapPost("/{id:int}/status", async (AppDb db, BusinessClock clock, WorkflowEngine engine, ClaimsPrincipal user, int id, StatusRequest req) =>
         {
             await using (var tx = await WriteLock.BeginAsync(db))
             {
                 var inv = await db.Invoices.Include(i => i.Lines).FirstOrDefaultAsync(i => i.Id == id);
                 if (inv is null) return Results.NotFound();
-                var (problem, becamePaid) = await ChangeStatusAsync(db, clock, inv, req.Status, req.PaidAt);
+                var (problem, becamePaid) = await ChangeStatusAsync(db, clock, inv, req.Status, req.PaidAt, user.FindFirstValue(ClaimTypes.Name));
                 if (problem is not null) return problem.ToResult();
                 await db.SaveChangesAsync();
                 await tx.CommitAsync();
@@ -382,6 +416,37 @@ public static partial class InvoiceEndpoints
             await MarkOverdue(db, clock, engine);
             return Results.Ok(await Full(db).AsNoTracking().FirstAsync(i => i.Id == id));
         });
+
+        // Een (deel)betaling vastleggen. Iedereen in de werkruimte mag dat, net als een factuur op betaald zetten. Meer dan er
+        // openstaat kan niet; dekt de betaling het restant, dan is de factuur betaald.
+        g.MapPost("/{id:int}/payments", async (AppDb db, BusinessClock clock, WorkflowEngine engine, ClaimsPrincipal user, int id, PaymentRequest req) =>
+        {
+            Invoice? inv;
+            PaymentResult result;
+            await using (var tx = await WriteLock.BeginAsync(db))
+            {
+                inv = await db.Invoices.Include(i => i.Lines).FirstOrDefaultAsync(i => i.Id == id);
+                if (inv is null) return Results.NotFound();
+                result = await InvoicePayments.AddAsync(db, clock, inv, req.Amount, req.Date ?? clock.Today, req.Method ?? PaymentMethods.Manual, req.Note,
+                    user.FindFirstValue(ClaimTypes.Name));
+                if (result.Problem is not null) return result.Problem.ToResult();
+                await tx.CommitAsync();
+            }
+            if (result.BecamePaid) await TriggerPaid(db, engine, inv);
+            return Results.Ok(await Full(db).AsNoTracking().FirstAsync(i => i.Id == id));
+        });
+
+        // Een betaling weghalen mag alleen een beheerder. Staat er daarna weer iets open, dan is de factuur niet meer betaald.
+        g.MapDelete("/{id:int}/payments/{paymentId:int}", async (AppDb db, BusinessClock clock, ClaimsPrincipal user, int id, int paymentId) =>
+        {
+            await using var tx = await WriteLock.BeginAsync(db);
+            var inv = await db.Invoices.Include(i => i.Lines).FirstOrDefaultAsync(i => i.Id == id);
+            var payment = await db.InvoicePayments.FirstOrDefaultAsync(p => p.Id == paymentId && p.InvoiceId == id);
+            if (inv is null || payment is null) return Results.NotFound();
+            await InvoicePayments.RemoveAsync(db, clock, inv, payment, user.FindFirstValue(ClaimTypes.Name));
+            await tx.CommitAsync();
+            return Results.Ok(await Full(db).AsNoTracking().FirstAsync(i => i.Id == id));
+        }).RequireAuthorization(p => p.RequireRole(Roles.Admin));
 
         // Een nieuw concept met dezelfde klant en regels en verse datums.
         g.MapPost("/{id:int}/duplicate", async (AppDb db, BusinessClock clock, int id) =>

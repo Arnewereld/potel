@@ -57,7 +57,9 @@ export function PublicInvoicePage() {
     : inv.fullyCredited ? { icon: <CheckCircle2 size={16} />, text: 'Deze factuur is helemaal gecrediteerd. Je hoeft niets meer te betalen.' }
     : {
         icon: <Clock size={16} />,
-        text: `${inv.openAmount < total ? `Een deel van deze factuur is gecrediteerd. Er staat nog ${euro(inv.openAmount)} open` : `Te betalen: ${euro(inv.openAmount)}`}`
+        text: (inv.paidTotal > 0 ? `Er is al ${euro(inv.paidTotal)} betaald. Er staat nog ${euro(inv.openAmount)} open`
+          : inv.openAmount < total ? `Een deel van deze factuur is gecrediteerd. Er staat nog ${euro(inv.openAmount)} open`
+          : `Te betalen: ${euro(inv.openAmount)}`)
           + (late ? `. De betaaltermijn is verstreken op ${date(inv.dueDate)}.` : `, uiterlijk op ${date(inv.dueDate)}.`),
       }
 

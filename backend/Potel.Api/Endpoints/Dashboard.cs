@@ -13,7 +13,7 @@ public static class DashboardEndpoints
             await InvoiceEndpoints.MarkOverdue(db, clock, engine);
             // Week, maand, kwartaal en jaar zoals ze in Nederland lopen, niet in de tijdzone van de server.
             var today = clock.Today;
-            var invoices = await db.Invoices.Include(i => i.Lines).Include(i => i.Credits).ThenInclude(c => c.Lines).AsSplitQuery().AsNoTracking().ToListAsync();
+            var invoices = await db.Invoices.Include(i => i.Lines).Include(i => i.Credits).ThenInclude(c => c.Lines).Include(i => i.Payments).AsSplitQuery().AsNoTracking().ToListAsync();
             var leads = await db.Leads.AsNoTracking().ToListAsync();
 
             var monthStart = new DateTime(today.Year, today.Month, 1);

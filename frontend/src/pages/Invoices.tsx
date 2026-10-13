@@ -121,12 +121,14 @@ export function InvoicesPage() {
                     const days = daysUntil(i.dueDate)
                     const unpaid = (i.status === 'verzonden' || i.status === 'verlopen') && !i.fullyCredited
                     const credited = !isCredit(i) && (i.creditNotes?.length ?? 0) > 0
+                    const partlyPaid = unpaid && (i.paidTotal ?? 0) > 0
                     return (
                       <tr key={i.id} className="clickable" onClick={() => navigate(`/facturen/${i.id}`)}>
                         <td>
                           {i.number ? <strong>{i.number}</strong> : <span className="muted">Concept</span>}
                           {isCredit(i) && <span className="badge badge-purple" style={{ marginLeft: 8 }}>credit</span>}
                           {credited && <span className="badge badge-purple" style={{ marginLeft: 8 }}>{i.fullyCredited ? 'gecrediteerd' : 'deels gecrediteerd'}</span>}
+                          {partlyPaid && <span className="badge badge-green" style={{ marginLeft: 8 }}>deels betaald</span>}
                           {i.demo && <span className="badge badge-gray" style={{ marginLeft: 8 }}>voorbeeld</span>}
                           {i.recurringInvoiceId != null && <span className="muted" title="Gemaakt door een terugkerende factuur" style={{ marginLeft: 8 }}><Repeat size={13} /></span>}
                           {i.reference && <div className="cell-sub">{i.reference}</div>}
@@ -143,10 +145,10 @@ export function InvoicesPage() {
                         <td><Badge tone={st.tone}>{st.label}</Badge></td>
                         <td className="num">
                           <strong>{euro(invoiceTotals(i.lines).total)}</strong>
-                          {credited && unpaid && <div className="cell-sub">nog {euro(openAmount(i))} open</div>}
+                          {(credited || partlyPaid) && unpaid && <div className="cell-sub">nog {euro(openAmount(i))} open</div>}
                         </td>
                         <td className="row-actions" onClick={e => e.stopPropagation()}>
-                          {unpaid && <button className="icon-btn" title={isCredit(i) ? 'Markeer als verrekend' : 'Markeer als betaald'} onClick={() => markPaid(i)}><CheckCircle2 size={16} /></button>}
+                          {unpaid && <button className="icon-btn" title={isCredit(i) ? 'Markeer als verrekend' : partlyPaid ? `Markeer als betaald (de rest van ${euro(openAmount(i))} is binnen)` : 'Markeer als betaald'} onClick={() => markPaid(i)}><CheckCircle2 size={16} /></button>}
                           {i.status === 'verlopen' && unpaid && (mailStatus?.canSend && !i.demo
                             // Potel kan zelf mailen: in de factuur zie je de herinnering eerst en kies je de stap.
                             ? <button className="icon-btn" title="Herinnering sturen" onClick={() => navigate(`/facturen/${i.id}?herinnering=1`)}><BellRing size={16} /></button>

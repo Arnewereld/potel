@@ -218,7 +218,7 @@ public static partial class WorkspaceEndpoints
             await Write("customers", await db.Customers.ToListAsync());
             await Write("projects", await db.Projects.ToListAsync());
             await Write("timeEntries", await db.TimeEntries.ToListAsync());
-            await Write("invoices", await db.Invoices.Include(i => i.Lines).ToListAsync());
+            await Write("invoices", await db.Invoices.Include(i => i.Lines).Include(i => i.Payments).ToListAsync());
             // De urenspecificaties zoals ze bij versturen zijn vastgelegd.
             await Write("invoiceHourSpecifications", (await db.Invoices.Where(i => i.HoursSnapshot != null).OrderBy(i => i.Id)
                 .Select(i => new { i.Id, i.Number, i.HoursSnapshot }).ToListAsync())
@@ -283,6 +283,7 @@ public static partial class WorkspaceEndpoints
             await db.ExpenseReceipts.ExecuteDeleteAsync();
             await db.Expenses.ExecuteDeleteAsync();
             await db.InvoiceMails.ExecuteDeleteAsync();
+            await db.InvoicePayments.ExecuteDeleteAsync();
             await db.InvoiceLinks.ExecuteDeleteAsync();
             // Offerteregels gaan mee met hun offerte (cascade in de database).
             await db.QuoteLinks.ExecuteDeleteAsync();

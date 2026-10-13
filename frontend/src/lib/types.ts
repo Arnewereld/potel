@@ -67,6 +67,19 @@ export interface InvoiceTotals { subtotal: number; vat: number; total: number; v
 // Een verstuurde creditnota op een factuur.
 export interface CreditRef { id: number; number?: string | null; issueDate: string; total: number }
 
+// Een (deel)betaling op een factuur: zelf ingevoerd, via iDEAL binnengekomen of gekoppeld aan een regel van het bankafschrift.
+export type PaymentMethod = 'handmatig' | 'ideal' | 'bank'
+export interface InvoicePayment {
+  id: number
+  amount: number
+  date: string
+  method: PaymentMethod
+  note?: string | null
+  bankTransactionId?: number | null
+  molliePaymentId?: string | null
+  createdBy?: string | null
+}
+
 export interface Invoice {
   id: number
   // Een concept heeft nog geen nummer; dat komt bij versturen.
@@ -92,6 +105,9 @@ export interface Invoice {
   creditedTotal?: number
   openAmount?: number
   fullyCredited?: boolean
+  // De betalingen op deze factuur en wat ze samen zijn.
+  payments?: InvoicePayment[]
+  paidTotal?: number
   // Voorbeeldfactuur uit de welkomstwizard: altijd te verwijderen.
   demo?: boolean
   // Gemaakt door een terugkerende factuur, voor de periode die op recurringPeriodStart begint.
@@ -203,7 +219,7 @@ export interface ReminderSettings {
 
 // Wat de openbare factuurpagina krijgt: alleen wat op de factuur staat, plus logo en kleur.
 export interface PublicInvoice {
-  invoice: Omit<Invoice, 'id' | 'customerId'> & { isCredit: boolean; openAmount: number; fullyCredited: boolean }
+  invoice: Omit<Invoice, 'id' | 'customerId'> & { isCredit: boolean; openAmount: number; fullyCredited: boolean; paidTotal: number }
   brand: { logoDataUrl?: string | null; brandColor: string }
   hours?: HourSpec | null
 }

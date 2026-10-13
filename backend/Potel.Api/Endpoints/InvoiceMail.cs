@@ -49,7 +49,7 @@ public static class InvoiceMailEndpoints
         var link = await db.InvoiceLinks.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(l => l.TokenHash == hash && l.RevokedAt == null);
         if (link is null) return null;
         var inv = await db.Invoices.IgnoreQueryFilters().AsNoTracking()
-            .Include(i => i.Lines).Include(i => i.Credits).ThenInclude(c => c.Lines).AsSplitQuery()
+            .Include(i => i.Lines).Include(i => i.Credits).ThenInclude(c => c.Lines).Include(i => i.Payments).AsSplitQuery()
             .FirstOrDefaultAsync(i => i.Id == link.InvoiceId && i.WorkspaceId == link.WorkspaceId);
         if (inv is null || inv.Status == InvoiceStatus.Draft || inv.IsDemo) return null;
         // Een link uit het klantportaal werkt alleen zolang dat portaal open staat en facturen daar te zien zijn.
@@ -225,6 +225,8 @@ public static class InvoiceMailEndpoints
                     lines = inv.Lines.OrderBy(l => l.Position).ThenBy(l => l.Id).Select(l => new { l.Description, l.Quantity, l.Unit, l.UnitPrice, l.VatRate }),
                     creditForNumber = creditFor?.Number, creditForIssueDate = creditFor?.IssueDate,
                     inv.IsCredit, inv.OpenAmount, inv.FullyCredited, inv.Totals,
+                    // Wat er al betaald is, zonder de betalingen zelf.
+                    inv.PaidTotal,
                 },
                 // De urenspecificatie zoals hij bij versturen is vastgelegd, alleen als die mee moest.
                 hours = HourSpecs.Sent(inv),

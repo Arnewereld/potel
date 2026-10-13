@@ -251,6 +251,9 @@ public static class Seed
             inv.SentAt = inv.IssueDate;
             inv.Seller = InvoiceParty.Seller(settings);
             inv.Buyer = InvoiceParty.Buyer(customers.First(c => c.Id == inv.CustomerId));
+            // Een betaalde voorbeeldfactuur heeft zijn betaling erbij, net als een echte.
+            if (inv.Status == InvoiceStatus.Paid)
+                inv.Payments.Add(new InvoicePayment { Amount = inv.Totals.Total, Date = inv.PaidAt!.Value, Method = PaymentMethods.Bank });
             db.Invoices.Add(inv);
             db.SaveChanges();
             foreach (var e in linked) { e.InvoiceId = inv.Id; e.InvoiceLineId = inv.Lines[0].Id; }
