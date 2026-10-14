@@ -184,6 +184,9 @@ public static class ProjectEndpoints
             if (p is null) return Results.NotFound();
             if (await db.TimeEntries.AnyAsync(t => t.ProjectId == id && t.InvoiceId != null))
                 return Results.Conflict(new { error = "Dit project heeft gefactureerde uren. Zet het op afgerond in plaats van het te verwijderen." });
+            // Een lopende timer is werk dat nog geboekt moet worden; die gaat niet ongemerkt mee.
+            if (await db.RunningTimers.AnyAsync(t => t.ProjectId == id))
+                return Results.Conflict(new { error = "Op dit project loopt nog een timer. Stop die eerst, of vraag je collega dat te doen." });
             db.Projects.Remove(p);
             db.Log("project", $"Project {p.Name} verwijderd");
             await db.SaveChangesAsync();

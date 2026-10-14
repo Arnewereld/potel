@@ -3,7 +3,8 @@
 
 const TIMER_PREFIX = 'potel.timer'
 
-// Een lopende timer hoort bij één gebruiker in één werkruimte.
+// Waar oudere versies de lopende timer bewaarden, per gebruiker en werkruimte. De timer staat nu op de server;
+// een timer die hier nog staat, zet lib/timer.tsx één keer over en haalt hem daarna weg.
 export const timerKey = (user: { id: number; workspaceId: number }) => `${TIMER_PREFIX}:${user.workspaceId}:${user.id}`
 
 function remove(match: (key: string) => boolean) {
@@ -19,5 +20,5 @@ function remove(match: (key: string) => boolean) {
 // en een timer uit een oudere versie (zonder gebruiker erbij) weten we niet aan iemand toe te wijzen.
 export const resetSession = () => remove(key => key === 'potel.tabs' || key === TIMER_PREFIX)
 
-// Bij uitloggen gaan ook alle lopende timers weg.
+// Bij uitloggen gaan ook timers uit oudere versies weg. De timer op de server loopt gewoon door.
 export const clearSession = () => remove(key => key === 'potel.tabs' || key === TIMER_PREFIX || key.startsWith(`${TIMER_PREFIX}:`))

@@ -895,6 +895,27 @@ public class TimeEntry : IWorkspaceOwned, IDemoData
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
+// De timer die nu loopt. Hij staat op de server, per gebruiker, zodat je hem op je laptop start en op je telefoon stopt.
+// Hooguit één per gebruiker: een unieke index houdt een tweede tegen, ook als twee apparaten tegelijk starten.
+public class RunningTimer : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    public int WorkspaceId { get; set; }
+    public int UserId { get; set; }
+    public int ProjectId { get; set; }
+    public string Description { get; set; } = "";
+    public bool Billable { get; set; } = true;
+    // Alle tijden in UTC. Gepauzeerde tijd telt niet mee: PausedSeconds is wat er al aan pauzes achter de rug is,
+    // PausedAt staat zolang de timer nu stilstaat.
+    public DateTime StartedAt { get; set; }
+    public DateTime? PausedAt { get; set; }
+    public int PausedSeconds { get; set; }
+    // Kenmerk van deze timer. Een apparaat stuurt het mee bij stoppen, pauzeren of weggooien, zodat een verouderd scherm
+    // nooit een nieuwere timer stopt. De boeking krijgt hetzelfde kenmerk, dus twee keer stoppen geeft één boeking.
+    public string Key { get; set; } = "";
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+}
+
 // Soorten ritten. Alleen zakelijke kilometers met je eigen auto geven aftrek voor de inkomstenbelasting. Met een auto van
 // de zaak zitten de autokosten al in je kosten, dus die kilometers leggen we alleen vast. Woon-werkverkeer met je eigen
 // auto telt voor de inkomstenbelasting als zakelijk.

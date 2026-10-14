@@ -1,8 +1,11 @@
 export class ApiError extends Error {
   status: number
-  constructor(message: string, status: number) {
+  // De rest van het antwoord, zoals de actuele stand van de timer bij een conflict.
+  data: unknown
+  constructor(message: string, status: number, data?: unknown) {
     super(message)
     this.status = status
+    this.data = data
   }
 }
 
@@ -17,12 +20,14 @@ async function send(method: string, url: string, body?: unknown): Promise<Respon
   }
   if (!res.ok) {
     let message = `Er ging iets mis (${res.status})`
+    let data: unknown
     try {
-      const data = await res.json()
-      if (data?.error) message = data.error
-      else if (data?.title) message = data.title
+      data = await res.json()
+      const body = data as { error?: string; title?: string } | null
+      if (body?.error) message = body.error
+      else if (body?.title) message = body.title
     } catch { /* geen JSON */ }
-    throw new ApiError(message, res.status)
+    throw new ApiError(message, res.status, data)
   }
   return res
 }

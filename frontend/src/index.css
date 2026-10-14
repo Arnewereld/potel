@@ -625,6 +625,19 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .timer-chip-main { display: flex; align-items: center; gap: 8px; border: 0; background: none; padding: 5px 6px 5px 12px; cursor: pointer; font-size: 13px; max-width: 280px; }
 .timer-chip-main strong { font-variant-numeric: tabular-nums; }
 .timer-chip-stop { border: 0; background: var(--accent); color: #fff; width: 28px; align-self: stretch; cursor: pointer; display: grid; place-items: center; }
+.timer-chip-paused { color: var(--accent); flex: none; }
+/* Gepauzeerd: geen kloppende stip, de tijd staat stil. */
+.timer-card.paused .timer-pulse { animation: none; opacity: 0.45; }
+.timer-card.paused .timer-clock { color: var(--muted); }
+/* Het project bovenaan als een rustig keuzelijstje: een ander project kiezen wisselt de timer. */
+.timer-card select.timer-project { display: block; width: auto; max-width: 100%; min-width: 0; border: 0; background: none; box-shadow: none !important; padding: 2px 4px; cursor: pointer; text-overflow: ellipsis; }
+.timer-clock small { display: block; font-size: 11px; font-weight: 500; letter-spacing: 0; color: var(--muted); }
+.timer-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+/* De vraag of de eindtijd klopt, bij een timer die over middernacht of langer dan 12 uur liep. */
+.timer-end { display: grid; gap: 12px; }
+.timer-end-lead { display: flex; gap: 10px; align-items: flex-start; margin: 0; line-height: 1.5; }
+.timer-end-lead svg { flex: none; color: var(--primary); margin-top: 2px; }
+.timer-end-sum { margin: 0; font-size: 13px; }
 
 /* Weekoverzicht */
 .week-table th.today, .week-table td.today { background: var(--primary-soft); }

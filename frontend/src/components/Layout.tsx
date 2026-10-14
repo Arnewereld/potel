@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, CalendarDays, Users, Target, Receipt, Workflow, Blocks, X, Search, FileSignature,
-  ChevronsLeft, ChevronsRight, Moon, Sun, Plus, ShieldCheck, LogOut, KeyRound, Timer, FolderKanban, Settings, Square, Crown, Wallet, Landmark, CalendarRange,
+  ChevronsLeft, ChevronsRight, Moon, Sun, Plus, ShieldCheck, LogOut, KeyRound, Timer, FolderKanban, Settings, Square, Pause, Crown, Wallet, Landmark, CalendarRange,
   ArrowLeftRight, Car, Package,
 } from 'lucide-react'
 import { clock, useTimer } from '../lib/timer'
@@ -67,7 +67,6 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
   const [userMenu, setUserMenu] = useState(false)
   const [changingPassword, setChangingPassword] = useState(false)
   const { user, logout } = useAuth()
-  const { running } = useTimer()
   const { workspace, reload: reloadWorkspace } = useWorkspace()
 
   useEffect(() => {
@@ -172,7 +171,8 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
             <div className="user-menu" onMouseLeave={() => setUserMenu(false)}>
               <div className="cell-sub" style={{ padding: '6px 10px' }}>{user.email}</div>
               <button className="nav-item" onClick={() => { setUserMenu(false); setChangingPassword(true) }}><KeyRound size={16} /><span>Wachtwoord wijzigen</span></button>
-              <button className="nav-item" onClick={() => (!running || confirm('Je timer loopt nog. Uitloggen zonder de tijd te boeken?')) && logout()}><LogOut size={16} /><span>Uitloggen</span></button>
+              {/* De timer staat op de server en loopt na uitloggen gewoon door. */}
+              <button className="nav-item" onClick={() => logout()}><LogOut size={16} /><span>Uitloggen</span></button>
             </div>
           )}
         </div>
@@ -218,19 +218,19 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
   )
 }
 
-// De lopende timer, altijd zichtbaar rechts in de tabbalk.
+// De lopende timer, altijd zichtbaar rechts in de tabbalk, op elk apparaat dezelfde.
 function TimerChip() {
-  const { running, elapsed, stopping, stop } = useTimer()
+  const { running, elapsed, paused, stopping, stop } = useTimer()
   const navigate = useNavigate()
   if (!running) return null
   return (
-    <div className="timer-chip" style={{ '--accent': running.projectColor } as React.CSSProperties}>
+    <div className={`timer-chip ${paused ? 'paused' : ''}`} style={{ '--accent': running.projectColor } as React.CSSProperties}>
       <button className="timer-chip-main" onClick={() => navigate('/uren')} title={running.description || running.projectName}>
-        <span className="timer-pulse" />
+        {paused ? <Pause size={12} className="timer-chip-paused" /> : <span className="timer-pulse" />}
         <span className="truncate">{running.projectName}</span>
         <strong>{clock(elapsed)}</strong>
       </button>
-      <button className="timer-chip-stop" disabled={stopping} onClick={stop} title="Stoppen en boeken"><Square size={11} fill="currentColor" /></button>
+      <button className="timer-chip-stop" disabled={stopping} onClick={() => void stop()} title="Stoppen en boeken" aria-label="Timer stoppen en boeken"><Square size={11} fill="currentColor" /></button>
     </div>
   )
 }

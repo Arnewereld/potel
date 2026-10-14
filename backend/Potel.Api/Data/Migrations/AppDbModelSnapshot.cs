@@ -1652,6 +1652,56 @@ namespace Potel.Api.Data.Migrations
                     b.ToTable("ReminderSettings");
                 });
 
+            modelBuilder.Entity("Potel.Api.Data.RunningTimer", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("Billable")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("PausedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("PausedSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.ToTable("RunningTimers");
+                });
+
             modelBuilder.Entity("Potel.Api.Data.Settings", b =>
                 {
                     b.Property<int>("Id")
@@ -2654,6 +2704,21 @@ namespace Potel.Api.Data.Migrations
                     b.HasOne("Potel.Api.Data.RecurringInvoice", null)
                         .WithMany("Lines")
                         .HasForeignKey("RecurringInvoiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.RunningTimer", b =>
+                {
+                    b.HasOne("Potel.Api.Data.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Potel.Api.Data.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

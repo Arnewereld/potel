@@ -175,8 +175,9 @@ public static partial class WorkspaceEndpoints
             await db.Expenses.Where(e => e.IsDemo && db.ExpenseReceipts.Any(r => r.ExpenseId == e.Id)).ExecuteUpdateAsync(x => x.SetProperty(e => e.IsDemo, false));
             db.Expenses.RemoveRange(db.Expenses.Where(e => e.IsDemo));
             await db.SaveChangesAsync();
+            // Een voorbeeldproject met een lopende timer blijft ook staan: die tijd is van jou.
             db.Projects.RemoveRange(db.Projects.Where(p => p.IsDemo && !db.TimeEntries.Any(t => t.ProjectId == p.Id) && !db.Expenses.Any(e => e.ProjectId == p.Id)
-                && !db.Trips.Any(t => t.ProjectId == p.Id) && !db.TripRoutes.Any(r => r.ProjectId == p.Id)));
+                && !db.Trips.Any(t => t.ProjectId == p.Id) && !db.TripRoutes.Any(r => r.ProjectId == p.Id) && !db.RunningTimers.Any(t => t.ProjectId == p.Id)));
             db.CustomModules.RemoveRange(db.CustomModules.Where(m => m.IsDemo && !db.CustomRecords.Any(r => r.ModuleId == m.Id)));
             await db.SaveChangesAsync();
             var customers = await db.Customers
@@ -299,6 +300,7 @@ public static partial class WorkspaceEndpoints
 
             // Volgorde maakt uit vanwege de koppelingen tussen tabellen. Bonnetjes direct in de database, zonder ze eerst in te lezen.
             await db.ExpenseReceipts.ExecuteDeleteAsync();
+            await db.RunningTimers.ExecuteDeleteAsync();
             await db.Trips.ExecuteDeleteAsync();
             await db.TripRoutes.ExecuteDeleteAsync();
             await db.TaxReserveYears.ExecuteDeleteAsync();

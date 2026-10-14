@@ -10,7 +10,7 @@ public static class TimeEndpoints
         int Id, int ProjectId, string ProjectName, string ProjectColor, string? CustomerName, DateTime Date, int Minutes,
         string Description, bool Billable, int? InvoiceId, string? InvoiceNumber);
 
-    static string? Validate(AppDb db, TimeEntry input)
+    internal static string? Validate(AppDb db, TimeEntry input)
     {
         if (!db.Projects.Any(p => p.Id == input.ProjectId)) return "Kies een project";
         if (input.Minutes <= 0) return "Vul de tijd in";

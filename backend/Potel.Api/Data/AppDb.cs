@@ -25,6 +25,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
     public DbSet<WorkflowRun> WorkflowRuns => Set<WorkflowRun>();
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<TimeEntry> TimeEntries => Set<TimeEntry>();
+    public DbSet<RunningTimer> RunningTimers => Set<RunningTimer>();
     public DbSet<Settings> Settings => Set<Settings>();
     public DbSet<PlatformCounter> PlatformCounters => Set<PlatformCounter>();
     public DbSet<AccountToken> AccountTokens => Set<AccountToken>();
@@ -89,6 +90,10 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         b.Entity<TimeEntry>().HasOne<InvoiceLine>().WithMany().HasForeignKey(t => t.InvoiceLineId).OnDelete(DeleteBehavior.SetNull);
         b.Entity<TimeEntry>().HasIndex(t => t.Date);
         b.Entity<TimeEntry>().HasIndex(t => new { t.WorkspaceId, t.ClientId }).IsUnique();
+        // Eén lopende timer per gebruiker, ook als twee apparaten tegelijk starten. Hij gaat mee met de gebruiker of het project.
+        b.Entity<RunningTimer>().HasIndex(t => t.UserId).IsUnique();
+        b.Entity<RunningTimer>().HasOne<User>().WithMany().HasForeignKey(t => t.UserId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<RunningTimer>().HasOne<Project>().WithMany().HasForeignKey(t => t.ProjectId).OnDelete(DeleteBehavior.Cascade);
         // Tellers voor het hele platform; de rij bestaat altijd, zodat ophogen in één update kan.
         b.Entity<PlatformCounter>().HasKey(c => c.Key);
         b.Entity<PlatformCounter>().HasData(new PlatformCounter { Key = PlatformCounter.TrialEmails });
@@ -175,7 +180,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
     // Elke tabel met een werkruimte krijgt een filter, zodat een werkruimte nooit gegevens van een ander ziet.
     void FilterByWorkspace(ModelBuilder b)
     {
-        Filter<Customer>(b); Filter<Lead>(b); Filter<Invoice>(b); Filter<Appointment>(b); Filter<Project>(b); Filter<TimeEntry>(b);
+        Filter<Customer>(b); Filter<Lead>(b); Filter<Invoice>(b); Filter<Appointment>(b); Filter<Project>(b); Filter<TimeEntry>(b); Filter<RunningTimer>(b);
         Filter<Settings>(b); Filter<CustomModule>(b); Filter<CustomRecord>(b); Filter<Workflow>(b); Filter<Activity>(b);
         Filter<User>(b); Filter<WorkflowRun>(b); Filter<AccountToken>(b); Filter<MolliePayment>(b);
         Filter<Expense>(b); Filter<ExpenseReceipt>(b); Filter<RecurringInvoice>(b);
