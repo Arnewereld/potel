@@ -701,6 +701,19 @@ a.btn { text-decoration: none; color: inherit; display: inline-flex; align-items
 .toggle-row { height: 38px; gap: 10px; }
 .line select:disabled { opacity: 0.5; }
 .line-actions { display: flex; gap: 0; justify-content: flex-end; }
+/* Een factuurregel in een smalle kaart, zoals op 1280 pixels breed met de voorbeeldfactuur ernaast: dan passen niet alle kolommen
+   naast elkaar. De knoppen van de regel staan dan naast de omschrijving, zodat aantal, eenheid, tarief, btw en bedrag binnen de
+   kaart blijven. Op een telefoon geldt de indeling over drie rijen. */
+.lines { container-type: inline-size; }
+@media (min-width: 641px) {
+  @container (max-width: 517.98px) {
+    .line { grid-template-columns: minmax(70px, 76px) minmax(78px, 84px) minmax(80px, 1fr) minmax(70px, 76px) minmax(90px, 1fr); }
+    .line > input:first-child { grid-column: 1 / -2; }
+    .line > .line-actions { grid-column: -2 / -1; grid-row: 1; }
+    .line > .line-actions:empty { display: none; }
+    .line:has(> .line-actions:empty) > input:first-child { grid-column: 1 / -1; }
+  }
+}
 .line-totals { display: flex; gap: 16px; font-size: 13px; color: var(--muted); }
 .line-totals strong { color: var(--text); margin-left: 4px; }
 .open-hours { margin-top: 18px; border: 1px dashed color-mix(in srgb, var(--primary) 50%, transparent); background: var(--primary-soft); border-radius: 12px; padding: 12px 14px; }
