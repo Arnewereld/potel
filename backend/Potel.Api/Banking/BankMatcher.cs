@@ -28,7 +28,7 @@ public record NewExpense(string? Supplier, DateTime Date, decimal Amount, string
 //    rekeningnummer van de klant. Is het minder dan er openstaat, dan stellen we een deelbetaling voor. Had je de betaling zelf
 //    al ingevuld, dan koppelen we aan die betaling in plaats van een tweede te maken.
 //  - Geld dat eraf gaat: een uitgave met hetzelfde bedrag in de weken eromheen, het liefst bij dezelfde leverancier.
-public class BankMatcher
+public partial class BankMatcher
 {
     public const int MaxProposals = 3;
     // Een afschrijving mag tot 45 dagen na de uitgave komen (een rekening met betaaltermijn) en tot 7 dagen ervoor.
@@ -45,21 +45,34 @@ public class BankMatcher
         this.expenses = expenses.ToList();
     }
 
+    // Een factuurnummer is nooit zo lang; een langer nummer zoeken we niet.
+    public const int MaxNumberLength = 64;
+    // Een omschrijving uit de bank is hooguit 1000 tekens (StatementParser knipt hem af). Wat een matcher ook krijgt, we
+    // zoeken niet verder dan dit.
+    public const int MaxTextLength = 2000;
+
+    [GeneratedRegex("[A-Za-z0-9]+")]
+    private static partial Regex NumberPart();
+
     // Het factuurnummer als los woord, met of zonder streepje, spatie, punt of slash ertussen: 2026-0007 vindt ook "2026 0007"
     // en "20260007", maar niet "2026-00071". Korte nummers (minder dan 4 tekens) zijn te onzeker.
+    // Zonder terugzoeken (NonBacktracking): de tijd groeit hooguit gelijk op met de lengte van de tekst, dus een time-out is
+    // niet nodig en een match valt nooit stilletjes weg omdat de server even druk was. Daarom ook geen lookarounds (die kent
+    // die engine niet): een teken ervoor en erna dat geen letter of cijfer is, of het begin of einde van de tekst. Voor IsMatch
+    // maakt dat geen verschil.
     public static Regex? NumberPattern(string number)
     {
-        var parts = Regex.Matches(number, "[A-Za-z0-9]+").Select(m => Regex.Escape(m.Value)).ToList();
+        if (number.Length > MaxNumberLength) return null;
+        var parts = NumberPart().Matches(number).Select(m => Regex.Escape(m.Value)).ToList();
         if (parts.Sum(p => p.Length) < 4) return null;
-        return new Regex($"(?<![A-Za-z0-9]){string.Join("[-\\s./_]?", parts)}(?![A-Za-z0-9])",
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
+        return new Regex($"(?:^|[^A-Za-z0-9]){string.Join("[-\\s./_]?", parts)}(?:[^A-Za-z0-9]|$)",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
     }
 
     static bool Mentions(Regex? number, string? text)
     {
         if (number is null || string.IsNullOrEmpty(text)) return false;
-        try { return number.IsMatch(text); }
-        catch (RegexMatchTimeoutException) { return false; }
+        return number.IsMatch(text.Length > MaxTextLength ? text.AsSpan(0, MaxTextLength) : text);
     }
 
     public List<Proposal> Propose(BankTransaction t)
@@ -155,11 +168,18 @@ public class BankMatcher
         "hr", "dhr", "mw", "mevr", "mr", "mrs", "fam", "stichting", "via",
     ];
 
+    [GeneratedRegex("[^a-z0-9]+")]
+    private static partial Regex NotAWord();
+
+    // Een naam van meer dan 200 tekens (zoals de bank hem hooguit geeft) vergelijken we op de eerste 200.
+    const int MaxNameLength = 200;
+
     static List<string> Words(string s)
     {
+        if (s.Length > MaxNameLength) s = s[..MaxNameLength];
         var plain = new string(s.Normalize(NormalizationForm.FormD).Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark).ToArray())
             .ToLowerInvariant().Replace(".", "");
-        return Regex.Split(plain, "[^a-z0-9]+").Where(w => w.Length >= 2 && !Noise.Contains(w)).Distinct().ToList();
+        return NotAWord().Split(plain).Where(w => w.Length >= 2 && !Noise.Contains(w)).Distinct().ToList();
     }
 
     // Lijken twee namen op dezelfde partij? Minstens de helft van de woorden van de kortste naam moet in de andere staan, en
