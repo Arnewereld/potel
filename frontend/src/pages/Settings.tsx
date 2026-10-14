@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Settings as SettingsIcon, Save, Building, Target, Palette, CreditCard, UserCog, Download, Trash2, Check, Mail, BellRing, RotateCcw, GitBranch, Banknote, PiggyBank } from 'lucide-react'
+import { Settings as SettingsIcon, Save, Building, Target, Palette, CreditCard, UserCog, Download, Trash2, Check, Mail, BellRing, RotateCcw, GitBranch, Banknote, PiggyBank, Smartphone } from 'lucide-react'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useToast } from '../lib/toast'
@@ -17,8 +17,9 @@ import { InvoicePaper } from '../components/InvoicePaper'
 import { GitHubSettingsTab } from '../components/GitHub'
 import { IdealSettingsTab } from '../components/IdealSettings'
 import { TaxReserveSettingsTab } from '../components/TaxReserveSettings'
+import { InstallAppTab } from '../components/InstallApp'
 
-type Tab = 'bedrijf' | 'huisstijl' | 'email' | 'belastingpot' | 'ideal' | 'github' | 'abonnement' | 'account'
+type Tab = 'bedrijf' | 'huisstijl' | 'email' | 'belastingpot' | 'ideal' | 'github' | 'telefoon' | 'abonnement' | 'account'
 
 export function SettingsPage() {
   const { data, error, loading, setData } = useApi<Settings>('/settings')
@@ -66,7 +67,7 @@ export function SettingsPage() {
       <PageHeader
         icon={<SettingsIcon size={20} />}
         title="Instellingen"
-        subtitle="Je gegevens, huisstijl, belastingpot, iDEAL, koppelingen, abonnement en account."
+        subtitle="Je gegevens, huisstijl, belastingpot, iDEAL, koppelingen, Potel op je telefoon, abonnement en account."
         actions={admin && (tab === 'bedrijf' || tab === 'huisstijl') && <button className="btn btn-primary" disabled={busy || !dirty}><Save size={15} /> Opslaan</button>}
       />
       <SubTabs<Tab> value={tab} onChange={t => setParams({ tab: t }, { replace: true })} tabs={[
@@ -76,6 +77,7 @@ export function SettingsPage() {
         { id: 'belastingpot', label: 'Belastingpot', icon: <PiggyBank size={14} /> },
         { id: 'ideal', label: 'iDEAL', icon: <Banknote size={14} /> },
         { id: 'github', label: 'GitHub', icon: <GitBranch size={14} /> },
+        { id: 'telefoon', label: 'Op je telefoon', icon: <Smartphone size={14} /> },
         { id: 'abonnement', label: 'Abonnement', icon: <CreditCard size={14} /> },
         { id: 'account', label: 'Account', icon: <UserCog size={14} /> },
       ]} />
@@ -145,6 +147,7 @@ export function SettingsPage() {
       {tab === 'belastingpot' && <TaxReserveSettingsTab admin={admin} />}
       {tab === 'ideal' && <IdealSettingsTab admin={admin} />}
       {tab === 'github' && <GitHubSettingsTab admin={admin} />}
+      {tab === 'telefoon' && <InstallAppTab />}
       {tab === 'abonnement' && <Subscription admin={admin} />}
       {tab === 'account' && <Account admin={admin} />}
     </form>

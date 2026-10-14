@@ -1,19 +1,22 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, Route, Routes, useLocation } from 'react-router-dom'
 import type { PublicAuth } from '../../lib/auth'
 import { product } from '../../lib/plans'
+import { standalone } from '../../lib/pwa'
 import { LandingPage } from './Landing'
 import { LoginPage } from '../Login'
 import { SignupPage } from './Signup'
 import { ForgotPasswordPage } from './ForgotPassword'
 
-// Alles wat je ziet zonder in te loggen: de verkooppagina, inloggen en aanmelden.
+// Alles wat je ziet zonder in te loggen: de verkooppagina, inloggen en aanmelden. Open je Potel als app vanaf je
+// beginscherm, dan kom je meteen bij inloggen in plaats van op de verkooppagina.
 export function PublicSite({ auth }: { auth: PublicAuth }) {
   const { pathname } = useLocation()
   useEffect(() => { window.scrollTo(0, 0) }, [pathname])
+  const [app] = useState(standalone)
   return (
     <Routes>
-      <Route path="/" element={<LandingPage />} />
+      <Route path="/" element={app ? <LoginPage onLogin={auth.login} /> : <LandingPage />} />
       <Route path="/aanmelden" element={<SignupPage onRegister={auth.register} />} />
       <Route path="/wachtwoord-vergeten" element={<ForgotPasswordPage />} />
       <Route path="*" element={<LoginPage onLogin={auth.login} />} />

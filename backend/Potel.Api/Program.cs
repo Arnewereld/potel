@@ -195,9 +195,10 @@ app.Use(async (http, next) =>
     await next();
 });
 
-// Als de frontend gebouwd is (npm run build) staat hij in wwwroot en serveert de API hem mee.
+// Als de frontend gebouwd is (npm run build) staat hij in wwwroot en serveert de API hem mee, met cacheregels per soort bestand.
+var appShell = AppShell.Options();
 app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseStaticFiles(appShell);
 
 app.UseAuthentication();
 app.UseAuthorization();
@@ -277,7 +278,7 @@ api.MapPlatform();
 api.MapBilling();
 api.MapFallback(() => Results.NotFound());
 
-app.MapFallbackToFile("index.html");
+app.MapFallbackToFile("index.html", appShell);
 
 app.Run();
 

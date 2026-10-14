@@ -17,6 +17,7 @@ import { useModules } from '../lib/modules'
 import { ModuleIcon } from './Icon'
 import { CommandPalette } from './CommandPalette'
 import { VerifyEmailBanner } from './VerifyEmailBanner'
+import { UpdateBanner } from './UpdateBanner'
 
 // Het menu, per groep in de volgorde waarin het in de zijbalk staat.
 const nav = [
@@ -179,6 +180,7 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
       </aside>
 
       <div className="main">
+        <UpdateBanner />
         {!user.emailVerified && <VerifyEmailBanner email={user.email} />}
         <div className="tabbar" role="tablist">
           {tabs.map(t => {

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#ff6d5a" />
+    <meta name="robots" content="noindex" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Je bent offline · Potel</title>
+    <style>
+      /* Deze pagina laat de service worker zien als er geen verbinding is. Alles staat erin, want van de server komt nu niets. */
+      :root { --bg: #f4f4f8; --panel: #fff; --text: #1d1d2b; --muted: #7b7b92; --border: #e3e3ec; --primary: #ff6d5a; color-scheme: light dark; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #14141b; --panel: #1c1c25; --text: #ececf3; --muted: #8a8aa0; --border: #31313f; } }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; min-height: 100%; }
+      body {
+        min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--text);
+        font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif; font-size: 15px; line-height: 1.55;
+        padding: max(24px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+      }
+      main { width: min(420px, 100%); background: var(--panel); border: 1px solid var(--border); border-radius: 18px; padding: 32px 26px; text-align: center; }
+      .logo { width: 56px; height: 56px; margin: 0 auto 18px; border-radius: 16px; display: grid; place-items: center; background: linear-gradient(135deg, #ff6d5a, #ff9a5a); }
+      h1 { font-size: 21px; margin: 0 0 8px; letter-spacing: -0.01em; }
+      p { margin: 0 0 12px; color: var(--muted); }
+      button {
+        margin-top: 10px; min-height: 46px; width: 100%; border: 0; border-radius: 10px; background: var(--primary); color: #fff;
+        font: inherit; font-weight: 600; cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="30" height="30"><circle cx="10" cy="16" r="3.2" fill="#fff"/><circle cx="22" cy="10" r="3.2" fill="#fff"/><circle cx="22" cy="22" r="3.2" fill="#fff"/><path d="M13 16h3c2 0 2-6 3-6M13 16h3c2 0 2 6 3 6" stroke="#fff" stroke-width="2" fill="none"/></svg>
+      </div>
+      <h1>Je bent offline</h1>
+      <p>Potel heeft een internetverbinding nodig om je uren, projecten en facturen te laten zien. Werkt je internet wel, dan is Potel even niet bereikbaar. Probeer het dan zo nog eens.</p>
+      <p>Een timer die al liep, loopt gewoon door op de server. Zodra je weer verbinding hebt, ga je verder waar je was.</p>
+      <button type="button" id="again">Opnieuw proberen</button>
+    </main>
+    <script>
+      // Terug naar waar je was zodra er weer verbinding is, of als je zelf op de knop drukt.
+      document.getElementById('again').addEventListener('click', function () { location.reload() })
+      window.addEventListener('online', function () { location.reload() })
+    </script>
+  </body>
+</html>
