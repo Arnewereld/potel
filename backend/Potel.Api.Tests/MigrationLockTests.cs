@@ -11,6 +11,7 @@ namespace Potel.Api.Tests;
 public class MigrationLockTests : IDisposable
 {
     readonly string path = Path.Combine(Path.GetTempPath(), $"potel-slot-{Guid.NewGuid():N}.db");
+    readonly string backups = Path.Combine(Path.GetTempPath(), $"potel-slot-backups-{Guid.NewGuid():N}");
 
     AppDb Db() => new(new DbContextOptionsBuilder<AppDb>().UseSqlite($"Data Source={path}").Options, new Tenant());
 
@@ -37,7 +38,7 @@ public class MigrationLockTests : IDisposable
         Assert.Equal(1, Locks());
 
         // Zonder opruimen blijft Migrate() hier eindeloos wachten.
-        await Task.Run(() => { using var db = Db(); Database.Prepare(db, NullLogger.Instance); }).WaitAsync(TimeSpan.FromSeconds(30));
+        await Task.Run(() => { using var db = Db(); Database.Prepare(db, NullLogger.Instance, new DatabaseBackups(path, new BackupOptions { Path = backups }, NullLogger.Instance)); }).WaitAsync(TimeSpan.FromSeconds(30));
         Assert.Equal(0, Locks());
     }
 
@@ -53,5 +54,6 @@ public class MigrationLockTests : IDisposable
     public void Dispose()
     {
         TestDatabase.Delete(path);
+        if (Directory.Exists(backups)) Directory.Delete(backups, true);
     }
 }

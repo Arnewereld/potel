@@ -16,6 +16,7 @@ namespace Potel.Api.Tests;
 public class LegacyInvoiceDatabaseFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
     readonly string dbPath = Path.Combine(Path.GetTempPath(), $"potel-legacy-{Guid.NewGuid():N}.db");
+    readonly string backupPath = Path.Combine(Path.GetTempPath(), $"potel-legacy-backups-{Guid.NewGuid():N}");
 
     public LegacyInvoiceDatabaseFactory()
     {
@@ -63,6 +64,9 @@ public class LegacyInvoiceDatabaseFactory : WebApplicationFactory<Program>, IAsy
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("DatabasePath", dbPath);
+        // Deze oude database krijgt bij het starten een back-up voor de update, in een eigen map.
+        builder.UseSetting("Backup:Path", backupPath);
+        builder.UseSetting("Backup:Daily", "false");
         builder.UseSetting("Workflows:Scheduler", "false");
         builder.UseSetting("Smtp:Host", "");
     }
@@ -71,6 +75,7 @@ public class LegacyInvoiceDatabaseFactory : WebApplicationFactory<Program>, IAsy
     {
         base.Dispose(disposing);
         TestDatabase.Delete(dbPath);
+        if (Directory.Exists(backupPath)) Directory.Delete(backupPath, true);
     }
 }
 

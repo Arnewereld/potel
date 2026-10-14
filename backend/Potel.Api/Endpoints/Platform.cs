@@ -61,6 +61,22 @@ public static class PlatformEndpoints
         // Wie het platform nog meer mag beheren. Alleen een platformbeheerder kan dat aanpassen.
         g.MapGet("/admins", async (AppDb db) => await AdminsAsync(db));
 
+        // Back-ups van de hele database: waar ze staan, de laatste en of er iets misging. Downloaden kan bewust niet:
+        // de database bevat alle werkruimtes. Terugzetten doe je met de hand op de server (zie de README).
+        g.MapGet("/backups", (DatabaseBackups backups) => BackupStatus(backups));
+
+        g.MapPost("/backups", async (DatabaseBackups backups) =>
+        {
+            var result = await Task.Run(() => backups.Create());
+            return result.Outcome switch
+            {
+                BackupOutcome.Created => Results.Ok(BackupStatus(backups)),
+                BackupOutcome.Busy => Results.Conflict(new { error = "Er wordt al een back-up gemaakt. Wacht even en kijk dan opnieuw." }),
+                BackupOutcome.Skipped => Results.Json(new { error = $"De back-up is overgeslagen. {result.Error}" }, statusCode: StatusCodes.Status507InsufficientStorage),
+                _ => Results.Json(new { error = $"De back-up is mislukt. {result.Error}" }, statusCode: StatusCodes.Status500InternalServerError),
+            };
+        });
+
         g.MapPost("/admins", async (AppDb db, PlatformAdminRequest req) =>
         {
             var email = (req.Email ?? "").Trim().ToLower();
@@ -80,6 +96,24 @@ public static class PlatformEndpoints
             await db.SaveChangesAsync();
             return Results.Ok(await AdminsAsync(db));
         });
+    }
+
+    static object BackupStatus(DatabaseBackups backups)
+    {
+        var files = backups.List();
+        var last = files.FirstOrDefault();
+        var o = backups.Options;
+        return new
+        {
+            folder = backups.Folder,
+            daily = o.Daily,
+            keep = o.Keep, keepMonthly = o.KeepMonthly, keepBeforeUpdate = o.KeepBeforeUpdate,
+            count = files.Count,
+            totalSize = files.Sum(f => f.Size),
+            last = last is null ? null : new { name = last.Name, takenAt = DatabaseBackups.TakenUtc(last), size = last.Size, beforeUpdate = last.BeforeUpdate },
+            problem = backups.LastProblem,
+            running = backups.Running,
+        };
     }
 
     static async Task<List<object>> AdminsAsync(AppDb db)

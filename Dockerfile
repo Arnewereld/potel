@@ -18,7 +18,7 @@ RUN dotnet publish backend/Potel.Api/Potel.Api.csproj -c Release -o /app --no-re
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
 COPY --from=api /app ./
-# De database en de sleutels voor inlogcookies staan in /data; koppel daar een volume aan.
+# De database, de sleutels voor inlogcookies en de back-ups (in /data/backups) staan in /data; koppel daar een volume aan.
 ENV ASPNETCORE_URLS=http://+:8080 \
     DatabasePath=/data/potel.db \
     KeysPath=/data/keys

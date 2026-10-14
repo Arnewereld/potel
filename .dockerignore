@@ -4,5 +4,6 @@
 **/*.db
 **/*.db-*
 **/*.bak
+**/backups
 backend/Potel.Api/wwwroot
 .git

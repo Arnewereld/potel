@@ -67,8 +67,10 @@ static class TestHostStart
 public class PortalFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
     readonly string dbPath = Path.Combine(Path.GetTempPath(), $"potel-test-{Guid.NewGuid():N}.db");
+    readonly string backupPath = Path.Combine(Path.GetTempPath(), $"potel-test-backups-{Guid.NewGuid():N}");
 
     public string DatabasePath => dbPath;
+    public string BackupPath => backupPath;
 
     // Als fixture van een testklasse start de host al voor de eerste test, op een eigen thread (zie TestHostStart).
     public Task InitializeAsync() => TestHostStart.OnOwnThread(this);
@@ -78,6 +80,9 @@ public class PortalFactory : WebApplicationFactory<Program>, IAsyncLifetime
     protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
     {
         builder.UseSetting("DatabasePath", dbPath);
+        // Elke testhost een eigen map voor back-ups, en geen dagelijkse back-ups op de achtergrond.
+        builder.UseSetting("Backup:Path", backupPath);
+        builder.UseSetting("Backup:Daily", "false");
         builder.UseSetting("Workflows:Scheduler", "false");
         builder.UseSetting("Smtp:Host", "");
         builder.UseSetting("RateLimit:AuthPerMinute", "10000");
@@ -112,6 +117,7 @@ public class PortalFactory : WebApplicationFactory<Program>, IAsyncLifetime
     {
         base.Dispose(disposing);
         TestDatabase.Delete(dbPath);
+        if (Directory.Exists(backupPath)) Directory.Delete(backupPath, true);
     }
 }
 

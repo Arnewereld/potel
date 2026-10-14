@@ -45,7 +45,8 @@ Potel is gebouwd om te verkopen: elke klant maakt zelf een account aan en krijgt
 | **Huisstijl** | Elke klant uploadt een logo en kiest een accentkleur; die komen op de facturen. |
 | **Abonnement** | Proef (30 dagen), ZZP of Team. Na de proef is de werkruimte alleen-lezen tot er een abonnement is gekozen. Met een sleutel van Mollie betalen klanten zelf: de eerste maand met iDEAL, daarna elke maand automatisch, en opzeggen kan onder *Instellingen*. Zonder Mollie mailen klanten jou en zet jij het abonnement om op *Platform*. |
 | **Account** | Beheerders exporteren alle gegevens als JSON, met de bonnetjes erin, of verwijderen hun hele werkruimte. |
-| **Platform** | Alleen voor platformbeheerders (jij): alle werkruimtes, gebruik, proefperiodes, omzet per maand, abonnementen omzetten en andere platformbeheerders aanwijzen. |
+| **Platform** | Alleen voor platformbeheerders (jij): alle werkruimtes, gebruik, proefperiodes, omzet per maand, abonnementen omzetten, andere platformbeheerders aanwijzen en de back-ups bekijken. |
+| **Back-ups** | Potel maakt elke dag zelf een back-up van de database, en altijd een extra back-up voordat een update de database bijwerkt. Op de pagina *Platform* zie je waar ze staan, de laatste met tijd en grootte, hoeveel er bewaard zijn en of er iets misging, en maak je er met *Nu een back-up maken* meteen een. Zie [Back-ups](#back-ups) voor de bewaarregels en het terugzetten. |
 
 Verder: alles opent als **tabblad** bovenin (dubbelklik op een tabblad sluit de andere), **Ctrl K** om overal te zoeken, en een licht (standaard) en donker thema. Potel werkt ook op een **telefoon**: formulieren, zoals die van facturen, offertes, kosten en ritten, staan dan in één kolom en de pagina schuift niet opzij.
 
@@ -86,6 +87,8 @@ Dit account is ook platformeigenaar. **Wijzig het wachtwoord meteen** (klik link
 
 Wil je opnieuw beginnen met de voorbeelddata? Stop de backend en verwijder `backend/Potel.Api/potel.db`.
 
+Lokaal komen de back-ups in `backend/Potel.Api/backups` (zie [Back-ups](#back-ups)).
+
 ## Verkopen en hosten
 
 Met Docker draait alles in één container. De database en de sleutels van de inlogcookies staan in het volume `/data`.
@@ -109,6 +112,12 @@ Belangrijke instellingen (als omgevingsvariabele, met `__` voor een punt):
 | `Admin__Email`, `Admin__Password`, `PlatformAdmins__0` | Alleen voor de allereerste start: maakt je account meteen aan, en met hetzelfde adres bij `PlatformAdmins__0` ben je ook platformbeheerder. |
 | `BehindProxy` | `true` als er een reverse proxy voor staat, zodat https en het echte IP-adres herkend worden. |
 | `KnownProxies__0` | Het IP-adres van je proxy. Alleen van dat adres wordt het doorgestuurde IP-adres van bezoekers geloofd. |
+| `Backup__Path` | Waar de back-ups komen. Standaard de map `backups` naast de database, in Docker dus `/data/backups`. Zie [Back-ups](#back-ups). |
+| `Backup__Daily` | `false` zet de dagelijkse back-ups uit. De back-up voor een update blijft. |
+| `Backup__Keep`, `Backup__KeepMonthly`, `Backup__KeepBeforeUpdate` | Van hoeveel dagen (standaard 14) en maanden (standaard 12) Potel de nieuwste back-up bewaart, en hoeveel back-ups van voor een update (standaard 10). |
+| `Backup__MinFreeMegabytes` | Hoeveel MB er na een back-up nog vrij moet zijn op de schijf (standaard 500). Anders slaat Potel de back-up over, met een waarschuwing in het log en op *Platform*. |
+| `Backup__StartupDelaySeconds` | Hoeveel seconden na het starten Potel kijkt of er een dagelijkse back-up nodig is (standaard 30). |
+| `Backup__AllowMigrationWithoutBackup` | Alleen als je weet wat je doet: `true` werkt de database ook bij als de back-up voor de update mislukt. Standaard `false`: dan start Potel niet en blijft de database zoals hij was. |
 | `DatabasePath`, `KeysPath` | Waar de SQLite-database en de sleutels staan (standaard in `/data`). Met die sleutels zijn de cookies, het GitHub-token en de sleutels van Mollie voor iDEAL op facturen versleuteld: bewaar ze samen met de database. Raak je ze kwijt, dan logt iedereen opnieuw in en stelt een beheerder het GitHub-token en de sleutel van Mollie opnieuw in. |
 | `App__BaseUrl` | Het openbare adres van Potel, bijvoorbeeld `https://potel.jouwdomein.nl`. Daarmee maakt Potel de links in mails, ook de links naar facturen; zonder dit adres mailt Potel geen facturen en herinneringen, en kunnen klanten facturen niet met iDEAL betalen. In productie is dit verplicht: Potel neemt het adres nooit over uit het verzoek, want dat kan iedereen verzinnen. |
 | `RateLimit__AuthPerMinute` | Hoe vaak per minuut één IP-adres mag inloggen, aanmelden of een nieuw wachtwoord mag aanvragen (standaard 10). Daarnaast geldt een grens per e-mailadres, en op aanmelden een grens per netwerk en voor het hele platform. |
@@ -131,7 +140,7 @@ Voordat je echt verkoopt, regel je nog:
 - **Betalen**: zet Mollie aan (zie hieronder) en test eerst met een testsleutel. Controleer je prijzen in `Plans` (`backend/Potel.Api/Data/Models.cs`) en `frontend/src/lib/plans.ts`, en vul je eigen bedrijfsgegevens volledig in bij *Instellingen* in je eigen werkruimte, anders blijven de facturen voor je klanten als concept staan.
 - **Juridisch**: vul de sectie `Platform` in met je bedrijfsgegevens en subverwerkers, en laat de concepten op `/voorwaarden`, `/privacy` en `/verwerkersovereenkomst` nakijken door een jurist. In `Legal.tsx` staan nog een paar keuzes geel gemarkeerd, zoals de bewaartermijn na opzeggen, het maximum van je aansprakelijkheid en hoe snel je een datalek meldt. Haal daarna de regel *Concept* bovenaan weg en verhoog `Terms.Version`. Werkruimtes van vóór deze versie hebben nog geen voorwaarden geaccepteerd; dat zie je op *Platform*.
 - **Mail**: stel `Smtp__*` en `App__BaseUrl` in, anders werken wachtwoord vergeten en het bevestigen van e-mailadressen niet. Neem een mailprovider in de EU en zet SPF, DKIM en DMARC aan voor je domein, zodat je mail niet in de spam belandt.
-- **Back-ups** van het volume `/data`.
+- **Back-ups**: Potel maakt ze zelf in `/data/backups` (zie [Back-ups](#back-ups)). Zet ze daarnaast op een andere schijf, of laat je hostingpartij het volume `/data` back-uppen: een back-up op dezelfde schijf helpt niet als die schijf het begeeft.
 
 ### Online betalen met Mollie
 
@@ -153,6 +162,50 @@ Zo werkt het:
 - Opzeggen stopt het abonnement bij Mollie. De klant werkt door tot het einde van de betaalde maand; daarna is de werkruimte alleen-lezen tot hij opnieuw betaalt. Een werkruimte verwijderen zegt het abonnement eerst op.
 - Overstappen van ZZP naar Team (of andersom) is een nieuwe betaling met iDEAL; het oude abonnement stopt dan. Wat er nog over was van de oude maand, wordt niet verrekend.
 - Zet je een abonnement zelf om op *Platform*, dan loopt het door tot je het weer omzet. Een lopend abonnement bij Mollie zeg je dan zelf op in Mollie.
+
+## Back-ups
+
+Potel maakt zelf back-ups van de database:
+
+- **Elke dag**, en bij het starten als de nieuwste back-up ouder is dan 24 uur. Potel gebruikt daarvoor de back-upfunctie van SQLite: het werkt gewoon door, en elke back-up is een kopie van één moment. Na het kopiëren controleert Potel de back-up; een half bestand van een mislukte poging ruimt het op.
+- **Voor elke update** die de database bijwerkt. Start je een nieuwe versie (na `git pull`, of met een nieuwe image), dan maakt Potel eerst een back-up met `voor-update` in de naam en werkt pas daarna de database bij. Lukt die back-up niet, bijvoorbeeld omdat de schijf vol is of de map niet bestaat, dan start Potel niet en blijft de database zoals hij was. In het log staat wat er misging. Wil je echt zonder back-up bijwerken, zet dan `Backup__AllowMigrationWithoutBackup` op `true` (en daarna weer op `false`).
+- In de map `backups` naast de database: lokaal `backend/Potel.Api/backups`, in Docker `/data/backups`. Een andere map kies je met `Backup__Path` (lokaal in `appsettings.json` onder `Backup`, `Path`). In Docker koppel je daar bijvoorbeeld een tweede schijf aan; zie `docker-compose.yml`.
+- Met datum en tijd (Nederlandse tijd) in de naam, zoals `potel-2026-10-14-031500.db` en `potel-voor-update-2026-10-14-091200.db`. Elke back-up is één los bestand, zonder `-wal` of `-shm` ernaast.
+- Bewaard blijven: alles van het laatste etmaal, de nieuwste van elk van de laatste 14 dagen, de nieuwste van elke maand voor 12 maanden, en de nieuwste 10 van voor een update. Oudere back-ups ruimt Potel zelf op; andere bestanden in de map laat het staan.
+- Is er na de back-up minder dan 500 MB vrij (`Backup__MinFreeMegabytes`), dan slaat Potel hem over en meldt dat in het log en op *Platform*. Zo loopt de schijf nooit vol door back-ups.
+
+Op de pagina *Platform* zie je de map, de laatste back-up met tijd en grootte, hoeveel er bewaard zijn en een eventuele fout, en staat de knop *Nu een back-up maken*. Downloaden kan daar bewust niet: de database bevat alle werkruimtes.
+
+Een back-up op dezelfde schijf helpt niet als die schijf kapotgaat of je laptop wordt gestolen. Zet de map dus ook geregeld op een andere plek, bijvoorbeeld met Time Machine, op een externe schijf of via de back-up van je hostingpartij. Bewaar de sleutels uit `KeysPath` erbij (lokaal op een Mac staan ze in `~/.aspnet/DataProtection-Keys`, in Docker in `/data/keys`): zonder die sleutels logt iedereen opnieuw in en moeten het GitHub-token en de sleutels van Mollie opnieuw worden ingesteld.
+
+### Een back-up terugzetten
+
+Terugzetten doe je met de hand op de computer of server, niet via de website:
+
+1. Stop Potel.
+2. Zet de huidige database apart: verplaats `potel.db` en, als ze er staan, `potel.db-wal` en `potel.db-shm` naar een andere map. Zo kun je altijd nog terug.
+3. Kopieer de back-up naar de plek van de database, met de naam `potel.db`.
+4. Controleer dat er geen `potel.db-wal` of `potel.db-shm` meer naast staat. Die horen bij de oude database; laat je ze staan, dan kan SQLite ze over de teruggezette database heen leggen.
+5. Start Potel.
+
+Lokaal, in een terminal:
+
+```bash
+cd backend/Potel.Api                       # stop eerst Potel (Ctrl C)
+d=oud-$(date +%Y%m%d-%H%M%S) && mkdir $d && mv potel.db* $d/
+cp backups/potel-2026-10-14-031500.db potel.db
+dotnet run
+```
+
+In Docker:
+
+```bash
+docker compose stop potel
+docker compose run --rm --no-deps --entrypoint sh potel -c 'cd /data && d=oud-$(date +%Y%m%d-%H%M%S) && mkdir $d && mv potel.db* $d/ && cp backups/potel-2026-10-14-031500.db potel.db'
+docker compose start potel
+```
+
+**Een update terugdraaien**: zet de back-up met `voor-update` van die update terug zoals hierboven, en start de vorige versie van Potel (bijvoorbeeld met `git checkout` van de vorige versie, of de vorige image). Start je de nieuwe versie op de teruggezette database, dan werkt Potel hem meteen weer bij, met een nieuwe back-up ervoor. Alles wat er na de back-up is ingevoerd, ben je na het terugzetten kwijt.
 
 ## Nog niet ingebouwd
 
@@ -206,7 +259,7 @@ Elke testklasse krijgt een eigen, tijdelijke database, en de klassen draaien teg
 
 ```
 backend/Potel.Api/
-  Data/          modellen, database (EF Core + SQLite, met migraties) en voorbeelddata
+  Data/          modellen, database (EF Core + SQLite, met migraties), back-ups en voorbeelddata
   Endpoints/     API per onderdeel: inloggen, gebruikers, klanten, projecten, uren, leads, facturen, planning, instellingen, modules, werkstromen
   Integrations/  koppelingen met andere diensten, zoals de GitHub-API voor urenvoorstellen
   Invoicing/     terugkerende facturen: perioden uitrekenen en facturen klaarzetten

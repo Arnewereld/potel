@@ -20,6 +20,12 @@ var dbPath = builder.Configuration.GetValue<string>("DatabasePath") ?? "potel.db
 builder.Services.AddScoped<Tenant>();
 builder.Services.AddSingleton<BusinessClock>();
 builder.Services.AddDbContext<AppDb>(o => o.UseSqlite($"Data Source={dbPath}"));
+// Back-ups van de database: elke dag, en altijd voor een update met nieuwe migraties (zie Database.Prepare).
+builder.Services.Configure<BackupOptions>(builder.Configuration.GetSection("Backup"));
+builder.Services.AddSingleton(sp => new DatabaseBackups(dbPath, sp.GetRequiredService<IOptions<BackupOptions>>().Value,
+    sp.GetRequiredService<ILogger<DatabaseBackups>>(), sp.GetRequiredService<BusinessClock>()));
+if (builder.Configuration.GetValue("Backup:Daily", true))
+    builder.Services.AddHostedService<BackupScheduler>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -169,7 +175,7 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDb>();
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-    Database.Prepare(db, logger);
+    Database.Prepare(db, logger, app.Services.GetRequiredService<DatabaseBackups>());
     // Op de server: "dotnet Potel.Api.dll platform-admin jij@example.com" maakt dat account platformbeheerder en stopt dan.
     if (args is [Seed.PlatformAdminCommand, var platformEmail])
     {

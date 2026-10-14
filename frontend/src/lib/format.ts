@@ -60,6 +60,13 @@ export function invoiceTotals(lines: Line[]): InvoiceTotals {
   }
 }
 
+// Een bestandsgrootte in kB, MB of GB.
+export function fileSize(bytes: number) {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} kB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toLocaleString('nl-NL', { maximumFractionDigits: 1 })} MB`
+  return `${(bytes / 1024 / 1024 / 1024).toLocaleString('nl-NL', { maximumFractionDigits: 1 })} GB`
+}
+
 const numFmt = new Intl.NumberFormat('nl-NL', { maximumFractionDigits: 2 })
 export const num = (n: number) => numFmt.format(n || 0)
 

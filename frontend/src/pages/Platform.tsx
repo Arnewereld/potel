@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react'
-import { Crown, Building2, Euro, Hourglass, Search, Users, Trash2, UserPlus } from 'lucide-react'
+import { Crown, Building2, Euro, Hourglass, Search, Users, Trash2, UserPlus, DatabaseBackup } from 'lucide-react'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useAuth } from '../lib/auth'
 import { useToast } from '../lib/toast'
 import { plans } from '../lib/plans'
-import { date, euro, relative } from '../lib/format'
+import { date, euro, fileSize, relative, utcDateTime } from '../lib/format'
 import { daysUntil } from '../lib/invoice'
 import { Badge, Empty, ErrorBox, Loading, PageHeader } from '../components/ui'
 import { MiniStat } from './Time'
@@ -107,8 +107,80 @@ export function PlatformPage() {
         )}
       </div>
 
+      <PlatformBackups />
       <PlatformAdmins />
     </>
+  )
+}
+
+interface BackupStatus {
+  folder: string
+  daily: boolean
+  keep: number
+  keepMonthly: number
+  keepBeforeUpdate: number
+  count: number
+  totalSize: number
+  last?: { name: string; takenAt: string; size: number; beforeUpdate: boolean } | null
+  // De laatste fout of overgeslagen back-up sinds Potel draait.
+  problem?: { at: string; message: string } | null
+  running: boolean
+}
+
+// Back-ups van de hele database. Downloaden kan bewust niet (alle werkruimtes staan erin); terugzetten gaat met de hand, zie de README.
+function PlatformBackups() {
+  const { data, error, setData, reload } = useApi<BackupStatus>('/platform/backups')
+  const [busy, setBusy] = useState(false)
+  const toast = useToast()
+
+  const make = async () => {
+    setBusy(true)
+    try {
+      setData(await api.post<BackupStatus>('/platform/backups'))
+      toast('Back-up gemaakt')
+    } catch (e) {
+      toast((e as Error).message, 'error')
+      await reload(true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="card" style={{ marginTop: 18 }}>
+      <div className="card-head">
+        <h3><DatabaseBackup size={16} /> Back-ups</h3>
+        <button type="button" className="btn" disabled={busy || !data || data.running} onClick={make}>
+          <DatabaseBackup size={15} /> {busy || data?.running ? 'Bezig…' : 'Nu een back-up maken'}
+        </button>
+      </div>
+      <div className="card-body">
+        {error && <ErrorBox message={error} />}
+        {!data && !error && <Loading />}
+        {data && (<>
+          <dl className="dl">
+            <dt>Map</dt>
+            <dd><code style={{ overflowWrap: 'anywhere' }}>{data.folder}</code></dd>
+            <dt>Laatste back-up</dt>
+            <dd>
+              {data.last
+                ? <>{utcDateTime(data.last.takenAt)} ({fileSize(data.last.size)}){data.last.beforeUpdate && <> <Badge tone="blue">voor update</Badge></>}<div className="cell-sub" style={{ overflowWrap: 'anywhere' }}>{data.last.name}</div></>
+                : <span className="muted">Er is nog geen back-up.</span>}
+            </dd>
+            <dt>Bewaard</dt>
+            <dd>{data.count === 1 ? '1 back-up' : `${data.count} back-ups`}{data.count > 0 && <>, samen {fileSize(data.totalSize)}</>}</dd>
+          </dl>
+          {data.problem && <div className="login-error">{utcDateTime(data.problem.at)}: {data.problem.message}</div>}
+          <p className="muted" style={{ fontSize: 13, marginBottom: 0 }}>
+            {data.daily
+              ? `Potel maakt elke dag een back-up van de database en bewaart de nieuwste van de laatste ${data.keep} dagen en van elke maand, ${data.keepMonthly} maanden terug. `
+              : 'De dagelijkse back-ups staan uit (Backup:Daily). '}
+            Voor elke update met wijzigingen in de database komt er een extra back-up met "voor-update" in de naam; daarvan blijven de nieuwste {data.keepBeforeUpdate} staan.
+            Is de schijf bijna vol, dan slaat Potel de back-up over. Downloaden kan hier niet, omdat alle werkruimtes erin staan. Terugzetten doe je op de server; de stappen staan in de README.
+          </p>
+        </>)}
+      </div>
+    </div>
   )
 }
 
