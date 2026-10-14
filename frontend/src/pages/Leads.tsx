@@ -7,6 +7,7 @@ import { useToast } from '../lib/toast'
 import type { Customer, Lead, LeadStatus } from '../lib/types'
 import { euro, initials } from '../lib/format'
 import { colorFor, leadStatuses } from '../lib/status'
+import { languages } from '../lib/docTexts'
 import { Badge, Empty, ErrorBox, Field, Loading, Modal, PageHeader, SubTabs } from '../components/ui'
 
 type View = 'bord' | 'lijst'
@@ -132,7 +133,7 @@ export function LeadsPage() {
 }
 
 function LeadForm({ lead, onClose, onSaved }: { lead: Partial<Lead>; onClose: () => void; onSaved: () => void }) {
-  const [form, setForm] = useState<Partial<Lead>>({ name: '', company: '', email: '', phone: '', source: '', notes: '', ...lead })
+  const [form, setForm] = useState<Partial<Lead>>({ name: '', company: '', email: '', phone: '', source: '', notes: '', language: 'nl', ...lead })
   const toast = useToast()
   const navigate = useNavigate()
   const set = (k: keyof Lead) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
@@ -201,7 +202,13 @@ function LeadForm({ lead, onClose, onSaved }: { lead: Partial<Lead>; onClose: ()
             {leadStatuses.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
           </select>
         </Field>
-        <Field label="Bron" full><input placeholder="Website, beurs, doorverwijzing…" value={form.source ?? ''} onChange={set('source')} /></Field>
+        <Field label="Bron"><input placeholder="Website, beurs, doorverwijzing…" value={form.source ?? ''} onChange={set('source')} /></Field>
+        {/* Offertes voor deze lead en de mails erbij krijgt hij in deze taal. Wordt hij klant, dan neemt de klant hem over. */}
+        <Field label="Taal van offertes en mails">
+          <select value={form.language ?? 'nl'} onChange={set('language')}>
+            {languages.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+          </select>
+        </Field>
         <Field label="Notities" full><textarea value={form.notes ?? ''} onChange={set('notes')} /></Field>
       </form>
     </Modal>

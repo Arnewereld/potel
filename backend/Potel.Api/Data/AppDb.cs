@@ -76,6 +76,11 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         b.Entity<Invoice>().OwnsOne(i => i.Buyer);
         b.Entity<Invoice>().Property(i => i.VatRegime).HasDefaultValue(VatRegimes.Normal);
         b.Entity<Customer>().Property(c => c.Country).HasDefaultValue(Countries.Netherlands);
+        // Alles wat er al was, blijft Nederlands.
+        b.Entity<Customer>().Property(c => c.Language).HasDefaultValue(Languages.Dutch);
+        b.Entity<Lead>().Property(l => l.Language).HasDefaultValue(Languages.Dutch);
+        b.Entity<Invoice>().Property(i => i.Language).HasDefaultValue(Languages.Dutch);
+        b.Entity<Quote>().Property(q => q.Language).HasDefaultValue(Languages.Dutch);
         b.Entity<Settings>().Property(s => s.VatRegime).HasDefaultValue(VatRegimes.Normal);
         b.Entity<Project>().HasOne(p => p.Customer).WithMany().HasForeignKey(p => p.CustomerId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<TimeEntry>().HasOne<Project>().WithMany().HasForeignKey(t => t.ProjectId).OnDelete(DeleteBehavior.Cascade);

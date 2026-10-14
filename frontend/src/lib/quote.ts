@@ -1,6 +1,7 @@
 import type { Customer, InvoiceParty, Lead, Quote, QuoteState, Settings } from './types'
-import { date, euro, invoiceTotals } from './format'
+import { invoiceTotals } from './format'
 import { buyerFrom } from './invoice'
+import { docDate, docEuro, t } from './docTexts'
 
 // "Offerte OFF-2026-001" of, zolang er nog geen nummer is, "Conceptofferte".
 export const quoteTitle = (q: Pick<Quote, 'number'>) => (q.number ? `Offerte ${q.number}` : 'Conceptofferte')
@@ -43,13 +44,16 @@ export function depositAmount(q: Pick<Quote, 'lines' | 'depositPercent'>) {
   return invoiceTotals(lines)
 }
 
-// Opent je mailprogramma met een kant-en-klare mail en de link naar de offerte.
+// Opent je mailprogramma met een kant-en-klare mail en de link naar de offerte, in de taal van de offerte.
 export function quoteMail(q: Quote, link: string, to: string | null | undefined, firstName: string | null | undefined, s: Settings) {
+  const lang = q.language
   const seller = q.seller?.name ?? s.companyName
-  const total = invoiceTotals(q.lines).total
-  const amount = q.vatRegime === 'normaal' ? `${euro(total)} inclusief btw` : euro(total)
-  const body = `${firstName ? `Hoi ${firstName}` : 'Hallo'},\n\nHierbij stuur ik je offerte ${q.number}${q.subject ? ` voor ${q.subject}` : ''}, voor in totaal ${amount}. `
-    + `De offerte is geldig tot en met ${date(q.validUntil)}.\n\nVia deze link bekijk je de offerte. Daar kun je hem ook meteen accepteren of afwijzen:\n${link}\n\n`
-    + `Heb je nog vragen? Beantwoord dan gewoon deze mail.\n\nGroet,\n${s.ownerName || seller}\n${seller}`
-  return `mailto:${encodeURIComponent(to ?? '')}?subject=${encodeURIComponent(`Offerte ${q.number} van ${seller}`)}&body=${encodeURIComponent(body)}`
+  const total = docEuro(lang, invoiceTotals(q.lines).total)
+  const body = t(lang, 'mail.quoteBody', {
+    greeting: firstName ? t(lang, 'mail.quoteHi', { name: firstName }) : t(lang, 'mail.quoteHello'),
+    number: q.number ?? '', about: q.subject ? t(lang, 'mail.quoteAbout', { subject: q.subject }) : '',
+    amount: q.vatRegime === 'normaal' ? t(lang, 'paper.inclVat', { amount: total }) : total,
+    validUntil: docDate(lang, q.validUntil), link,
+  }) + `\n\n${t(lang, 'mail.regards')}\n${s.ownerName || seller}\n${seller}`
+  return `mailto:${encodeURIComponent(to ?? '')}?subject=${encodeURIComponent(t(lang, 'mail.quoteSubject', { number: q.number ?? '', seller }))}&body=${encodeURIComponent(body)}`
 }

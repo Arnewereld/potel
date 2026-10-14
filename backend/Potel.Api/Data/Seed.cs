@@ -132,7 +132,22 @@ public static class Seed
                 Intro = "Hierbij de offerte voor het retourportaal, gekoppeld aan Exact Online, zoals we vorige week bespraken.",
                 Lines = [Line(0, "Retourportaal bouwen", 28, "uur", 95), Line(1, "Koppeling met Exact Online uitbreiden", 8, "uur", 95)],
             },
+            // In het Engels voor de Ierse klant, met btw verlegd: daarom zonder btw op de regels.
+            new()
+            {
+                CustomerId = customers[4].Id, IssueDate = today.AddDays(-3), ValidUntil = today.AddDays(27), Status = QuoteStatus.Sent, Subject = "Webhooks and reporting module",
+                VatRegime = VatRegimes.ReverseCharge, Language = Languages.English, DepositPercent = 30,
+                Terms = "Prices exclude VAT; VAT is reverse charged to you. Hours above the estimate are discussed in advance. Invoices are payable within 14 days.",
+                Intro = "Following our call last week, here is my proposal for the webhooks and reporting module of the payments platform.",
+                Lines =
+                [
+                    Line(0, "Webhook delivery with retries and signing", 24, "uur", 110),
+                    Line(1, "Reporting dashboard in React", 32, "uur", 110),
+                    Line(2, "Hosting and monitoring, first year", 12, "maand", 40),
+                ],
+            },
         };
+        foreach (var line in quotes.Where(q => VatRegimes.ZeroVat(q.VatRegime)).SelectMany(q => q.Lines)) line.VatRate = 0;
         var n = 0;
         foreach (var q in quotes.OrderBy(q => q.IssueDate))
         {
@@ -165,6 +180,13 @@ public static class Seed
             new() { Name = "Mark Jansen", Company = "Jansen Logistiek", Email = "mark@jansenlogistiek.nl", Phone = "06 23456789", Address = "Industrieweg 4", City = "Rotterdam", Notes = "Chauffeurs gebruiken de planningsapp op Android." },
             new() { Name = "Fatima El Amrani", Company = "Studio Noord", VatNumber = "NL860011223B01", Email = "fatima@studionoord.nl", Phone = "06 34567890", Address = "Noordkade 88", City = "Amsterdam", Notes = "Designbureau; ik bouw hun ontwerpen onder hun naam." },
             new() { Name = "Peter Bakker", Company = "Zorgnet Oost", Email = "peter@zorgnetoost.nl", Phone = "06 45678901", Address = "Hengelosestraat 1", City = "Enschede", Notes = "Onderhoudscontract voor het cliëntportaal (.NET + Angular)." },
+            // Een Engelstalige klant in Ierland: facturen, offertes en mails in het Engels, met btw verlegd.
+            new()
+            {
+                Name = "Aoife Murphy", Company = "Northwind Labs Ltd", VatNumber = "IE6388047V", Email = "aoife@northwindlabs.ie", Phone = "+353 1 555 0142",
+                Address = "12 Grand Canal Quay", City = "Dublin 2, D02 X576", Country = "Ierland", Language = Languages.English,
+                Notes = "SaaS-bedrijf in Dublin. Alles in het Engels; btw verlegd want ze hebben een Iers btw-nummer.",
+            },
         };
         customers.ForEach(c => c.IsDemo = true);
         // Ritten naar Fietsplein worden doorbelast.
@@ -181,8 +203,16 @@ public static class Seed
             new() { Name = "Onderhoud cliëntportaal", CustomerId = customers[3].Id, Billing = Billing.Hourly, HourlyRate = 90, BudgetHours = 400, Color = "#f5b83d", RepoUrl = "https://dev.azure.com/zorgnetoost/portaal", Description = "Updates, beveiligingspatches en kleine wijzigingen." },
             new() { Name = "Migratie naar Next.js", CustomerId = customers[0].Id, Status = "afgerond", Billing = Billing.Hourly, HourlyRate = 95, BudgetHours = 80, Color = "#ff5ca8", Description = "Oude WooCommerce-shop omgezet naar Next.js." },
         };
+        // Het project voor de Ierse klant loopt sinds een paar maanden; zijn uren komen hieronder apart.
+        var payments = new Project
+        {
+            Name = "Payments API", CustomerId = customers[4].Id, Billing = Billing.Hourly, HourlyRate = 110, BudgetHours = 200, Color = "#2fc6c6",
+            Description = "REST-API in Go voor betalingen in het SaaS-platform van Northwind Labs.",
+        };
         projects.ForEach(p => p.IsDemo = true);
+        payments.IsDemo = true;
         db.Projects.AddRange(projects);
+        db.Projects.Add(payments);
         db.SaveChanges();
 
         // Uren vanaf januari: elke werkdag een paar blokken verdeeld over de projecten die toen liepen.
@@ -215,6 +245,19 @@ public static class Seed
                 });
             }
         }
+        // De Ierse klant: de laatste drie maanden op een deel van de werkdagen een halve of hele dag.
+        var irish = new Random(7);
+        string[] apiWork = ["Payment intents endpoint", "Webhook signing", "Idempotency keys", "Load tests", "Call with Aoife", "OpenAPI docs"];
+        for (var d = today.AddMonths(-3); d < today; d = d.AddDays(1))
+        {
+            if (d.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday || irish.Next(3) != 0) continue;
+            entries.Add(new TimeEntry
+            {
+                ProjectId = payments.Id, Date = d, Minutes = irish.Next(4, 9) * 60, Description = apiWork[irish.Next(apiWork.Length)],
+                Billable = true, IsDemo = true, UserId = booker,
+            });
+        }
+        projects.Add(payments);
         db.TimeEntries.AddRange(entries);
         db.SaveChanges();
 
@@ -260,17 +303,24 @@ public static class Seed
             var minutes = month.Sum(e => e.Minutes);
             var driven = trips.Where(t => t.Billable && t.ProjectId == p.Id && t.Date >= month.Key.Item2 && t.Date < issue).ToList();
             var km = driven.Sum(t => t.Kilometres);
-            var rate = customers.First(c => c.Id == p.CustomerId).KilometreRate ?? 0;
+            var customer = customers.First(c => c.Id == p.CustomerId);
+            var rate = customer.KilometreRate ?? 0;
+            // De Ierse klant krijgt Engelse facturen met btw verlegd.
+            var lang = customer.Language;
+            var regime = Countries.IsNetherlands(customer.Country) ? VatRegimes.Normal : VatRegimes.ReverseCharge;
+            var vat = VatRegimes.ZeroVat(regime) ? 0 : 21;
+            var worked = $"{Invoicing.ClientTexts.Month(lang, issue.AddMonths(-1).Month)} {issue.AddMonths(-1).Year}";
+            var hoursText = Invoicing.ClientTexts.IsEnglish(lang) ? $"{p.Name}: work in {worked}" : $"{p.Name}: werkzaamheden {worked}";
             invoices.Add((new Invoice
             {
-                CustomerId = p.CustomerId, IssueDate = issue, DueDate = issue.AddDays(14),
-                Status = issue < thisMonth ? InvoiceStatus.Paid : InvoiceStatus.Sent, PaidAt = issue < thisMonth ? issue.AddDays(9) : null, Reference = p.Id == projects[3].Id ? "PO-2026-0412" : null, Notes = Endpoints.SettingsEndpoints.DefaultNote,
+                CustomerId = p.CustomerId, IssueDate = issue, DueDate = issue.AddDays(14), VatRegime = regime, Language = lang,
+                Status = issue < thisMonth ? InvoiceStatus.Paid : InvoiceStatus.Sent, PaidAt = issue < thisMonth ? issue.AddDays(9) : null, Reference = p.Id == projects[3].Id ? "PO-2026-0412" : null, Notes = Endpoints.SettingsEndpoints.Note(lang),
                 DeliveryFrom = month.Min(e => e.Date), DeliveryTo = month.Max(e => e.Date),
                 Lines = driven.Count == 0
-                    ? [new InvoiceLine { Description = $"{p.Name}: werkzaamheden {issue.AddMonths(-1):MMMM yyyy}", Quantity = Endpoints.ProjectEndpoints.Hours(minutes), Unit = "uur", UnitPrice = p.HourlyRate }]
+                    ? [new InvoiceLine { Description = hoursText, Quantity = Endpoints.ProjectEndpoints.Hours(minutes), Unit = "uur", UnitPrice = p.HourlyRate, VatRate = vat }]
                     : [
-                        new InvoiceLine { Description = $"{p.Name}: werkzaamheden {issue.AddMonths(-1):MMMM yyyy}", Quantity = Endpoints.ProjectEndpoints.Hours(minutes), Unit = "uur", UnitPrice = p.HourlyRate, Position = 0 },
-                        new InvoiceLine { Description = Endpoints.TripEndpoints.LineText(km, rate), Quantity = km, Unit = "km", UnitPrice = rate, Position = 1 },
+                        new InvoiceLine { Description = hoursText, Quantity = Endpoints.ProjectEndpoints.Hours(minutes), Unit = "uur", UnitPrice = p.HourlyRate, VatRate = vat, Position = 0 },
+                        new InvoiceLine { Description = Endpoints.TripEndpoints.LineText(km, rate, lang), Quantity = km, Unit = "km", UnitPrice = rate, VatRate = vat, Position = 1 },
                     ],
             }, month.ToList(), driven));
         }

@@ -21,10 +21,11 @@ public partial class InvoiceIdeal(MollieClient mollie, IDataProtectionProvider d
     public const string ProtectorPurpose = "Potel.Mollie.InvoiceKey.v1";
     public const string WebhookPath = "/api/public/invoice/mollie-webhook";
     public const string ReturnParameter = "betaling";
-    public const string Failed = "Betalen met iDEAL lukt nu even niet. Probeer het later opnieuw of maak het bedrag over.";
-    public const string NotOffered = "Online betalen kan bij deze factuur niet. Maak het bedrag over zoals op de factuur staat.";
-    public const string JustPaid = "Deze factuur is net met iDEAL betaald. Dank je wel! Ververs de pagina om te zien wat er nog openstaat.";
-    public const string Busy = "Er loopt al een betaling met iDEAL voor deze factuur. Wacht even tot die klaar is en ververs dan de pagina.";
+    // Meldingen voor je klant; de teksten staan per taal in ClientTexts. Dit zijn de Nederlandse.
+    public static readonly string Failed = ClientTexts.T(Languages.Dutch, "ideal.failed");
+    public static readonly string NotOffered = ClientTexts.T(Languages.Dutch, "ideal.notOffered");
+    public static readonly string JustPaid = ClientTexts.T(Languages.Dutch, "ideal.justPaid");
+    public static readonly string Busy = ClientTexts.T(Languages.Dutch, "ideal.busy");
     public const string NoBaseUrl = "Het openbare adres van Potel (App:BaseUrl) ontbreekt, dus Mollie kan niet laten weten dat er betaald is. Vraag de beheerder van Potel om het in te stellen.";
     public const string LocalBaseUrl = "Het openbare adres van Potel (App:BaseUrl) wijst naar deze computer. Mollie kan dat niet bereiken, dus online betalen staat uit tot het een adres op internet is.";
 
@@ -80,23 +81,30 @@ public partial class InvoiceIdeal(MollieClient mollie, IDataProtectionProvider d
     public async Task<bool> CanPayAsync(AppDb db, Invoice inv) =>
         Payable(inv, await DemoCustomerAsync(db, inv)) && await AvailableAsync(db, inv.WorkspaceId);
 
+    // Wat je klant bij Mollie en op zijn bankafschrift ziet, in de taal van de factuur.
     static string Description(Invoice inv)
     {
         var seller = inv.Seller?.Name?.Trim();
-        var text = $"Factuur {inv.Number}" + (string.IsNullOrEmpty(seller) ? "" : $" van {seller}");
+        var text = string.IsNullOrEmpty(seller)
+            ? ClientTexts.T(inv.Language, "ideal.descriptionNoSeller", ("number", inv.Number))
+            : ClientTexts.T(inv.Language, "ideal.description", ("number", inv.Number), ("seller", seller));
         return text.Length > 250 ? text[..250] : text;
     }
+
+    // Een melding voor je klant in de taal van de factuur. Zolang we de factuur niet kennen, Nederlands.
+    static InvoiceProblem Problem(string? language, string key, int status) => new(ClientTexts.T(language, key), Status: status);
 
     static IQueryable<Invoice> WithBalance(AppDb db) =>
         db.Invoices.IgnoreQueryFilters().Include(i => i.Lines).Include(i => i.Credits).ThenInclude(c => c.Lines).Include(i => i.Payments).AsSplitQuery();
 
     // Start een iDEAL-betaling voor wat er nu openstaat, of geeft de betaalpagina van een betaling die nog loopt voor
     // hetzelfde bedrag. Dit verzoek heeft geen ingelogde gebruiker: we werken in de werkruimte van de factuur.
-    public async Task<IdealStart> StartAsync(AppDb db, WorkflowEngine engine, int workspaceId, int invoiceId)
+    // Meldingen gaan in de taal van de factuur (language), want je klant leest ze.
+    public async Task<IdealStart> StartAsync(AppDb db, WorkflowEngine engine, int workspaceId, int invoiceId, string? language = null)
     {
-        if (BaseUrlProblem() is not null) return new(null, new(NotOffered, Status: StatusCodes.Status409Conflict));
+        if (BaseUrlProblem() is not null) return new(null, Problem(language, "ideal.notOffered", StatusCodes.Status409Conflict));
         var account = await db.MollieAccounts.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(a => a.WorkspaceId == workspaceId);
-        if (account is null || Unprotect(account.ProtectedKey) is not { } key) return new(null, new(NotOffered, Status: StatusCodes.Status409Conflict));
+        if (account is null || Unprotect(account.ProtectedKey) is not { } key) return new(null, Problem(language, "ideal.notOffered", StatusCodes.Status409Conflict));
 
         var gate = Gates[(int)((uint)invoiceId % Gates.Length)];
         await gate.WaitAsync();
@@ -104,7 +112,7 @@ public partial class InvoiceIdeal(MollieClient mollie, IDataProtectionProvider d
         {
             // Het bedrag komt altijd van hier: wat er nu openstaat, opnieuw opgehaald binnen de vergrendeling.
             var inv = await WithBalance(db).AsNoTracking().FirstOrDefaultAsync(i => i.Id == invoiceId && i.WorkspaceId == workspaceId);
-            if (inv is null || !Payable(inv, await DemoCustomerAsync(db, inv))) return new(null, new(NotOffered, Status: StatusCodes.Status409Conflict));
+            if (inv is null || !Payable(inv, await DemoCustomerAsync(db, inv))) return new(null, Problem(language, "ideal.notOffered", StatusCodes.Status409Conflict));
             var amount = Money.Round(inv.OpenAmount);
 
             // Eerst de betalingen die nog lopen navragen bij Mollie. Is er een net betaald en de webhook nog onderweg, dan zetten
@@ -120,9 +128,9 @@ public partial class InvoiceIdeal(MollieClient mollie, IDataProtectionProvider d
                 if (info.Status == "paid")
                 {
                     await ProcessAsync(db, engine, p.MollieId);
-                    return new(null, new(JustPaid, Status: StatusCodes.Status409Conflict));
+                    return new(null, Problem(language, "ideal.justPaid", StatusCodes.Status409Conflict));
                 }
-                if (info.Status is "pending" or "authorized") return new(null, new(Busy, Status: StatusCodes.Status409Conflict));
+                if (info.Status is "pending" or "authorized") return new(null, Problem(language, "ideal.busy", StatusCodes.Status409Conflict));
                 if (info.Status == "open" && p.Amount == amount && info.Amount?.Euros == amount && MollieBilling.SafeCheckout(info.Links?.Checkout?.Href))
                     return new(info.Links!.Checkout!.Href, null);
                 if (info.Status != p.Status && info.Status is { Length: > 0 and <= 20 })
@@ -132,14 +140,14 @@ public partial class InvoiceIdeal(MollieClient mollie, IDataProtectionProvider d
 
             var baseUrl = urls.Configured!;
             var returnToken = InvoiceMailer.NewToken();
-            var created = await mollie.CreateInvoicePaymentAsync(key, MollieAmount.Euro(amount), Description(inv),
+            var created = await mollie.CreateInvoicePaymentAsync(key, MollieAmount.Euro(amount), Description(inv), ClientTexts.IsEnglish(inv.Language) ? "en_GB" : "nl_NL",
                 $"{baseUrl}{InvoiceMailer.LinkPath}?{ReturnParameter}={returnToken}", baseUrl + WebhookPath,
                 new { workspaceId = workspaceId.ToString(CultureInfo.InvariantCulture), invoiceId = invoiceId.ToString(CultureInfo.InvariantCulture) });
             var href = created.Links?.Checkout?.Href;
             if (!PaymentId().IsMatch(created.Id ?? "") || !MollieBilling.SafeCheckout(href))
             {
                 logger.LogError("Mollie gaf een onverwachte betaalpagina terug voor betaling {Id}: {Href}", created.Id, href);
-                return new(null, new(Failed, Status: StatusCodes.Status502BadGateway));
+                return new(null, Problem(language, "ideal.failed", StatusCodes.Status502BadGateway));
             }
             db.Tenant.WorkspaceId = workspaceId;
             db.OnlinePayments.Add(new OnlinePayment
@@ -159,12 +167,12 @@ public partial class InvoiceIdeal(MollieClient mollie, IDataProtectionProvider d
             db.ChangeTracker.Clear();
             db.Log("factuur", "Een klant wilde met iDEAL betalen, maar Mollie herkent je sleutel niet. Kijk bij Instellingen, iDEAL.");
             await db.SaveChangesAsync();
-            return new(null, new(Failed, Status: StatusCodes.Status502BadGateway));
+            return new(null, Problem(language, "ideal.failed", StatusCodes.Status502BadGateway));
         }
         catch (Exception e) when (e is MollieException or HttpRequestException or TaskCanceledException)
         {
             logger.LogError(e, "iDEAL-betaling starten bij Mollie mislukt voor factuur {Invoice}", invoiceId);
-            return new(null, new(Failed, Status: StatusCodes.Status502BadGateway));
+            return new(null, Problem(language, "ideal.failed", StatusCodes.Status502BadGateway));
         }
         finally { gate.Release(); }
     }

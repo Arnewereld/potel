@@ -119,41 +119,49 @@ public static class HourSpecs
         inv.Status != InvoiceStatus.Draft && inv.HourSpecification ? Parse(inv.HoursSnapshot) : null;
 
     // De specificatie als CSV voor de klant, net als de export voor de boekhouder: UTF-8 met BOM, puntkomma's en Nederlandse getallen.
-    public static byte[] Csv(HourSpec spec, string? invoiceNumber, string? seller)
+    // In het Engels zoals een Engelse spreadsheet hem verwacht: komma's, getallen met een punt en datums als 2026-10-14.
+    public static byte[] Csv(HourSpec spec, string? invoiceNumber, string? seller, string? language = null)
     {
+        var english = ClientTexts.IsEnglish(language);
+        var separator = english ? ',' : ';';
+        string Text(string? s) => AnnualOverview.CsvText(s, separator);
+        string Num(decimal d) => english ? Money.Round(d).ToString("0.00", CultureInfo.InvariantCulture) : AnnualOverview.CsvNumber(d);
+        string Day(DateTime d) => english ? d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : AnnualOverview.CsvDate(d);
+        string T(string key, params (string, string?)[] values) => Text(ClientTexts.T(language, key, values));
         var sb = new StringBuilder();
-        void Line(params string[] cells) => sb.Append(string.Join(';', cells)).Append("\r\n");
-        Line(AnnualOverview.CsvText($"Urenspecificatie bij factuur {invoiceNumber ?? "(concept)"}"), AnnualOverview.CsvText(seller));
+        void Line(params string[] cells) => sb.Append(string.Join(separator, cells)).Append("\r\n");
+        Line(T("csv.title", ("number", invoiceNumber ?? ClientTexts.T(language, "csv.draft"))), Text(seller));
         Line();
-        var head = new List<string> { "Project", "Datum", "Omschrijving" };
-        if (spec.ShowWho) head.Add("Wie");
-        head.Add("Uren");
-        if (spec.ShowAmounts) head.Add("Bedrag zonder btw");
+        var head = new List<string> { T("csv.project"), T("csv.date"), T("csv.description") };
+        if (spec.ShowWho) head.Add(T("csv.who"));
+        head.Add(T("csv.hours"));
+        if (spec.ShowAmounts) head.Add(T("csv.amount"));
         Line([.. head]);
         foreach (var p in spec.Projects)
             foreach (var e in p.Entries)
             {
-                var cells = new List<string> { AnnualOverview.CsvText(p.Name), AnnualOverview.CsvDate(e.Date), AnnualOverview.CsvText(e.Description) };
-                if (spec.ShowWho) cells.Add(AnnualOverview.CsvText(e.Who));
-                cells.Add(AnnualOverview.CsvNumber(e.Hours));
-                if (spec.ShowAmounts) cells.Add(e.Amount is { } a ? AnnualOverview.CsvNumber(a) : "");
+                var cells = new List<string> { Text(p.Name), Day(e.Date), Text(e.Description) };
+                if (spec.ShowWho) cells.Add(Text(e.Who));
+                cells.Add(Num(e.Hours));
+                if (spec.ShowAmounts) cells.Add(e.Amount is { } a ? Num(a) : "");
                 Line([.. cells]);
             }
         Line();
-        foreach (var p in spec.Projects) Total($"Subtotaal {p.Name}", p.Hours, p.Amount);
-        Total("Totaal", spec.Hours, spec.Amount);
+        foreach (var p in spec.Projects) Total(T("csv.subtotal", ("project", p.Name)), p.Hours, p.Amount);
+        Total(T("csv.total"), spec.Hours, spec.Amount);
         return [.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(sb.ToString())];
 
         void Total(string label, decimal hours, decimal? amount)
         {
-            var cells = new List<string> { AnnualOverview.CsvText(label), "", "" };
+            var cells = new List<string> { label, "", "" };
             if (spec.ShowWho) cells.Add("");
-            cells.Add(AnnualOverview.CsvNumber(hours));
-            if (spec.ShowAmounts) cells.Add(amount is { } a ? AnnualOverview.CsvNumber(a) : "");
+            cells.Add(Num(hours));
+            if (spec.ShowAmounts) cells.Add(amount is { } a ? Num(a) : "");
             Line([.. cells]);
         }
     }
 
-    public static string CsvFileName(string? invoiceNumber) =>
-        $"urenspecificatie-{(invoiceNumber is null ? "concept" : string.Concat(invoiceNumber.Where(c => char.IsLetterOrDigit(c) || c == '-')))}.csv";
+    public static string CsvFileName(string? invoiceNumber, string? language = null) =>
+        ClientTexts.T(language, "csv.file", ("number", invoiceNumber is null ? ClientTexts.T(language, "csv.fileDraft")
+            : string.Concat(invoiceNumber.Where(c => char.IsLetterOrDigit(c) || c == '-'))));
 }

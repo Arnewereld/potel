@@ -10,7 +10,7 @@ public static class LeadEndpoints
     public static async Task<Customer> ConvertAsync(AppDb db, Lead l)
     {
         if (l.CustomerId is { } existing && await db.Customers.FindAsync(existing) is { } found) return found;
-        var c = new Customer { Name = l.Name, Company = l.Company, Email = l.Email, Phone = l.Phone, Notes = l.Notes };
+        var c = new Customer { Name = l.Name, Company = l.Company, Email = l.Email, Phone = l.Phone, Notes = l.Notes, Language = Languages.Of(l.Language) };
         db.Customers.Add(c);
         await db.SaveChangesAsync();
         l.CustomerId = c.Id;
@@ -32,6 +32,8 @@ public static class LeadEndpoints
             if (input.CustomerId is { } cid && !await db.Customers.AnyAsync(c => c.Id == cid))
                 return Results.BadRequest(new { error = "Deze klant bestaat niet. Kies een andere klant of laat het veld leeg." });
             if (!LeadStatus.All.Contains(input.Status)) input.Status = "nieuw";
+            if (!Languages.IsKnown(input.Language)) return Results.BadRequest(new { error = Languages.Error });
+            input.Language = Languages.Of(input.Language);
             input.Id = 0;
             input.CreatedAt = DateTime.UtcNow;
             db.Leads.Add(input);
@@ -50,9 +52,10 @@ public static class LeadEndpoints
             if (l is null) return Results.NotFound();
             if (string.IsNullOrWhiteSpace(input.Name)) return Results.BadRequest(new { error = "Naam is verplicht" });
             if (!LeadStatus.All.Contains(input.Status)) return Results.BadRequest(new { error = "Onbekende status" });
+            if (!Languages.IsKnown(input.Language)) return Results.BadRequest(new { error = Languages.Error });
             if (l.Status != input.Status) db.Log("lead", $"Lead {l.Name}: {l.Status} → {input.Status}");
             l.Name = input.Name; l.Company = input.Company; l.Email = input.Email; l.Phone = input.Phone;
-            l.Value = input.Value; l.Status = input.Status; l.Source = input.Source; l.Notes = input.Notes;
+            l.Value = input.Value; l.Status = input.Status; l.Source = input.Source; l.Notes = input.Notes; l.Language = Languages.Of(input.Language);
             await db.SaveChangesAsync();
             return Results.Ok(l);
         });

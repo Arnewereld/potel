@@ -1,22 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Ban, CheckCircle2, Clock, FileWarning, Hourglass, Printer, ThumbsDown, ThumbsUp, XCircle } from 'lucide-react'
 import { api } from '../../lib/api'
-import { date, euro, num, utcDateTime } from '../../lib/format'
 import { product } from '../../lib/plans'
 import { depositAmount } from '../../lib/quote'
 import type { PublicQuote, Settings } from '../../lib/types'
 import { QuotePaper } from '../../components/QuotePaper'
 import { Field } from '../../components/ui'
 import { usePrivatePage } from '../../lib/privatePage'
+import { docDate, docDateTime, docEuro, docNum, docTitle, t } from '../../lib/docTexts'
+import { LinkProblem } from './LinkProblem'
+import { linkError, type LinkError } from '../../lib/linkError'
 
 // De offerte achter de link. Werkt zonder inloggen en laat alleen deze ene offerte zien. Onderaan geeft je klant akkoord
 // (met zijn naam en een vinkje) of wijst hij de offerte af; dat kan één keer. Het token staat achter de #, zodat het niet
-// bij de server of in logboeken belandt.
+// bij de server of in logboeken belandt. Alles staat in de taal van de offerte.
 export function PublicQuotePage() {
   usePrivatePage()
   const [token] = useState(() => new URLSearchParams(window.location.hash.slice(1)).get('token') ?? '')
   const [data, setData] = useState<PublicQuote | null>(null)
-  const [error, setError] = useState<string | null>(token ? null : 'Deze link is niet compleet. Kopieer de hele link uit de mail, of vraag de afzender om een nieuwe link.')
+  const [error, setError] = useState<LinkError | null>(token ? null : { kind: 'incomplete' })
   const [mode, setMode] = useState<'accept' | 'reject' | null>(null)
   const [name, setName] = useState('')
   const [agree, setAgree] = useState(false)
@@ -30,10 +32,10 @@ export function PublicQuotePage() {
   const load = useCallback(() => api.post<PublicQuote>('/public/quote', { token })
     .then(d => {
       setData(d)
-      const seller = d.quote.seller?.name
-      document.title = `Offerte ${d.quote.number ?? ''}${seller ? ` van ${seller}` : ''}`
+      // De titel wordt ook de bestandsnaam van de PDF.
+      document.title = docTitle(d.quote.language, 'quote', d.quote.number, d.quote.seller?.name ?? '')
     })
-    .catch(e => setError((e as Error).message)), [token])
+    .catch(e => setError(linkError(e))), [token])
 
   useEffect(() => {
     if (!token || started.current) return
@@ -48,33 +50,38 @@ export function PublicQuotePage() {
     return () => window.removeEventListener('hashchange', reload)
   }, [])
 
-  if (error) return (
-    <div className="login login-single">
-      <div className="login-card">
-        <h1><FileWarning size={22} /> Offerte niet gevonden</h1>
-        <p className="muted" style={{ margin: '6px 0 0' }}>{error}</p>
-      </div>
-    </div>
-  )
-  if (!data) return <div className="public-invoice"><div className="public-invoice-inner muted">Offerte laden…</div></div>
+  if (error) return <LinkProblem icon={<FileWarning size={22} />} title="public.quoteNotFound" gone="public.quoteGone" error={error} />
+  if (!data) return <div className="public-invoice"><div className="public-invoice-inner muted">{t('nl', 'public.quoteLoading')} · {t('en', 'public.quoteLoading')}</div></div>
 
   const q = data.quote
-  const seller = q.seller?.name ?? 'de afzender'
+  const lang = q.language ?? 'nl'
+  const euro = (n: number) => docEuro(lang, n)
+  const date = (s?: string | null) => docDate(lang, s)
+  const seller = q.seller?.name ?? t(lang, 'public.sender')
   const company: Settings = {
     companyName: q.seller?.name ?? '', defaultHourlyRate: 0, paymentTermDays: 0, weeklyHoursTarget: 0, yearlyHoursTarget: 0,
     logoDataUrl: data.brand.logoDataUrl, brandColor: data.brand.brandColor,
   }
   const deposit = depositAmount(q)
 
+  const when = q.decidedAt ? docDateTime(lang, q.decidedAt) : null
+  const sentence = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ')
+  const accepted = q.decidedName
+    ? (when ? t(lang, 'public.acceptedByOn', { name: q.decidedName, when }) : t(lang, 'public.acceptedBy', { name: q.decidedName }))
+    : (when ? t(lang, 'public.acceptedOn', { when }) : t(lang, 'public.accepted'))
   const status = q.state === 'geaccepteerd'
-    ? { tone: 'ok', icon: <CheckCircle2 size={16} />, text: `${justDecided ? 'Dank je wel! ' : ''}Deze offerte is geaccepteerd${q.decidedName ? ` door ${q.decidedName}` : ''}${q.decidedAt ? ` op ${utcDateTime(q.decidedAt)}` : ''}.${justDecided ? ` ${seller} neemt contact met je op over de volgende stap.` : ''}` }
+    ? { tone: 'ok', icon: <CheckCircle2 size={16} />, text: sentence(justDecided && t(lang, 'public.thanks'), accepted, justDecided && t(lang, 'public.nextStep', { seller })) }
     : q.state === 'afgewezen'
-      ? { tone: '', icon: <XCircle size={16} />, text: `${justDecided ? 'Dank je wel voor je reactie. ' : ''}Deze offerte is afgewezen${q.decidedAt ? ` op ${utcDateTime(q.decidedAt)}` : ''}.${justDecided ? ` ${seller} heeft je reactie ontvangen.` : ''}` }
+      ? {
+          tone: '', icon: <XCircle size={16} />,
+          text: sentence(justDecided && t(lang, 'public.thanksResponse'), when ? t(lang, 'quote.rejectedOn', { when }) : t(lang, 'quote.rejectedText'),
+            justDecided && t(lang, 'public.responseReceived', { seller })),
+        }
     : q.state === 'ingetrokken'
-      ? { tone: '', icon: <Ban size={16} />, text: `${data.problem ?? 'Deze offerte is ingetrokken.'}${q.newerNumber ? ` Er is een nieuwere versie (${q.newerNumber}); die krijg je via een eigen link.` : ''}` }
+      ? { tone: '', icon: <Ban size={16} />, text: sentence(data.problem ?? t(lang, 'quote.withdrawnShort'), q.newerNumber && t(lang, 'public.newerVersion', { number: q.newerNumber })) }
     : q.state === 'verlopen'
-      ? { tone: '', icon: <Hourglass size={16} />, text: data.problem ?? `Deze offerte was geldig tot en met ${date(q.validUntil)}.` }
-      : { tone: '', icon: <Clock size={16} />, text: `Deze offerte is geldig tot en met ${date(q.validUntil)}. Lees hem rustig door; onderaan geef je akkoord of wijs je hem af.` }
+      ? { tone: '', icon: <Hourglass size={16} />, text: data.problem ?? t(lang, 'quote.expiredText', { date: date(q.validUntil) }) }
+      : { tone: '', icon: <Clock size={16} />, text: t(lang, 'public.quoteOpen', { date: date(q.validUntil) }) }
 
   const send = async (accept: boolean) => {
     setBusy(true)
@@ -100,14 +107,14 @@ export function PublicQuotePage() {
   }
 
   return (
-    <div className="public-invoice public-quote">
+    <div className="public-invoice public-quote" lang={lang}>
       <div className="public-invoice-inner">
         <div className="public-invoice-bar no-print">
           <div className={`notice ${status.tone === 'ok' ? 'notice-ok' : ''}`} style={{ margin: 0, flex: 1, minWidth: 220 }}>{status.icon} {status.text}</div>
           {data.canDecide && (
-            <button className="btn btn-primary" onClick={() => decide.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}><ThumbsUp size={15} /> Accepteren of afwijzen</button>
+            <button className="btn btn-primary" onClick={() => decide.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}><ThumbsUp size={15} /> {t(lang, 'public.decide')}</button>
           )}
-          <button className="btn" onClick={() => window.print()}><Printer size={15} /> Opslaan als PDF of printen</button>
+          <button className="btn" onClick={() => window.print()}><Printer size={15} /> {t(lang, 'public.print')}</button>
         </div>
 
         <QuotePaper quote={q} buyer={q.buyer ?? null} state={q.state} company={company} />
@@ -115,45 +122,50 @@ export function PublicQuotePage() {
         {data.canDecide && (
           <div className="card quote-decide no-print" ref={decide}>
             <div className="card-body">
-              <h3 style={{ marginTop: 0 }}>Wat vind je van deze offerte?</h3>
+              <h3 style={{ marginTop: 0 }}>{t(lang, 'public.question')}</h3>
               <p className="muted" style={{ marginTop: 0 }}>
-                Je kunt één keer besluiten, tot en met {date(q.validUntil)}. Heb je eerst nog vragen? Neem dan contact op met {seller}
-                {q.seller?.email ? ` via ${q.seller.email}` : ''}.
+                {q.seller?.email
+                  ? t(lang, 'public.onceEmail', { date: date(q.validUntil), seller, email: q.seller.email })
+                  : t(lang, 'public.once', { date: date(q.validUntil), seller })}
               </p>
-              <div className="quote-decide-choices" role="radiogroup" aria-label="Je besluit">
+              <div className="quote-decide-choices" role="radiogroup" aria-label={t(lang, 'public.choice')}>
                 <button type="button" role="radio" aria-checked={mode === 'accept'} className={`quote-choice ${mode === 'accept' ? 'active ok' : ''}`} onClick={() => { setMode('accept'); setFormError(null) }}>
-                  <ThumbsUp size={18} /> Akkoord geven
+                  <ThumbsUp size={18} /> {t(lang, 'public.accept')}
                 </button>
                 <button type="button" role="radio" aria-checked={mode === 'reject'} className={`quote-choice ${mode === 'reject' ? 'active no' : ''}`} onClick={() => { setMode('reject'); setFormError(null) }}>
-                  <ThumbsDown size={18} /> Afwijzen
+                  <ThumbsDown size={18} /> {t(lang, 'public.reject')}
                 </button>
               </div>
 
               {mode === 'accept' && (
                 <form className="quote-decide-form" onSubmit={e => { e.preventDefault(); send(true) }}>
-                  <Field label="Je volledige naam" full>
-                    <input value={name} maxLength={100} autoComplete="name" placeholder="Voor- en achternaam" onChange={e => setName(e.target.value)} autoFocus />
+                  <Field label={t(lang, 'public.fullName')} full>
+                    <input value={name} maxLength={100} autoComplete="name" placeholder={t(lang, 'public.namePlaceholder')} onChange={e => setName(e.target.value)} autoFocus />
                   </Field>
                   <label className="check-row check-row-top">
                     <input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)} />
                     <span>
-                      Ik ga akkoord met offerte {q.number} van {seller}, voor {euro(q.totals?.total ?? 0)}{q.vatRegime === 'normaal' ? ' inclusief btw' : ''}
-                      {deposit ? `, met een aanbetaling van ${num(q.depositPercent!)}% (${euro(deposit.total)})` : ''}{q.terms ? ', en met de voorwaarden die erin staan' : ''}.
+                      {t(lang, 'public.agree', {
+                        number: q.number ?? '', seller,
+                        amount: q.vatRegime === 'normaal' ? t(lang, 'paper.inclVat', { amount: euro(q.totals?.total ?? 0) }) : euro(q.totals?.total ?? 0),
+                        deposit: deposit ? t(lang, 'public.agreeDeposit', { percent: docNum(lang, q.depositPercent!), amount: euro(deposit.total) }) : '',
+                        terms: q.terms ? t(lang, 'public.agreeTerms') : '',
+                      })}
                     </span>
                   </label>
-                  <p className="cell-sub" style={{ margin: 0 }}>We bewaren je naam, het tijdstip en je IP-adres, zodat jullie allebei kunnen terugzien wanneer het akkoord gegeven is.</p>
+                  <p className="cell-sub" style={{ margin: 0 }}>{t(lang, 'public.privacy')}</p>
                   {formError && <p className="text-red" style={{ margin: 0 }}>{formError}</p>}
-                  <div><button className="btn btn-success" disabled={busy || name.trim().length < 2 || !agree}><CheckCircle2 size={15} /> {busy ? 'Even geduld…' : 'Offerte accepteren'}</button></div>
+                  <div><button className="btn btn-success" disabled={busy || name.trim().length < 2 || !agree}><CheckCircle2 size={15} /> {busy ? t(lang, 'public.wait') : t(lang, 'public.acceptButton')}</button></div>
                 </form>
               )}
 
               {mode === 'reject' && (
                 <form className="quote-decide-form" onSubmit={e => { e.preventDefault(); send(false) }}>
-                  <Field label="Wil je laten weten waarom? Dat mag ook leeg blijven." full>
-                    <textarea rows={4} maxLength={1000} value={reason} onChange={e => setReason(e.target.value)} placeholder="Bijvoorbeeld: te duur, andere planning of een andere keuze." />
+                  <Field label={t(lang, 'public.reason')} full>
+                    <textarea rows={4} maxLength={1000} value={reason} onChange={e => setReason(e.target.value)} placeholder={t(lang, 'public.reasonPlaceholder')} />
                   </Field>
                   {formError && <p className="text-red" style={{ margin: 0 }}>{formError}</p>}
-                  <div><button className="btn btn-danger" disabled={busy}><XCircle size={15} /> {busy ? 'Even geduld…' : 'Offerte afwijzen'}</button></div>
+                  <div><button className="btn btn-danger" disabled={busy}><XCircle size={15} /> {busy ? t(lang, 'public.wait') : t(lang, 'public.rejectButton')}</button></div>
                 </form>
               )}
             </div>
@@ -161,7 +173,7 @@ export function PublicQuotePage() {
         )}
 
         <p className="muted public-invoice-foot no-print">
-          Kies in het afdrukvenster voor "Opslaan als PDF" om de offerte te bewaren. Deze offerte is verstuurd met {product.name}.
+          {t(lang, 'public.quoteFoot', { product: product.name })}
         </p>
       </div>
     </div>

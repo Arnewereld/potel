@@ -16,6 +16,7 @@ import { CustomerForm } from '../components/CustomerForm'
 import { ProjectForm } from '../components/ProjectForm'
 import { CustomerPortalTab } from '../components/CustomerPortal'
 import { portalOpened } from '../lib/portal'
+import { languages } from '../lib/docTexts'
 import { ProjectCard } from './Projects'
 
 type TabId = 'overzicht' | 'projecten' | 'facturen' | 'planning' | 'notities' | 'portaal'
@@ -113,6 +114,7 @@ export function CustomerDetailPage() {
                 <dt>Telefoon</dt><dd>{customer.phone || '—'}</dd>
                 <dt>Adres</dt><dd>{[customer.address, customer.city, !isNetherlands(customer.country) && customer.country].filter(Boolean).join(', ') || '—'}</dd>
                 <dt>Btw-nummer</dt><dd>{customer.vatNumber || '—'}</dd>
+                <dt>Taal</dt><dd>{languages.find(l => l.id === (customer.language ?? 'nl'))?.label}</dd>
                 <dt>Klant sinds</dt><dd>{date(customer.createdAt)}</dd>
                 <dt>Klantportaal</dt><dd><a href="#portaal" onClick={e => { e.preventDefault(); setTab('portaal') }}>{portalOpened(portal)}</a></dd>
               </dl>

@@ -54,93 +54,32 @@ public static partial class MailTemplates
     // Alleen in de aanmaning: de wettelijke tekst voor een particulier of een bedrijf, met het bedrag aan incassokosten.
     public const string ConsequencesPlaceholder = "{gevolgen}";
 
-    public static readonly MailText Invoice = new("Factuur {nummer} van {bedrijf}",
-        """
-        Beste {klant},
-
-        Hierbij ontvang je factuur {nummer} van {factuurdatum} voor {bedrag}. Je bekijkt, downloadt en print de factuur via deze link:
-        {link}
-
-        Wil je het bedrag uiterlijk op {vervaldatum} overmaken? {betaalgegevens}
-
-        Met vriendelijke groet,
-        {bedrijf}
-        """);
-
-    public static readonly MailText First = new("Herinnering: factuur {nummer}",
-        """
-        Beste {klant},
-
-        Misschien is het je ontschoten: factuur {nummer} van {factuurdatum} had uiterlijk op {vervaldatum} betaald moeten zijn. Er staat nog {bedrag} open.
-
-        Wil je het bedrag zo snel mogelijk overmaken? {betaalgegevens}
-        Je vindt de factuur hier: {link}
-
-        Heb je al betaald? Dan kun je dit bericht als niet verzonden beschouwen.
-
-        Met vriendelijke groet,
-        {bedrijf}
-        """);
-
-    public static readonly MailText Second = new("Tweede herinnering: factuur {nummer}",
-        """
-        Beste {klant},
-
-        Op factuur {nummer} van {factuurdatum} staat nog {bedrag} open. De betaaltermijn is op {vervaldatum} verlopen en we hebben nog geen betaling ontvangen, ook niet na onze eerste herinnering.
-
-        Wil je het bedrag binnen 7 dagen overmaken? {betaalgegevens}
-        Je vindt de factuur hier: {link}
-
-        Is er iets mis met de factuur, of lukt betalen nu niet? Laat het ons dan weten, dan zoeken we samen een oplossing.
-
-        Met vriendelijke groet,
-        {bedrijf}
-        """);
-
-    public static readonly MailText Final = new("Aanmaning: factuur {nummer}",
-        """
-        Beste {klant},
-
-        Ondanks onze herinneringen hebben we de betaling van factuur {nummer} van {factuurdatum} nog niet ontvangen. Er staat nog {bedrag} open. De betaaltermijn is op {vervaldatum} verlopen.
-
-        {gevolgen}
-
-        {betaalgegevens}
-        Je vindt de factuur hier: {link}
-
-        Heb je inmiddels betaald? Dan kun je deze aanmaning als niet verzonden beschouwen.
-
-        Met vriendelijke groet,
-        {bedrijf}
-        """);
-
+    // De standaardteksten staan per taal in ClientTexts; dit zijn de Nederlandse, zoals Instellingen ze laat zien.
+    public static readonly MailText Invoice = Standard(Languages.Dutch, "invoice");
+    public static readonly MailText First = Standard(Languages.Dutch, "first");
+    public static readonly MailText Second = Standard(Languages.Dutch, "second");
+    public static readonly MailText Final = Standard(Languages.Dutch, "final");
     // Een creditnota mailen: geen betaalverzoek maar een verrekening.
-    public static readonly MailText CreditNote = new("Creditnota {nummer} van {bedrijf}",
-        """
-        Beste {klant},
+    public static readonly MailText CreditNote = Standard(Languages.Dutch, "credit");
 
-        Hierbij ontvang je creditnota {nummer} van {factuurdatum}. Je bekijkt, downloadt en print de creditnota via deze link:
-        {link}
+    static MailText Standard(string language, string name) =>
+        new(ClientTexts.T(language, $"mail.{name}.subject"), ClientTexts.T(language, $"mail.{name}.body"));
 
-        Het bedrag verrekenen we met je openstaande factuur of storten we terug.
-
-        Met vriendelijke groet,
-        {bedrijf}
-        """);
-
-    public static MailText Default(int step) => step switch
+    public static MailText Default(int step, string? language = null) => Standard(Languages.Of(language), step switch
     {
-        MailSteps.First => First,
-        MailSteps.Second => Second,
-        MailSteps.Final => Final,
-        _ => Invoice,
-    };
+        MailSteps.First => "first",
+        MailSteps.Second => "second",
+        MailSteps.Final => "final",
+        _ => "invoice",
+    });
 
-    // De tekst van deze werkruimte voor een stap: eigen tekst als die er is, anders de standaardtekst.
-    public static MailText For(ReminderSettings? s, int step, bool credit = false)
+    // De tekst van deze werkruimte voor een stap: eigen tekst als die er is, anders de standaardtekst. Eigen teksten zijn
+    // Nederlands; een klant met Engels als taal krijgt altijd de Engelse standaardtekst.
+    public static MailText For(ReminderSettings? s, int step, bool credit = false, string? language = null)
     {
-        if (credit && step == MailSteps.Invoice) return CreditNote;
-        var d = Default(step);
+        if (credit && step == MailSteps.Invoice) return Standard(Languages.Of(language), "credit");
+        var d = Default(step, language);
+        if (ClientTexts.IsEnglish(language)) return d;
         var (subject, body) = step switch
         {
             MailSteps.First => (s?.FirstSubject, s?.FirstBody),
@@ -169,34 +108,26 @@ public static partial class MailTemplates
     [GeneratedRegex(@"incassokosten|wettelijke (handels)?rente", RegexOptions.IgnoreCase)]
     private static partial Regex CostWords();
 
-    static string Euro(decimal d) => d.ToString("C", Dutch);
-    static string Date(DateTime d) => d.ToString("d MMMM yyyy", Dutch);
-
-    // De betaalgegevens in één zin, met het IBAN van de factuur zelf (zoals hij verstuurd is).
+    // De betaalgegevens in één zin, met het IBAN van de factuur zelf (zoals hij verstuurd is), in de taal van de factuur.
     public static string PaymentDetails(Invoice inv, Settings s)
     {
         var seller = inv.Seller;
         var iban = seller?.Iban ?? s.Iban;
         var name = seller?.Name ?? s.CompanyName;
         return string.IsNullOrWhiteSpace(iban)
-            ? $"Vermeld bij je betaling het factuurnummer {inv.Number}."
-            : $"Maak het over naar {iban.Trim()} ten name van {name}, onder vermelding van factuurnummer {inv.Number}.";
+            ? ClientTexts.T(inv.Language, "mail.pay.reference", ("number", inv.Number))
+            : ClientTexts.T(inv.Language, "mail.pay.iban", ("iban", iban.Trim()), ("name", name), ("number", inv.Number));
     }
 
     // De wettelijke alinea voor de aanmaning. Een particulier krijgt 14 dagen na ontvangst en hoort welke incassokosten
     // er komen als hij dan niet betaalt (art. 6:96 lid 6 BW). Bij een bedrijf mag de vergoeding (minimaal € 40) zonder
     // aanmaning en geldt de wettelijke handelsrente; die noemen we alleen hier, in de laatste stap.
-    public static string Consequences(bool consumer, decimal open, DateTime today)
-    {
-        var costs = Euro(ReminderRules.CollectionCosts(open));
-        var payBy = Date(ReminderRules.PayBy(today));
-        return consumer
-            ? $"We vragen je het bedrag binnen 14 dagen na ontvangst van deze aanmaning te betalen, dus uiterlijk op {payBy}. Betaal je niet op tijd, dan moeten we incassokosten in rekening brengen. Volgens de wet zijn dat bij dit bedrag {costs}. Daarna kunnen we verdere stappen nemen om het bedrag te innen."
-            : $"We vragen je het bedrag uiterlijk op {payBy} te betalen. Omdat de betaaltermijn verstreken is, hebben we volgens de wet recht op de wettelijke handelsrente vanaf de dag na de vervaldatum en op een vergoeding voor incassokosten van {costs}. Betaal je niet op tijd, dan brengen we die in rekening en nemen we verdere stappen om het bedrag te innen.";
-    }
+    public static string Consequences(bool consumer, decimal open, DateTime today, string? language = null) =>
+        ClientTexts.T(language, consumer ? "mail.consequences.consumer" : "mail.consequences.business",
+            ("payBy", ClientTexts.Date(language, ReminderRules.PayBy(today))), ("costs", ClientTexts.Euro(language, ReminderRules.CollectionCosts(open))));
 
     // Kan de klant online betalen, dan zegt {betaalgegevens} dat erbij; de knop staat op de factuurpagina achter de link.
-    public const string IdealSentence = "Betalen met iDEAL kan ook: open de factuur via de link en kies Betaal nu met iDEAL.";
+    public static readonly string IdealSentence = ClientTexts.T(Languages.Dutch, "mail.ideal");
 
     // Vult de woorden tussen accolades in. Zonder link blijft {link} staan (in een voorbeeld), en een tekst zonder {link}
     // krijgt de link er onderaan bij: de klant moet de factuur altijd kunnen openen.
@@ -206,22 +137,23 @@ public static partial class MailTemplates
             : inv.Status is InvoiceStatus.Sent or InvoiceStatus.Overdue ? inv.OpenAmount : Data.Money.Totals(inv.Lines).Total;
         var late = Math.Max(0, (today - inv.DueDate.Date).Days);
         var consumer = ReminderRules.IsConsumer(inv, c);
+        var lang = inv.Language;
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["klant"] = c.Name.Trim(),
             ["nummer"] = inv.Number ?? "",
-            ["bedrag"] = Euro(open),
-            ["factuurdatum"] = Date(inv.IssueDate),
-            ["vervaldatum"] = Date(inv.DueDate),
+            ["bedrag"] = ClientTexts.Euro(lang, open),
+            ["factuurdatum"] = ClientTexts.Date(lang, inv.IssueDate),
+            ["vervaldatum"] = ClientTexts.Date(lang, inv.DueDate),
             ["dagen"] = late.ToString(Dutch),
-            ["betaalgegevens"] = PaymentDetails(inv, s) + (ideal && !inv.IsCredit && open > 0 ? $" {IdealSentence}" : ""),
+            ["betaalgegevens"] = PaymentDetails(inv, s) + (ideal && !inv.IsCredit && open > 0 ? $" {ClientTexts.T(lang, "mail.ideal")}" : ""),
             ["bedrijf"] = (inv.Seller?.Name ?? s.CompanyName).Trim(),
-            ["gevolgen"] = Consequences(consumer, open, today),
+            ["gevolgen"] = Consequences(consumer, open, today, lang),
         };
         if (link is not null) values["link"] = link;
         string Replace(string t) => Placeholder().Replace(t, m => values.TryGetValue(m.Groups[1].Value, out var v) ? v : m.Value);
         var body = Replace(text.Body);
-        if (link is not null && !body.Contains(link)) body = $"{body.TrimEnd()}\n\nBekijk de factuur: {link}";
+        if (link is not null && !body.Contains(link)) body = $"{body.TrimEnd()}\n\n{ClientTexts.T(lang, "mail.viewInvoice", ("link", link))}";
         return new(Workflows.EmailRules.OneLine(Replace(text.Subject)), body.Replace("\r\n", "\n").Trim());
     }
 

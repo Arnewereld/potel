@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Potel.Api.Data;
 using Potel.Api.Integrations;
@@ -48,13 +49,18 @@ public static class ProjectEndpoints
     // Factuurregels voor uren, elk met de boekingen die erbij horen: één regel met het totaal of één regel per boeking.
     // Per boeking ronden we zo af dat de regels samen precies even veel uren zijn als de totaalregel. Scheelt het afronden
     // per regel dan toch een cent (bij een uurtarief met centen), dan staat dat verschil er apart op.
-    public static List<(InvoiceLine Line, List<TimeEntry> Entries)> HourLines(Project p, List<TimeEntry> entries, bool detailed)
+    public static List<(InvoiceLine Line, List<TimeEntry> Entries)> HourLines(Project p, List<TimeEntry> entries, bool detailed, string? language = null)
     {
         var total = Hours(entries.Sum(e => e.Minutes));
+        // In het Engels met de maand in letters: 01-10 leest een Amerikaan als 10 januari.
+        var english = Invoicing.ClientTexts.IsEnglish(language);
+        string Day(DateTime d, bool year = true) => english
+            ? d.ToString(year ? "d MMM yyyy" : "d MMM", CultureInfo.InvariantCulture)
+            : d.ToString(year ? "dd-MM-yyyy" : "dd-MM", CultureInfo.InvariantCulture);
         if (!detailed)
             return [(new InvoiceLine
             {
-                Description = $"{p.Name}: werkzaamheden {entries[0].Date:dd-MM} t/m {entries[^1].Date:dd-MM-yyyy}",
+                Description = Invoicing.ClientTexts.T(language, "line.hours", ("project", p.Name), ("from", Day(entries[0].Date, year: false)), ("to", Day(entries[^1].Date))),
                 Quantity = total, Unit = "uur", UnitPrice = p.HourlyRate,
             }, entries)];
 
@@ -67,13 +73,13 @@ public static class ProjectEndpoints
             var upTo = Hours(minutes);
             parts.Add((new InvoiceLine
             {
-                Description = $"{e.Date:dd-MM-yyyy} {(string.IsNullOrWhiteSpace(e.Description) ? p.Name : e.Description)}",
+                Description = $"{Day(e.Date)} {(string.IsNullOrWhiteSpace(e.Description) ? p.Name : e.Description)}",
                 Quantity = upTo - done, Unit = "uur", UnitPrice = p.HourlyRate,
             }, [e]));
             done = upTo;
         }
         var difference = Money.Round(total * p.HourlyRate) - parts.Sum(x => Money.LineAmount(x.Line));
-        if (difference != 0) parts.Add((new InvoiceLine { Description = "Afrondingsverschil", Quantity = 1, Unit = "stuk", UnitPrice = difference }, []));
+        if (difference != 0) parts.Add((new InvoiceLine { Description = Invoicing.ClientTexts.T(language, "line.rounding"), Quantity = 1, Unit = "stuk", UnitPrice = difference }, []));
         return parts;
     }
 
@@ -202,8 +208,9 @@ public static class ProjectEndpoints
             var settings = await SettingsEndpoints.GetAsync(db);
             var today = clock.Today;
             var regime = VatRegimes.DefaultFor(settings, p.Customer);
-            var parts = entries.Count > 0 ? HourLines(p, entries, req?.Detailed == true) : [];
-            var tripParts = TripEndpoints.TripLines(trips);
+            var lang = p.Customer?.Language ?? Languages.Dutch;
+            var parts = entries.Count > 0 ? HourLines(p, entries, req?.Detailed == true, lang) : [];
+            var tripParts = TripEndpoints.TripLines(trips, lang);
             foreach (var (line, _) in tripParts) line.VatRate = 21;
             var lines = parts.Select(x => x.Line).Concat(tripParts.Select(x => x.Line)).ToList();
             for (var i = 0; i < lines.Count; i++)
@@ -217,7 +224,7 @@ public static class ProjectEndpoints
             {
                 CustomerId = p.CustomerId, IssueDate = today, DueDate = today.AddDays(settings.PaymentTermDays), Status = InvoiceStatus.Draft,
                 VatRegime = regime, DeliveryFrom = dates.Min().Date, DeliveryTo = dates.Max().Date,
-                Notes = SettingsEndpoints.DefaultNote, Lines = lines,
+                Language = lang, Notes = SettingsEndpoints.Note(lang), Lines = lines,
             };
             db.Invoices.Add(inv);
             await db.SaveChangesAsync();

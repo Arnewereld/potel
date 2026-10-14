@@ -156,7 +156,9 @@ public static class RecurringInvoiceEndpoints
             var max = Math.Max(1, limits.Value.MaxCatchUpPeriods);
             var periods = RecurringPeriods.Upcoming(t).Take(3).Select(Dto).ToList();
             var first = periods.FirstOrDefault();
-            var lines = first is null ? [] : t.Lines.Select(l => RecurringPeriods.Fill(l.Description, first.From, first.To)).ToList();
+            // Zoals de regels op de factuur komen: in de taal van de klant.
+            var language = await db.Customers.Where(c => c.Id == t.CustomerId).Select(c => c.Language).FirstOrDefaultAsync();
+            var lines = first is null ? [] : t.Lines.Select(l => RecurringPeriods.Fill(l.Description, first.From, first.To, language)).ToList();
             return Results.Ok(new RecurringPreview(periods, RecurringPeriods.DueCount(t, clock.Today, max), lines, BacklogError(t, clock.Today, max)));
         });
 

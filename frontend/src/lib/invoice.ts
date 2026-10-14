@@ -1,5 +1,6 @@
-import type { Customer, Invoice, InvoiceParty, PaymentMethod, Settings, VatRegime } from './types'
-import { date, euro, invoiceTotals, parseDate } from './format'
+import type { Customer, Invoice, InvoiceParty, Language, PaymentMethod, Settings, VatRegime } from './types'
+import { invoiceTotals, parseDate } from './format'
+import { docDate, docEuro, t } from './docTexts'
 
 export const units = ['uur', 'dag', 'stuk', 'km', 'maand', 'jaar']
 
@@ -96,8 +97,13 @@ export const buyerFrom = (c: Customer): InvoiceParty => ({
   country: c.country?.trim() || netherlands, email: c.email, phone: c.phone, vatNumber: c.vatNumber,
 })
 
-const greeting = (c?: Customer | null) => `Hoi ${c?.name.split(' ')[0] ?? ''},`.replace(' ,', ',')
-const signature = (s: Settings) => `\n\nGroet,\n${s.ownerName || s.companyName}\n${s.companyName}${s.website ? `\n${s.website}` : ''}`
+// De mails die je zelf vanuit je mailprogramma stuurt, in de taal van de factuur.
+const greeting = (lang: Language | undefined, c?: Customer | null) => {
+  const first = c?.name.split(' ')[0]
+  return first ? t(lang, 'mail.hi', { name: first }) : t(lang, 'mail.hiNoName')
+}
+const signature = (lang: Language | undefined, s: Settings) =>
+  `\n\n${t(lang, 'mail.regards')}\n${s.ownerName || s.companyName}\n${s.companyName}${s.website ? `\n${s.website}` : ''}`
 
 function mailto(to: string | null | undefined, subject: string, body: string) {
   return `mailto:${encodeURIComponent(to ?? '')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
@@ -105,15 +111,24 @@ function mailto(to: string | null | undefined, subject: string, body: string) {
 
 // Opent je mailprogramma met een kant-en-klare mail. De PDF voeg je zelf als bijlage toe.
 export function sendMail(inv: Invoice, c: Customer | null | undefined, s: Settings) {
+  const lang = inv.language
   const total = invoiceTotals(inv.lines).total
-  const kind = isCredit(inv) ? 'creditnota' : 'factuur'
-  const named = inv.number ? `${kind} ${inv.number}` : `de ${kind}`
+  const Kind = t(lang, isCredit(inv) ? 'invoice.creditTitle' : 'invoice.title')
+  const kind = Kind.toLowerCase()
+  const named = inv.number ? t(lang, 'mail.named', { kind, number: inv.number }) : t(lang, 'mail.namedDraft', { kind })
   const iban = inv.seller ? inv.seller.iban : s.iban
   const holder = inv.seller?.name ?? s.companyName
-  return mailto(c?.email, `${kind[0]!.toUpperCase()}${kind.slice(1)}${inv.number ? ` ${inv.number}` : ''} van ${holder}`,
-    `${greeting(c)}\n\nIn de bijlage vind je ${named} van ${euro(Math.abs(total))}${inv.reference ? ` (jullie referentie ${inv.reference})` : ''}.`
-    + (total > 0 ? ` Wil je die vóór ${date(inv.dueDate)} overmaken${iban ? ` op ${iban} t.n.v. ${holder}` : ''}${inv.number ? `, onder vermelding van ${inv.number}` : ''}?` : '')
-    + signature(s))
+  const subject = inv.number ? t(lang, 'mail.subject', { kind: Kind, number: inv.number, seller: holder }) : t(lang, 'mail.subjectDraft', { kind: Kind, seller: holder })
+  return mailto(c?.email, subject,
+    `${greeting(lang, c)}\n\n${t(lang, 'mail.attached', {
+      named, amount: docEuro(lang, Math.abs(total)), reference: inv.reference ? t(lang, 'mail.reference', { reference: inv.reference }) : '',
+    })}`
+    + (total > 0 ? ` ${t(lang, 'mail.payBy', {
+      date: docDate(lang, inv.dueDate),
+      account: iban ? t(lang, 'mail.account', { iban, holder }) : '',
+      quoting: inv.number ? t(lang, 'mail.quoting', { number: inv.number }) : '',
+    })}` : '')
+    + signature(lang, s))
 }
 
 // Het bedrag dat nog openstaat: het totaal min wat er al gecrediteerd en betaald is.
@@ -127,14 +142,17 @@ export const paymentMethods: { id: PaymentMethod; label: string }[] = [
 export const paymentMethodLabel = (m: PaymentMethod) => (m === 'bank' ? 'overboeking' : m === 'ideal' ? 'iDEAL' : 'handmatig')
 
 export function reminderMail(inv: Invoice, c: Customer | null | undefined, s: Settings) {
+  const lang = inv.language
   const total = openAmount(inv)
   const late = -daysUntil(inv.dueDate)
   const iban = inv.seller ? inv.seller.iban : s.iban
   const holder = inv.seller?.name ?? s.companyName
   const number = inv.number ?? ''
-  return mailto(c?.email, `Herinnering: factuur ${number}`,
-    `${greeting(c)}\n\nIk zie dat factuur ${number} van ${date(inv.issueDate)} (${euro(total)}) nog openstaat; de vervaldatum was ${date(inv.dueDate)}${late > 0 ? `, ${late} dagen geleden` : ''}. `
-    + `Misschien is hij aan je aandacht ontsnapt. Wil je het bedrag${iban ? ` overmaken op ${iban} t.n.v. ${holder}` : ' overmaken'}, onder vermelding van ${number}?\n\n`
-    + 'Is hij inmiddels betaald? Dan kun je deze mail negeren.'
-    + signature(s))
+  return mailto(c?.email, t(lang, 'mail.reminderSubject', { number }),
+    `${greeting(lang, c)}\n\n${t(lang, 'mail.reminderOpen', {
+      number, date: docDate(lang, inv.issueDate), amount: docEuro(lang, total), due: docDate(lang, inv.dueDate),
+      late: late > 0 ? t(lang, 'mail.reminderLate', { days: late }) : '',
+    })} ${t(lang, 'mail.reminderTransfer', { account: iban ? t(lang, 'mail.account', { iban, holder }) : '', number })}\n\n`
+    + t(lang, 'mail.reminderPaid')
+    + signature(lang, s))
 }

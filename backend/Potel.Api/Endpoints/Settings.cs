@@ -44,6 +44,8 @@ public static partial class SettingsEndpoints
 
     // De opmerking onder een nieuwe factuur. De betaalgegevens staan al in een eigen blok op de factuur.
     public const string DefaultNote = "Bedankt voor de fijne samenwerking!";
+    // De standaardopmerking in de taal van de klant.
+    public static string Note(string? language) => Invoicing.ClientTexts.T(language, "note.default");
 
     public static void MapSettings(this RouteGroupBuilder api)
     {

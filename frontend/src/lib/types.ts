@@ -1,3 +1,6 @@
+// De taal van alles wat je klant ziet: facturen, offertes, mails, openbare pagina's en het klantportaal.
+export type Language = 'nl' | 'en'
+
 export interface Customer {
   id: number
   name: string
@@ -16,6 +19,7 @@ export interface Customer {
   remindersOff?: boolean
   // Wat je deze klant per kilometer rekent voor doorbelaste ritten; leeg is niet doorbelasten.
   kilometreRate?: number | null
+  language?: Language
   createdAt?: string
 }
 
@@ -31,6 +35,8 @@ export interface Lead {
   status: LeadStatus
   source?: string | null
   notes?: string | null
+  // De taal voor een offerte aan deze lead; die gaat mee als hij klant wordt.
+  language?: Language
   customerId?: number | null
   createdAt?: string
 }
@@ -95,6 +101,8 @@ export interface Invoice {
   status: InvoiceStatus
   reference?: string | null
   vatRegime: VatRegime
+  // Die van de klant bij aanmaken; aan te passen zolang het een concept is.
+  language?: Language
   deliveryFrom?: string | null
   deliveryTo?: string | null
   sentAt?: string | null
@@ -239,6 +247,7 @@ export interface PublicPaymentStatus {
   number?: string | null
   seller?: string | null
   invoicePaid: boolean
+  language?: Language
   brand: { logoDataUrl?: string | null; brandColor: string }
 }
 
@@ -270,6 +279,7 @@ export interface Quote {
   status: QuoteStatus
   state?: QuoteState
   vatRegime: VatRegime
+  language?: Language
   subject?: string | null
   intro?: string | null
   terms?: string | null
@@ -933,6 +943,7 @@ export interface PortalInvoice {
 export interface PublicPortal {
   company: { name: string; logoDataUrl?: string | null; brandColor: string }
   customer: { name: string }
+  language?: Language
   note?: string | null
   visible: { hours: boolean; budget: boolean; invoices: boolean; amounts: boolean }
   projects: PortalProject[]

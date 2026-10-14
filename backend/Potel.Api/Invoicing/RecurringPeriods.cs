@@ -57,12 +57,13 @@ public static partial class RecurringPeriods
     public static int DueCount(RecurringInvoice t, DateTime today, int max) =>
         Upcoming(t).TakeWhile(p => p.RunDate <= today.Date).Take(max + 1).Count();
 
-    static string Month(DateTime d) => Dutch.DateTimeFormat.GetMonthName(d.Month);
-    static string Day(DateTime d) => $"{d.Day} {Month(d)}";
-
     // De periode in gewone woorden: "oktober 2026", "Q4 2026", "2026", "februari t/m april 2026" of "15 oktober t/m 14 november 2026".
-    public static string Label(DateTime from, DateTime to)
+    // In het Engels "October 2026", "February to April 2026" of "15 October to 14 November 2026".
+    public static string Label(DateTime from, DateTime to, string? language = null)
     {
+        string Month(DateTime d) => ClientTexts.Month(language, d.Month);
+        string Day(DateTime d) => $"{d.Day} {Month(d)}";
+        string Through(string a, string b) => ClientTexts.T(language, "period.through", ("from", a), ("to", b));
         var wholeMonths = from.Day == 1 && to.AddDays(1).Day == 1;
         if (wholeMonths)
         {
@@ -70,10 +71,10 @@ public static partial class RecurringPeriods
             if (months == 1) return $"{Month(from)} {from.Year}";
             if (months == 3 && from.Month % 3 == 1) return $"Q{(from.Month + 2) / 3} {from.Year}";
             if (months == 12 && from.Month == 1) return $"{from.Year}";
-            return from.Year == to.Year ? $"{Month(from)} t/m {Month(to)} {to.Year}" : $"{Month(from)} {from.Year} t/m {Month(to)} {to.Year}";
+            return from.Year == to.Year ? $"{Through(Month(from), Month(to))} {to.Year}" : Through($"{Month(from)} {from.Year}", $"{Month(to)} {to.Year}");
         }
         if (from == to) return $"{Day(from)} {from.Year}";
-        return from.Year == to.Year ? $"{Day(from)} t/m {Day(to)} {to.Year}" : $"{Day(from)} {from.Year} t/m {Day(to)} {to.Year}";
+        return from.Year == to.Year ? $"{Through(Day(from), Day(to))} {to.Year}" : Through($"{Day(from)} {from.Year}", $"{Day(to)} {to.Year}");
     }
 
     [GeneratedRegex(@"\{(maand|jaar|kwartaal|periode)\}", RegexOptions.IgnoreCase)]
@@ -81,14 +82,15 @@ public static partial class RecurringPeriods
 
     // Vult {maand}, {jaar}, {kwartaal} en {periode} in met de periode van de factuur. Met een hoofdletter ({Maand})
     // begint ook de tekst met een hoofdletter. Maand, jaar en kwartaal zijn die van de eerste dag van de periode.
-    public static string Fill(string text, DateTime from, DateTime to) => Placeholder().Replace(text, m =>
+    // Voor een klant met Engels als taal worden het Engelse namen (October).
+    public static string Fill(string text, DateTime from, DateTime to, string? language = null) => Placeholder().Replace(text, m =>
     {
         var value = m.Groups[1].Value.ToLowerInvariant() switch
         {
-            "maand" => Month(from),
+            "maand" => ClientTexts.Month(language, from.Month),
             "jaar" => from.Year.ToString(CultureInfo.InvariantCulture),
             "kwartaal" => $"Q{(from.Month + 2) / 3}",
-            _ => Label(from, to),
+            _ => Label(from, to, language),
         };
         return char.IsUpper(m.Groups[1].Value[0]) && value.Length > 0 ? char.ToUpper(value[0], Dutch) + value[1..] : value;
     });

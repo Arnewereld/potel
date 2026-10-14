@@ -1,12 +1,17 @@
-import type { Customer, Invoice, InvoiceParty, Settings } from '../lib/types'
-import { date, euro, invoiceTotals, lineAmount, num } from '../lib/format'
+import type { Customer, Invoice, InvoiceParty, Language, Settings } from '../lib/types'
+import { invoiceTotals, lineAmount } from '../lib/format'
 import { buyerFrom, isCredit, isNetherlands, sellerFrom, zeroVat } from '../lib/invoice'
+import { docCountry, docDate, docEuro, docNum, docUnit, isEnglish, t } from '../lib/docTexts'
 
 type Draft = Omit<Invoice, 'id'>
 
 // De factuur zoals hij op papier en in de PDF staat. Een verstuurde factuur toont de gegevens van jou en je klant
 // zoals ze bij versturen waren; een concept de huidige. Logo en accentkleur komen altijd uit je instellingen.
+// Alles wat er niet door jou is ingetypt, staat in de taal van de factuur.
 export function InvoicePaper({ invoice, customer, company }: { invoice: Draft; customer?: Customer | null; company: Settings }) {
+  const lang = invoice.language ?? 'nl'
+  const euro = (n: number) => docEuro(lang, n)
+  const date = (s?: string | null) => docDate(lang, s)
   const totals = invoiceTotals(invoice.lines)
   const credit = isCredit(invoice)
   const seller = invoice.seller ?? sellerFrom(company)
@@ -18,105 +23,139 @@ export function InvoicePaper({ invoice, customer, company }: { invoice: Draft; c
   const period = from && to && to !== from
 
   return (
-    <div className="invoice-paper" style={{ '--accent': company.brandColor || '#ff6d5a' } as React.CSSProperties}>
-      <PaperHead seller={seller} company={company} title={credit ? 'Creditnota' : 'Factuur'} />
+    <div className="invoice-paper" lang={lang} style={{ '--accent': company.brandColor || '#ff6d5a' } as React.CSSProperties}>
+      <PaperHead seller={seller} company={company} title={t(lang, credit ? 'invoice.creditTitle' : 'invoice.title')} />
 
-      <div className="paper-parties">
-        <div>
-          <div className="paper-label">Aan</div>
-          {buyer ? (<>
-            <strong>{buyer.name}</strong>
-            {buyer.contact && <div>t.a.v. {buyer.contact}</div>}
-            {buyer.address && <div>{buyer.address}</div>}
-            {buyer.city && <div>{buyer.city}</div>}
-            {!isNetherlands(buyer.country) && <div>{buyer.country}</div>}
-            {buyer.vatNumber && <div className="paper-muted">Btw-nr. {buyer.vatNumber}</div>}
-          </>) : <span className="paper-muted">Nog geen klant gekozen</span>}
-        </div>
-        <div>
-          <div className="paper-label">Van</div>
-          <strong>{seller.name}</strong>
-          {seller.contact && <div>{seller.contact}</div>}
-          {seller.address && <div>{seller.address}</div>}
-          {seller.city && <div>{seller.city}</div>}
-          {seller.email && <div>{seller.email}</div>}
-          {seller.phone && <div>{seller.phone}</div>}
-        </div>
-      </div>
+      <PaperParties lang={lang} seller={seller} buyer={buyer} empty={t(lang, 'paper.noCustomer')} />
 
       <div className="paper-meta">
-        <div><span>{credit ? 'Creditnotanummer' : 'Factuurnummer'}</span><strong>{invoice.number ?? 'Concept'}</strong></div>
-        <div><span>Datum</span><strong>{date(invoice.issueDate)}</strong></div>
-        <div><span>{period ? 'Periode' : 'Leverdatum'}</span><strong>{period ? `${date(from)} t/m ${date(to)}` : date(from)}</strong></div>
-        {!credit && <div><span>Vervaldatum</span><strong>{date(invoice.dueDate)}</strong></div>}
-        {invoice.reference && <div><span>Uw referentie</span><strong>{invoice.reference}</strong></div>}
+        <div><span>{t(lang, credit ? 'invoice.creditNumber' : 'invoice.number')}</span><strong>{invoice.number ?? t(lang, 'paper.draft')}</strong></div>
+        <div><span>{t(lang, 'paper.date')}</span><strong>{date(invoice.issueDate)}</strong></div>
+        <div>
+          <span>{t(lang, period ? 'invoice.period' : 'invoice.deliveryDate')}</span>
+          <strong>{period ? t(lang, 'invoice.periodRange', { from: date(from), to: date(to) }) : date(from)}</strong>
+        </div>
+        {!credit && <div><span>{t(lang, 'invoice.dueDate')}</span><strong>{date(invoice.dueDate)}</strong></div>}
+        {invoice.reference && <div><span>{t(lang, 'invoice.reference')}</span><strong>{invoice.reference}</strong></div>}
       </div>
 
       {invoice.creditForNumber && (
         <p className="paper-credit-ref">
-          Creditnota voor factuur {invoice.creditForNumber}{invoice.creditForIssueDate ? ` van ${date(invoice.creditForIssueDate)}` : ''}.
+          {invoice.creditForIssueDate
+            ? t(lang, 'invoice.creditForOn', { number: invoice.creditForNumber, date: date(invoice.creditForIssueDate) })
+            : t(lang, 'invoice.creditFor', { number: invoice.creditForNumber })}
         </p>
       )}
 
-      <table className="paper-table">
-        <thead>
-          <tr><th>Omschrijving</th><th className="num">Aantal</th><th className="num">Tarief</th>{showVat && <th className="num">Btw</th>}<th className="num">Bedrag</th></tr>
-        </thead>
-        <tbody>
-          {invoice.lines.map((l, i) => (
-            <tr key={i}>
-              <td>{l.description || <span className="paper-muted">…</span>}</td>
-              <td className="num nowrap">{num(l.quantity)} {l.unit}</td>
-              <td className="num nowrap">{euro(l.unitPrice)}</td>
-              {showVat && <td className="num">{l.vatRate}%</td>}
-              <td className="num nowrap">{euro(lineAmount(l))}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <PaperLines lang={lang} lines={invoice.lines} showVat={showVat} />
 
       <div className="paper-summary">
         <div className="paper-summary-row">
-          {invoice.status === 'betaald' && <div className="paper-stamp">Betaald{invoice.paidAt ? ` · ${date(invoice.paidAt)}` : ''}</div>}
+          {invoice.status === 'betaald' && <div className="paper-stamp">{t(lang, 'invoice.paid')}{invoice.paidAt ? ` · ${date(invoice.paidAt)}` : ''}</div>}
           <div className="paper-totals">
-            {regime !== 'kor' && regime !== 'vrijgesteld' && <div><span>Subtotaal</span><span>{euro(totals.subtotal)}</span></div>}
-            {regime === 'normaal' && totals.vatGroups.map(g => <div key={g.rate}><span>Btw {g.rate}% over {euro(g.base)}</span><span>{euro(g.vat)}</span></div>)}
-            {regime === 'verlegd' && <div><span>Btw verlegd</span><span>{euro(0)}</span></div>}
-            {regime === 'buiten-eu' && <div><span>Btw niet van toepassing</span><span>{euro(0)}</span></div>}
-            <div className="paper-total"><span>{credit ? 'Totaal credit' : 'Te betalen'}</span><span>{euro(totals.total)}</span></div>
+            <PaperVatRows lang={lang} regime={regime} totals={totals} />
+            <div className="paper-total"><span>{t(lang, credit ? 'invoice.totalCredit' : 'invoice.toPay')}</span><span>{euro(totals.total)}</span></div>
           </div>
         </div>
         {!credit && totals.total > 0 && invoice.status !== 'betaald' && (
           <div className="paper-pay">
-            <div><span>Bedrag</span><strong>{euro(totals.total)}</strong></div>
-            <div><span>Uiterlijk op</span><strong>{date(invoice.dueDate)}</strong></div>
-            {seller.iban && <div><span>Op rekening</span><strong>{seller.iban}</strong></div>}
-            {seller.iban && <div><span>T.n.v.</span><strong>{seller.name}</strong></div>}
-            <div><span>Kenmerk</span><strong>{invoice.number ?? 'volgt bij versturen'}</strong></div>
+            <div><span>{t(lang, 'invoice.payAmount')}</span><strong>{euro(totals.total)}</strong></div>
+            <div><span>{t(lang, 'invoice.payBy')}</span><strong>{date(invoice.dueDate)}</strong></div>
+            {seller.iban && <div><span>{t(lang, 'invoice.payAccount')}</span><strong>{seller.iban}</strong></div>}
+            {seller.iban && <div><span>{t(lang, 'invoice.payHolder')}</span><strong>{seller.name}</strong></div>}
+            <div><span>{t(lang, 'invoice.payReference')}</span><strong>{invoice.number ?? t(lang, 'invoice.payReferenceLater')}</strong></div>
           </div>
         )}
-        {credit && <p className="paper-notes" style={{ margin: 0 }}>Het bedrag van {euro(Math.abs(totals.total))} wordt verrekend of teruggestort.</p>}
+        {credit && <p className="paper-notes" style={{ margin: 0 }}>{t(lang, 'invoice.creditSettled', { amount: euro(Math.abs(totals.total)) })}</p>}
       </div>
 
       {regime === 'verlegd' && (
         <p className="paper-reverse">
-          Btw verlegd naar de afnemer.
-          {seller.vatNumber && ` Btw-id leverancier: ${seller.vatNumber}.`}
-          {buyer?.vatNumber && ` Btw-nummer afnemer: ${buyer.vatNumber}.`}
+          {[
+            t(lang, 'invoice.noteReverse'),
+            seller.vatNumber && t(lang, 'invoice.noteSupplierVat', { number: seller.vatNumber }),
+            buyer?.vatNumber && t(lang, 'invoice.noteCustomerVat', { number: buyer.vatNumber }),
+          ].filter(Boolean).join(' ')}
         </p>
       )}
-      {regime === 'kor' && (
-        <p className="paper-reverse">{seller.name} maakt gebruik van de kleineondernemersregeling (KOR). Daarom staat er geen btw op deze factuur.</p>
-      )}
-      {regime === 'vrijgesteld' && (
-        <p className="paper-reverse">Vrijgesteld van btw op grond van artikel 11 van de Wet op de omzetbelasting 1968. Daarom staat er geen btw op deze factuur.</p>
-      )}
-      {regime === 'buiten-eu' && <p className="paper-reverse">Btw niet van toepassing: dienst aan een afnemer buiten de EU.</p>}
+      {regime === 'kor' && <p className="paper-reverse">{t(lang, 'invoice.noteKor', { seller: seller.name })}</p>}
+      {regime === 'vrijgesteld' && <p className="paper-reverse">{t(lang, 'invoice.noteExempt')}</p>}
+      {regime === 'buiten-eu' && <p className="paper-reverse">{t(lang, 'invoice.noteOutsideEu')}</p>}
       {invoice.notes && <p className="paper-notes">{invoice.notes}</p>}
 
-      <PaperFoot seller={seller} />
+      <PaperFoot seller={seller} lang={lang} />
     </div>
   )
+}
+
+// Aan en van: je klant met zijn adres (en land als hij in het buitenland zit), en jij. Op een Engels document staat bij jou
+// ook Nederland, want je klant zit dan meestal niet in Nederland.
+export function PaperParties({ lang, seller, buyer, empty }: { lang: Language; seller: InvoiceParty; buyer: InvoiceParty | null; empty: string }) {
+  return (
+    <div className="paper-parties">
+      <div>
+        <div className="paper-label">{t(lang, 'paper.to')}</div>
+        {buyer ? (<>
+          <strong>{buyer.name}</strong>
+          {buyer.contact && <div>{t(lang, 'paper.attn', { name: buyer.contact })}</div>}
+          {buyer.address && <div>{buyer.address}</div>}
+          {buyer.city && <div>{buyer.city}</div>}
+          {buyer.country && !isNetherlands(buyer.country) && <div>{docCountry(lang, buyer.country)}</div>}
+          {buyer.vatNumber && <div className="paper-muted">{t(lang, 'paper.vatNo', { number: buyer.vatNumber })}</div>}
+        </>) : <span className="paper-muted">{empty}</span>}
+      </div>
+      <div>
+        <div className="paper-label">{t(lang, 'paper.from')}</div>
+        <strong>{seller.name}</strong>
+        {seller.contact && <div>{seller.contact}</div>}
+        {seller.address && <div>{seller.address}</div>}
+        {seller.city && <div>{seller.city}</div>}
+        {isEnglish(lang) && <div>{docCountry(lang, seller.country || 'Nederland')}</div>}
+        {seller.email && <div>{seller.email}</div>}
+        {seller.phone && <div>{seller.phone}</div>}
+      </div>
+    </div>
+  )
+}
+
+type PaperLine = Pick<Draft['lines'][number], 'description' | 'quantity' | 'unit' | 'unitPrice' | 'vatRate'>
+
+// De regels. Omschrijvingen staan er zoals je ze typte; eenheden, getallen en bedragen in de taal van het document.
+export function PaperLines({ lang, lines, showVat }: { lang: Language; lines: PaperLine[]; showVat: boolean }) {
+  return (
+    <table className="paper-table">
+      <thead>
+        <tr>
+          <th>{t(lang, 'paper.description')}</th><th className="num">{t(lang, 'paper.quantity')}</th><th className="num">{t(lang, 'paper.rate')}</th>
+          {showVat && <th className="num">{t(lang, 'paper.vat')}</th>}<th className="num">{t(lang, 'paper.amount')}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {lines.map((l, i) => (
+          <tr key={i}>
+            <td>{l.description || <span className="paper-muted">…</span>}</td>
+            <td className="num nowrap">{docNum(lang, l.quantity)} {docUnit(lang, l.unit, Number(l.quantity))}</td>
+            <td className="num nowrap">{docEuro(lang, l.unitPrice)}</td>
+            {showVat && <td className="num">{docNum(lang, l.vatRate)}%</td>}
+            <td className="num nowrap">{docEuro(lang, lineAmount(l))}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+// Subtotaal en btw zoals de regeling het wil: btw per tarief, verlegd, niet van toepassing, of (KOR, vrijgesteld) niets.
+export function PaperVatRows({ lang, regime, totals }: { lang: Language; regime: Draft['vatRegime']; totals: ReturnType<typeof invoiceTotals> }) {
+  const euro = (n: number) => docEuro(lang, n)
+  return (<>
+    {regime !== 'kor' && regime !== 'vrijgesteld' && <div><span>{t(lang, 'paper.subtotal')}</span><span>{euro(totals.subtotal)}</span></div>}
+    {regime === 'normaal' && totals.vatGroups.map(g => (
+      <div key={g.rate}><span>{t(lang, 'paper.vatLine', { rate: docNum(lang, g.rate), base: euro(g.base) })}</span><span>{euro(g.vat)}</span></div>
+    ))}
+    {regime === 'verlegd' && <div><span>{t(lang, 'paper.vatReversed')}</span><span>{euro(0)}</span></div>}
+    {regime === 'buiten-eu' && <div><span>{t(lang, 'paper.vatNotApplicable')}</span><span>{euro(0)}</span></div>}
+  </>)
 }
 
 
@@ -138,11 +177,13 @@ export function PaperHead({ seller, company, title }: { seller: InvoiceParty; co
   )
 }
 
-export function PaperFoot({ seller }: { seller: InvoiceParty }) {
+export function PaperFoot({ seller, lang }: { seller: InvoiceParty; lang: Language }) {
   return (
     <footer className="paper-foot">
-      {[seller.name, seller.kvk && `KvK ${seller.kvk}`, seller.vatNumber && `Btw ${seller.vatNumber}`, seller.iban && `IBAN ${seller.iban}`, seller.email]
-        .filter(Boolean).join('  ·  ')}
+      {[
+        seller.name, seller.kvk && t(lang, 'paper.footKvk', { number: seller.kvk }), seller.vatNumber && t(lang, 'paper.footVat', { number: seller.vatNumber }),
+        seller.iban && t(lang, 'paper.footIban', { number: seller.iban }), seller.email,
+      ].filter(Boolean).join('  ·  ')}
     </footer>
   )
 }

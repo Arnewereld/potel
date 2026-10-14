@@ -72,7 +72,7 @@ public class InvoiceMailer(AppDb db, IEmailSender sender, IOptions<WorkflowLimit
     {
         var settings = await SettingsEndpoints.GetAsync(db);
         var reminders = await db.ReminderSettings.AsNoTracking().FirstOrDefaultAsync();
-        var text = MailTemplates.For(reminders, step, inv.IsCredit);
+        var text = MailTemplates.For(reminders, step, inv.IsCredit, inv.Language);
         if (!string.IsNullOrWhiteSpace(subject)) text = text with { Subject = subject };
         if (!string.IsNullOrWhiteSpace(body)) text = text with { Body = body };
         // Met de eigen Mollie van de werkruimte kan de klant ook met iDEAL betalen; dat staat dan in de betaalgegevens.

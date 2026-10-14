@@ -43,7 +43,6 @@ public static partial class QuoteEndpoints
 
     public static string Label(Quote q) => q.Number is null ? "Conceptofferte" : $"Offerte {q.Number}";
 
-    static string Euro(decimal d) => d.ToString("C", Dutch);
     static string Date(DateTime d) => d.ToString("d MMMM yyyy", Dutch);
     static string? Clean(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Replace("\r\n", "\n").Trim();
     static string Join(List<string> items) => items.Count == 1 ? items[0] : $"{string.Join(", ", items[..^1])} en {items[^1]}";
@@ -104,6 +103,7 @@ public static partial class QuoteEndpoints
         if (input.DepositPercent is { } deposit && (deposit <= 0 || deposit > 100)) return "Een aanbetaling is een percentage van meer dan 0 tot en met 100.";
         if (input.Subject?.Trim().Length > 200) return "Het onderwerp mag hooguit 200 tekens zijn.";
         if (input.Intro?.Length > MaxTextLength || input.Terms?.Length > MaxTextLength) return $"De inleiding en de voorwaarden mogen elk hooguit {MaxTextLength} tekens zijn.";
+        if (!Languages.IsKnown(input.Language)) return Languages.Error;
         if (customer is not null) return InvoiceEndpoints.RegimeError(input.VatRegime, customer);
         return input.VatRegime is VatRegimes.ReverseCharge or VatRegimes.OutsideEu
             ? "Van een lead weten we het land en het btw-nummer nog niet. Kies normaal, KOR of vrijgesteld, of maak eerst een klant van de lead."
@@ -125,6 +125,12 @@ public static partial class QuoteEndpoints
         to.Subject = Clean(from.Subject); to.Intro = Clean(from.Intro); to.Terms = Clean(from.Terms);
         to.DepositPercent = from.DepositPercent is { } d ? Math.Round(d, 2, MidpointRounding.AwayFromZero) : null;
     }
+
+    // De taal van een nieuwe offerte: die van de klant of de lead.
+    static async Task<string> LanguageForAsync(AppDb db, int? customerId, int? leadId) =>
+        customerId is { } c ? await db.Customers.Where(x => x.Id == c).Select(x => x.Language).FirstOrDefaultAsync() ?? Languages.Dutch
+        : leadId is { } l ? await db.Leads.Where(x => x.Id == l).Select(x => x.Language).FirstOrDefaultAsync() ?? Languages.Dutch
+        : Languages.Dutch;
 
     // Wat er op een offerte moet staan voordat hij weg kan. Ook op een offerte hoort je KvK-nummer (Handelsregisterwet).
     // De frontend toont dezelfde lijst (missingForQuote in frontend/src/lib/quote.ts).
@@ -184,17 +190,20 @@ public static partial class QuoteEndpoints
     }
 
     // Waarom de klant (nu) niet kan accepteren of afwijzen, of null.
+    // In de taal van de offerte, want je klant leest het.
     static string? DecisionProblem(Quote q, DateTime today)
     {
-        var seller = q.Seller?.Name ?? "de afzender";
+        var lang = q.Language;
+        var seller = q.Seller?.Name ?? ClientTexts.T(lang, "quote.sender");
+        string On(string key, DateTime? at) => at is { } a ? ClientTexts.T(lang, key + "On", ("date", ClientTexts.Date(lang, Local(a)))) : ClientTexts.T(lang, key);
         return q.Status switch
         {
-            QuoteStatus.Accepted => $"Deze offerte is al geaccepteerd{(q.DecidedAt is { } at ? $" op {Date(Local(at))}" : "")}.",
-            QuoteStatus.Rejected => $"Deze offerte is al afgewezen{(q.DecidedAt is { } at ? $" op {Date(Local(at))}" : "")}.",
-            QuoteStatus.Withdrawn => $"Deze offerte is ingetrokken. Neem contact op met {seller} voor een nieuwe offerte.",
-            QuoteStatus.Sent when today > q.ValidUntil.Date => $"Deze offerte was geldig tot en met {Date(q.ValidUntil)}. Neem contact op met {seller} voor een nieuwe offerte.",
+            QuoteStatus.Accepted => On("quote.accepted", q.DecidedAt),
+            QuoteStatus.Rejected => On("quote.rejected", q.DecidedAt),
+            QuoteStatus.Withdrawn => ClientTexts.T(lang, "quote.withdrawn", ("seller", seller)),
+            QuoteStatus.Sent when today > q.ValidUntil.Date => ClientTexts.T(lang, "quote.expired", ("date", ClientTexts.Date(lang, q.ValidUntil)), ("seller", seller)),
             QuoteStatus.Sent => null,
-            _ => LinkGone,
+            _ => ClientTexts.T(lang, "quote.linkGone"),
         };
     }
 
@@ -221,20 +230,23 @@ public static partial class QuoteEndpoints
             : null;
     }
 
-    // De standaardmail bij een offerte. {link} wordt bij versturen de persoonlijke link.
+    // De standaardmail bij een offerte, in de taal van de offerte. {link} wordt bij versturen de persoonlijke link.
     public static MailText DefaultMail(Quote q, Settings s)
     {
+        var lang = q.Language;
         var seller = q.Seller?.Name ?? s.CompanyName;
         var first = (q.CustomerId is not null ? q.Customer?.Name : q.Lead?.Name)?.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
-        var totals = q.Totals;
-        var amount = q.VatRegime == VatRegimes.Normal ? $"{Euro(totals.Total)} inclusief btw" : Euro(totals.Total);
-        var subject = string.IsNullOrWhiteSpace(q.Subject) ? "" : $" voor {q.Subject.Trim()}";
+        var total = ClientTexts.Euro(lang, q.Totals.Total);
         return new MailText(
-            $"Offerte {q.Number} van {seller}",
-            $"{(first is null ? "Hallo" : $"Hoi {first}")},\n\nHierbij stuur ik je offerte {q.Number}{subject}, voor in totaal {amount}. "
-            + $"De offerte is geldig tot en met {Date(q.ValidUntil)}.\n\n"
-            + "Via deze link bekijk je de offerte. Daar kun je hem ook meteen accepteren of afwijzen:\n{link}\n\n"
-            + $"Heb je nog vragen? Beantwoord dan gewoon deze mail.\n\nGroet,\n{(string.IsNullOrWhiteSpace(s.OwnerName) ? seller : s.OwnerName.Trim())}\n{seller}");
+            ClientTexts.T(lang, "quote.mail.subject", ("number", q.Number), ("seller", seller)),
+            ClientTexts.T(lang, "quote.mail.body",
+                ("greeting", first is null ? ClientTexts.T(lang, "quote.mail.hello") : ClientTexts.T(lang, "quote.mail.hi", ("name", first))),
+                ("number", q.Number),
+                ("about", string.IsNullOrWhiteSpace(q.Subject) ? "" : ClientTexts.T(lang, "quote.mail.about", ("subject", q.Subject.Trim()))),
+                ("amount", q.VatRegime == VatRegimes.Normal ? ClientTexts.T(lang, "quote.mail.inclVat", ("amount", total)) : total),
+                ("validUntil", ClientTexts.Date(lang, q.ValidUntil)),
+                ("owner", string.IsNullOrWhiteSpace(s.OwnerName) ? seller : s.OwnerName.Trim()),
+                ("seller", seller)));
     }
 
     public static void MapQuotes(this RouteGroupBuilder api)
@@ -267,6 +279,8 @@ public static partial class QuoteEndpoints
             if (await ValidateAsync(db, input) is { } error) return Results.BadRequest(new { error });
             var q = new Quote { Lines = CopyLines(input.Lines, input.VatRegime) };
             CopyFields(input, q);
+            // Zonder meegestuurde taal die van de klant of lead.
+            q.Language = input.LanguageGiven ? Languages.Of(input.Language) : await LanguageForAsync(db, q.CustomerId, q.LeadId);
             db.Quotes.Add(q);
             var who = q.CustomerId is { } c ? Name(await db.Customers.FirstAsync(x => x.Id == c)) : Name(await db.Leads.FirstAsync(x => x.Id == q.LeadId));
             db.Log("offerte", $"Conceptofferte voor {who} aangemaakt");
@@ -283,6 +297,7 @@ public static partial class QuoteEndpoints
             if (q.Status != QuoteStatus.Draft) return Results.Conflict(new { error = FrozenError });
             if (await ValidateAsync(db, input) is { } error) return Results.BadRequest(new { error });
             CopyFields(input, q);
+            if (input.LanguageGiven) q.Language = Languages.Of(input.Language);
             db.QuoteLines.RemoveRange(q.Lines);
             q.Lines = CopyLines(input.Lines, input.VatRegime);
             await db.SaveChangesAsync();
@@ -345,6 +360,8 @@ public static partial class QuoteEndpoints
             CopyFields(source, q);
             q.IssueDate = today;
             q.ValidUntil = today.AddDays(settings.QuoteValidDays);
+            // Een nieuw concept, ook een nieuwe versie, krijgt de taal die de klant of lead nu heeft.
+            q.Language = await LanguageForAsync(db, q.CustomerId, q.LeadId);
             db.Quotes.Add(q);
             db.Log("offerte", version ? $"Versie {q.Version} van offerte {source.Number} gemaakt" : $"Conceptofferte gemaakt als kopie van {Label(source).ToLowerInvariant()}");
             await db.SaveChangesAsync();
@@ -529,6 +546,8 @@ public static partial class QuoteEndpoints
             if (existing is { } invoiceId && await db.Invoices.AnyAsync(i => i.Id == invoiceId))
                 return Results.Conflict(new { error = req.Deposit ? "Voor de aanbetaling is al een factuur gemaakt." : "Van deze offerte is al een factuur gemaakt.", invoiceId });
 
+            // De factuur krijgt de taal van de klant, en de regels die Potel zelf schrijft dus ook.
+            var lang = q.Customer.Language;
             List<InvoiceLine> lines;
             if (req.Deposit)
             {
@@ -536,7 +555,8 @@ public static partial class QuoteEndpoints
                 var groups = q.Totals.VatGroups.Where(x => x.Base != 0).ToList();
                 lines = groups.Select(x => new InvoiceLine
                 {
-                    Description = $"Aanbetaling {percent:0.##}% op offerte {q.Number}{(groups.Count > 1 ? $" (btw {x.Rate:0.##}%)" : "")}",
+                    Description = ClientTexts.T(lang, "line.deposit", ("percent", ClientTexts.Number(lang, percent, "0.##")), ("number", q.Number))
+                                  + (groups.Count > 1 ? ClientTexts.T(lang, "line.depositVat", ("rate", ClientTexts.Number(lang, x.Rate, "0.##"))) : ""),
                     Quantity = 1, Unit = "stuk", UnitPrice = Money.Round(x.Base * percent / 100), VatRate = x.Rate,
                 }).ToList();
                 if (lines.Count == 0) return Results.BadRequest(new { error = "Het totaal van de offerte is nul, dus er is niets aan te betalen." });
@@ -547,7 +567,7 @@ public static partial class QuoteEndpoints
                 if (q.DepositInvoiceId is { } depositId && await db.Invoices.Include(i => i.Lines).FirstOrDefaultAsync(i => i.Id == depositId) is { } deposit)
                     lines.AddRange(deposit.Lines.OrderBy(l => l.Position).Select(l => new InvoiceLine
                     {
-                        Description = $"Min aanbetaling ({(deposit.Number is null ? "conceptfactuur" : $"factuur {deposit.Number}")})",
+                        Description = deposit.Number is null ? ClientTexts.T(lang, "line.depositMinusDraft") : ClientTexts.T(lang, "line.depositMinus", ("number", deposit.Number)),
                         Quantity = -l.Quantity, Unit = l.Unit, UnitPrice = l.UnitPrice, VatRate = l.VatRate,
                     }));
             }
@@ -556,7 +576,7 @@ public static partial class QuoteEndpoints
             var invoice = new Invoice
             {
                 CustomerId = customerId, IssueDate = today, DueDate = today.AddDays(settings.PaymentTermDays), VatRegime = q.VatRegime, DeliveryFrom = today,
-                Notes = $"Volgens offerte {q.Number}. {SettingsEndpoints.DefaultNote}",
+                Language = lang, Notes = $"{ClientTexts.T(lang, "note.quote", ("number", q.Number))} {SettingsEndpoints.Note(lang)}",
                 Lines = lines.Select((l, i) => { l.Position = i; if (VatRegimes.ZeroVat(q.VatRegime)) l.VatRate = 0; return l; }).ToList(),
             };
             db.Invoices.Add(invoice);
@@ -616,7 +636,7 @@ public static partial class QuoteEndpoints
                 quote = new
                 {
                     q.Number, q.Version, state = QuoteStatus.Of(q, today), q.IssueDate, q.ValidUntil, q.Subject, q.Intro, q.Terms, q.DepositPercent, q.VatRegime,
-                    q.Seller,
+                    q.Language, q.Seller,
                     // Van de klant alleen wat op de offerte staat.
                     buyer = b is null ? null : new { b.Name, b.Contact, b.Address, b.City, b.Country, b.VatNumber },
                     lines = q.Lines.OrderBy(l => l.Position).ThenBy(l => l.Id).Select(l => new { l.Description, l.Quantity, l.Unit, l.UnitPrice, l.VatRate }),
@@ -634,10 +654,10 @@ public static partial class QuoteEndpoints
         api.MapPost("/public/quote/accept", async (AppDb db, BusinessClock clock, HttpContext http, WorkflowEngine engine, QuoteNotices notices, PublicQuoteAccept req) =>
         {
             InvoiceMailEndpoints.NoIndex(http.Response);
-            if (await OpenLinkAsync(db, clock, req.Token) is not { Link: var link }) return Gone();
+            if (await OpenLinkAsync(db, clock, req.Token) is not { Link: var link, Quote: var quote }) return Gone();
             var name = EmailRules.OneLine(req.Name, 101);
-            if (name.Length < 2 || name.Length > 100) return Results.BadRequest(new { error = "Typ je volledige naam om akkoord te geven." });
-            if (!req.Agree) return Results.BadRequest(new { error = "Vink aan dat je akkoord gaat met de offerte." });
+            if (name.Length < 2 || name.Length > 100) return Results.BadRequest(new { error = ClientTexts.T(quote.Language, "quote.nameNeeded") });
+            if (!req.Agree) return Results.BadRequest(new { error = ClientTexts.T(quote.Language, "quote.agreeNeeded") });
             return await DecideAsync(db, clock, http, engine, notices, link, accept: true, name, reason: null);
         }).AllowAnonymous().RequireRateLimiting("public");
 
@@ -645,9 +665,10 @@ public static partial class QuoteEndpoints
         api.MapPost("/public/quote/reject", async (AppDb db, BusinessClock clock, HttpContext http, WorkflowEngine engine, QuoteNotices notices, PublicQuoteReject req) =>
         {
             InvoiceMailEndpoints.NoIndex(http.Response);
-            if (await OpenLinkAsync(db, clock, req.Token) is not { Link: var link }) return Gone();
+            if (await OpenLinkAsync(db, clock, req.Token) is not { Link: var link, Quote: var quote }) return Gone();
             var reason = Clean(req.Reason);
-            if (reason?.Length > MaxReasonLength) return Results.BadRequest(new { error = $"De toelichting mag hooguit {MaxReasonLength} tekens zijn." });
+            if (reason?.Length > MaxReasonLength)
+                return Results.BadRequest(new { error = ClientTexts.T(quote.Language, "quote.reasonTooLong", ("max", MaxReasonLength.ToString(CultureInfo.InvariantCulture))) });
             return await DecideAsync(db, clock, http, engine, notices, link, accept: false, name: null, reason);
         }).AllowAnonymous().RequireRateLimiting("public");
     }
@@ -708,6 +729,7 @@ public static partial class QuoteEndpoints
         var customer = new Customer
         {
             Name = b.Contact ?? b.Name, Company = b.Contact is null ? null : b.Name, Email = b.Email, Phone = b.Phone, Address = b.Address, City = b.City,
+            Language = Languages.Of(q.Language),
         };
         db.Customers.Add(customer);
         await db.SaveChangesAsync();

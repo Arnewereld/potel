@@ -1,11 +1,14 @@
 import { useState } from 'react'
 import { api } from '../lib/api'
-import type { Customer } from '../lib/types'
+import type { Customer, Language } from '../lib/types'
 import { useToast } from '../lib/toast'
 import { euCountries, inEu, isNetherlands, netherlands, otherCountries } from '../lib/invoice'
+import { languages } from '../lib/docTexts'
 import { Field, Modal } from './ui'
 
-const empty: Omit<Customer, 'id'> = { name: '', company: '', email: '', phone: '', address: '', city: '', country: netherlands, vatNumber: '', iban: '', notes: '' }
+const empty: Omit<Customer, 'id'> = {
+  name: '', company: '', email: '', phone: '', address: '', city: '', country: netherlands, vatNumber: '', iban: '', notes: '', language: 'nl',
+}
 const otherEu = euCountries.filter(c => c !== netherlands)
 
 export function CustomerForm({ customer, onClose, onSaved }: {
@@ -70,6 +73,16 @@ export function CustomerForm({ customer, onClose, onSaved }: {
             </select>
           )}
         </Field>
+        <Field label="Taal van facturen, offertes en mails">
+          <select value={form.language ?? 'nl'} onChange={e => setForm(f => ({ ...f, language: e.target.value as Language }))}>
+            {languages.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+          </select>
+        </Field>
+        {(form.language ?? 'nl') === 'nl' && !isNetherlands(country) && country !== 'België' && (
+          <p className="muted field-full" style={{ fontSize: 13, margin: 0 }}>
+            Spreekt je klant geen Nederlands? Kies dan Engels. Facturen, offertes, mails en het klantportaal gaan dan in het Engels; je eigen schermen blijven Nederlands.
+          </p>
+        )}
         <Field label="Btw-nummer">
           <input value={form.vatNumber ?? ''} onChange={set('vatNumber')}
             placeholder={isNetherlands(country) ? 'Bijv. NL001234567B01' : inEu(country) ? 'Nodig voor btw verlegd, bijv. DE123456789' : 'Optioneel'} />

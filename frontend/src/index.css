@@ -780,6 +780,9 @@ a.btn { text-decoration: none; color: inherit; display: inline-flex; align-items
 .invoice-papers { display: flex; flex-direction: column; gap: 18px; position: sticky; top: 0; }
 .invoice-papers > .invoice-paper { position: relative; }
 .invoice-papers:has(.hours-paper) { position: static; }
+/* De taal van het document, boven de factuur of offerte in de editor. */
+.paper-language { display: flex; justify-content: flex-end; margin-bottom: -10px; }
+.paper-language .badge::before { display: none; }
 .hours-paper { min-height: 0; }
 .hours-table .hours-project td { padding-top: 18px; font-weight: 700; font-size: 13px; }
 .hours-table .hours-subtotal td { font-weight: 600; border-bottom: 0; padding-bottom: 4px; }

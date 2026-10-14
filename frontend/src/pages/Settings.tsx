@@ -264,6 +264,9 @@ function Reminders({ admin }: { admin: boolean }) {
       <div className="card" style={{ marginTop: 16 }}>
         <div className="card-head"><h3><Mail size={16} /> Teksten van de mails</h3></div>
         <div className="card-body">
+          <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+            Deze teksten gaan naar klanten die Nederlands als taal hebben. Klanten met Engels als taal krijgen de Engelse standaardtekst van Potel.
+          </p>
           {texts.map(t => {
             const text = form.texts[t.key]
             const standard = data.defaults[t.key]

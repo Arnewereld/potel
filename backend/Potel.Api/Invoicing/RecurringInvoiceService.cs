@@ -197,15 +197,17 @@ public class RecurringInvoiceService(AppDb db, BusinessClock clock, IOptions<Inv
 
     // De factuur voor één periode: de regels met de periode ingevuld, de leverperiode en de betaaltermijn uit de instellingen.
     // De factuurdatum is vandaag; bij versturen wordt die toch de dag van versturen.
+    // In de taal van de klant, ook de maand of periode die Potel invult ({maand} wordt dan October).
     public static Invoice Build(RecurringInvoice t, RecurringPeriod period, Settings settings, DateTime today) => new()
     {
         CustomerId = t.CustomerId, Status = InvoiceStatus.Draft, IssueDate = today, DueDate = today.AddDays(settings.PaymentTermDays),
         VatRegime = t.VatRegime, DeliveryFrom = period.From, DeliveryTo = period.To, Reference = t.Reference,
-        Notes = string.IsNullOrWhiteSpace(t.Notes) ? null : RecurringPeriods.Fill(t.Notes, period.From, period.To),
+        Language = t.Customer?.Language ?? Languages.Dutch,
+        Notes = string.IsNullOrWhiteSpace(t.Notes) ? null : RecurringPeriods.Fill(t.Notes, period.From, period.To, t.Customer?.Language),
         RecurringInvoiceId = t.Id, RecurringPeriodStart = period.From,
         Lines = t.Lines.OrderBy(l => l.Position).ThenBy(l => l.Id).Select((l, i) => new InvoiceLine
         {
-            Description = RecurringPeriods.Fill(l.Description, period.From, period.To), Quantity = l.Quantity, Unit = l.Unit,
+            Description = RecurringPeriods.Fill(l.Description, period.From, period.To, t.Customer?.Language), Quantity = l.Quantity, Unit = l.Unit,
             UnitPrice = l.UnitPrice, VatRate = VatRegimes.ZeroVat(t.VatRegime) ? 0 : l.VatRate, Position = i,
         }).ToList(),
     };

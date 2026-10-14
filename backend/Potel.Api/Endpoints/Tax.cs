@@ -396,11 +396,12 @@ public static class AnnualOverview
     }
 
     // Tekst in een cel. Begint hij met een teken waarmee een spreadsheet een formule start, dan zetten we er een apostrof voor.
-    public static string CsvText(string? s)
+    // Met een ander scheidingsteken (een komma in een Engelse CSV) gaat een cel met dat teken tussen aanhalingstekens.
+    public static string CsvText(string? s, char separator = ';')
     {
         s ??= "";
         if (s.Length > 0 && s[0] is '=' or '+' or '-' or '@' or '\t' or '\r') s = "'" + s;
-        return s.IndexOfAny([';', '"', '\n', '\r']) >= 0 ? $"\"{s.Replace("\"", "\"\"")}\"" : s;
+        return s.IndexOfAny([separator, ';', '"', '\n', '\r']) >= 0 ? $"\"{s.Replace("\"", "\"\"")}\"" : s;
     }
 
     // Bedragen met een komma en zonder duizendtallen, los van de taalinstellingen van de server.

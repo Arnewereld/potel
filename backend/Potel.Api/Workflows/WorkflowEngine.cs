@@ -398,14 +398,16 @@ public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSend
                 var amount = WorkflowContext.TryNumber(R("amount", "{{lead.value}}"), out var a) ? a : 0;
                 if (Math.Abs(amount) > Money.MaxAmount) return Fail("Het bedrag voor de factuur is te groot");
                 var settings = await SettingsEndpoints.GetAsync(db);
-                var regime = VatRegimes.DefaultFor(settings, await db.Customers.FindAsync(customerId.Value));
+                var customer = await db.Customers.FindAsync(customerId.Value);
+                var regime = VatRegimes.DefaultFor(settings, customer);
+                var lang = customer?.Language ?? Languages.Dutch;
                 var today = clock.Today;
-                // Een concept zonder nummer; het nummer komt pas als je hem verstuurt.
+                // Een concept zonder nummer; het nummer komt pas als je hem verstuurt. In de taal van de klant.
                 var inv = new Invoice
                 {
                     CustomerId = customerId.Value, Status = InvoiceStatus.Draft, IssueDate = today, DueDate = today.AddDays(settings.PaymentTermDays),
-                    DeliveryFrom = today, VatRegime = regime, Notes = SettingsEndpoints.DefaultNote,
-                    Lines = [new InvoiceLine { Description = R("description", "Diensten"), Quantity = 1, UnitPrice = amount, VatRate = VatRegimes.ZeroVat(regime) ? 0 : 21 }],
+                    DeliveryFrom = today, VatRegime = regime, Language = lang, Notes = SettingsEndpoints.Note(lang),
+                    Lines = [new InvoiceLine { Description = R("description", Invoicing.ClientTexts.T(lang, "line.services")), Quantity = 1, UnitPrice = amount, VatRate = VatRegimes.ZeroVat(regime) ? 0 : 21 }],
                 };
                 db.Invoices.Add(inv);
                 db.Log("factuur", "Conceptfactuur aangemaakt door werkstroom");

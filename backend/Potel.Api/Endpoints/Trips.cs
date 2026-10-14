@@ -49,10 +49,10 @@ public static class TripEndpoints
     // 90 of 90,5, zoals het op een factuur staat.
     public static string Km(decimal km) => km.ToString("#,0.#", Dutch);
 
-    static string Euro(decimal d) => d.ToString("C", Dutch);
 
-    // De omschrijving van een factuurregel met ritten.
-    public static string LineText(decimal km, decimal rate) => $"Reiskosten, {Km(km)} km à {Euro(rate)}";
+    // De omschrijving van een factuurregel met ritten, in de taal van de factuur.
+    public static string LineText(decimal km, decimal rate, string? language = null) =>
+        Invoicing.ClientTexts.T(language, "line.trips", ("km", Invoicing.ClientTexts.Number(language, km, "#,0.#")), ("rate", Invoicing.ClientTexts.Euro(language, rate)));
 
     // Een kilometertarief: leeg, of tussen 0 en 10 euro op centen.
     public static string? RateProblem(decimal? rate) => rate is < 0 or > MaxRate
@@ -183,14 +183,14 @@ public static class TripEndpoints
     }
 
     // Factuurregels voor ritten: één regel per kilometertarief, met de ritten die erbij horen.
-    public static List<(InvoiceLine Line, List<Trip> Trips)> TripLines(IEnumerable<(Trip Trip, decimal? Rate)> trips) =>
+    public static List<(InvoiceLine Line, List<Trip> Trips)> TripLines(IEnumerable<(Trip Trip, decimal? Rate)> trips, string? language = null) =>
         trips.Where(x => x.Rate is not null).GroupBy(x => x.Rate!.Value).OrderBy(g => g.Min(x => x.Trip.Date))
             .Select(g =>
             {
                 var km = g.Sum(x => x.Trip.Kilometres);
                 return (new InvoiceLine
                 {
-                    Description = LineText(km, g.Key), Quantity = km, Unit = "km", UnitPrice = g.Key,
+                    Description = LineText(km, g.Key, language), Quantity = km, Unit = "km", UnitPrice = g.Key,
                 }, g.Select(x => x.Trip).ToList());
             }).ToList();
 

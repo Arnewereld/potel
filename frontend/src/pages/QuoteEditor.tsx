@@ -9,13 +9,16 @@ import { useApi } from '../lib/useApi'
 import { useAuth } from '../lib/auth'
 import { useTabs, useTabTitle } from '../lib/tabs'
 import { useToast } from '../lib/toast'
-import type { Customer, InvoiceLine, Lead, MailServerStatus, Quote, QuoteLinks, QuoteMailPreview, Settings, VatRegime } from '../lib/types'
+import type { Customer, InvoiceLine, Language, Lead, MailServerStatus, Quote, QuoteLinks, QuoteMailPreview, Settings, VatRegime } from '../lib/types'
 import { date, euro, invoiceTotals, lineAmount, num, toDateInput, utcDateTime } from '../lib/format'
 import { quoteStatuses } from '../lib/status'
 import { daysUntil, defaultRegime, regimeProblem, units, vatRegimes, zeroVat } from '../lib/invoice'
 import { depositAmount, missingForQuote, quoteBuyer, quoteMail, quoteState, quoteTitle } from '../lib/quote'
 import { Badge, ErrorBox, Field, Loading, Modal, PageHeader } from '../components/ui'
 import { QuotePaper } from '../components/QuotePaper'
+import { LanguageBadge, LanguageField } from '../components/DocLanguage'
+import { usePrintTitle } from '../lib/printTitle'
+import { docTitle } from '../lib/docTexts'
 
 type Draft = Omit<Quote, 'id'> & { id?: number }
 
@@ -50,6 +53,8 @@ export function QuoteEditorPage() {
   const navigate = useNavigate()
   const toast = useToast()
   useTabTitle(isNew ? 'Nieuwe offerte' : draft ? quoteTitle(draft) : null)
+  // De PDF heet zoals je klant hem leest: "Quote OFF-2026-004 from ..." bij een Engelse offerte.
+  usePrintTitle(draft ? docTitle(draft.language, 'quote', draft.number, draft.seller?.name ?? settings?.companyName ?? '') : document.title)
 
   useEffect(() => {
     if (isNew) {
@@ -57,11 +62,12 @@ export function QuoteEditorPage() {
       const customerId = Number(params.get('klant')) || null
       const leadId = customerId ? null : Number(params.get('lead')) || null
       Promise.all([api.get<Settings>('/settings'), api.get<Customer[]>('/customers'), api.get<Lead[]>('/leads')]).then(([s, list, leadList]) => {
-        const regime = defaultRegime(s, list.find(c => c.id === customerId))
+        const chosen = list.find(c => c.id === customerId)
+        const regime = defaultRegime(s, chosen)
         const lead = leadList.find(l => l.id === leadId)
         setDraft({
           number: null, customerId, leadId, version: 1, issueDate: today, validUntil: addDays(today, s.quoteValidDays ?? 30), status: 'concept',
-          vatRegime: regime, subject: lead?.notes?.split('\n')[0]?.slice(0, 200) ?? '', intro: '', terms: '', depositPercent: null,
+          vatRegime: regime, language: chosen?.language ?? lead?.language ?? 'nl', subject: lead?.notes?.split('\n')[0]?.slice(0, 200) ?? '', intro: '', terms: '', depositPercent: null,
           lines: [newLine('uur', s.defaultHourlyRate, zeroVat(regime) ? 0 : 21)],
         })
       }).catch(e => setError(e.message))
@@ -101,11 +107,19 @@ export function QuoteEditorPage() {
     lines: zeroVat(regime) === noVat ? draft.lines : draft.lines.map(l => ({ ...l, vatRate: zeroVat(regime) ? 0 : 21 })),
   })
   // Een klant (k12) of een lead (l7). Bij een lead kan de btw niet verlegd of buiten de EU zijn.
+  // De offerte neemt de taal van de klant of lead over.
   const choose = (value: string) => {
     const n = Number(value.slice(1))
-    if (value.startsWith('k')) update({ customerId: n, leadId: null, ...withRegime(defaultRegime(settings, customers?.find(c => c.id === n))) })
-    else if (value.startsWith('l')) update({ customerId: null, leadId: n, ...(draft.vatRegime === 'verlegd' || draft.vatRegime === 'buiten-eu' ? withRegime(defaultRegime(settings, null)) : {}) })
-    else update({ customerId: null, leadId: null })
+    if (value.startsWith('k')) {
+      const chosen = customers?.find(c => c.id === n)
+      update({ customerId: n, leadId: null, ...withRegime(defaultRegime(settings, chosen)), language: chosen?.language ?? draft.language })
+    } else if (value.startsWith('l')) {
+      const chosen = leads?.find(l => l.id === n)
+      update({
+        customerId: null, leadId: n, language: chosen?.language ?? draft.language,
+        ...(draft.vatRegime === 'verlegd' || draft.vatRegime === 'buiten-eu' ? withRegime(defaultRegime(settings, null)) : {}),
+      })
+    } else update({ customerId: null, leadId: null })
   }
 
   const save = async (quiet = false): Promise<number | null> => {
@@ -298,6 +312,12 @@ export function QuoteEditorPage() {
                 {(regimeError || draft.vatRegime !== 'normaal') && (
                   <p className={regimeError ? 'text-red' : 'muted'} style={{ fontSize: 13, margin: 0, gridColumn: '1 / -1' }}>{regimeError ?? regimeInfo?.help}</p>
                 )}
+                <LanguageField kind="offerte" value={draft.language} onChange={(language: Language) => update({ language })} />
+                {draft.language === 'en' && (
+                  <p className="muted" style={{ fontSize: 13, margin: 0, alignSelf: 'end' }}>
+                    Je klant krijgt de offerte, de mail en de pagina achter de link in het Engels. Je eigen teksten vertaalt Potel niet.
+                  </p>
+                )}
                 <Field label="Inleiding" full>
                   <textarea rows={3} maxLength={5000} value={draft.intro ?? ''} placeholder="Bijv. Naar aanleiding van ons gesprek stuur ik je graag dit voorstel." onChange={e => update({ intro: e.target.value })} />
                 </Field>
@@ -359,6 +379,7 @@ export function QuoteEditorPage() {
         </div>
 
         <div className="invoice-papers">
+          <LanguageBadge lang={draft.language} kind="offerte" />
           <QuotePaper quote={draft} buyer={buyer} state={state} company={company} />
         </div>
       </div>

@@ -153,7 +153,24 @@ public class Customer : IWorkspaceOwned, IDemoData
     public bool RemindersOff { get; set; }
     // Wat je deze klant per kilometer rekent voor ritten die je doorbelast. Leeg is: ritten niet doorbelasten.
     public decimal? KilometreRate { get; set; }
+    // De taal van alles wat de klant van je ziet: facturen, offertes, mails, de openbare pagina's en het klantportaal.
+    public string Language { get; set; } = Languages.Dutch;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+// De talen waarin je klant zijn facturen, offertes en mails krijgt. Je eigen schermen blijven Nederlands.
+public static class Languages
+{
+    public const string Dutch = "nl";
+    public const string English = "en";
+    public static readonly string[] All = [Dutch, English];
+    public const string Error = "Kies Nederlands of Engels als taal.";
+
+    // Leeg telt als Nederlands; iets anders dan nl of en is onbekend.
+    public static bool IsKnown(string? language) => string.IsNullOrWhiteSpace(language) || All.Contains(language.Trim().ToLowerInvariant());
+
+    // De taal om mee te werken: alleen "en" is Engels, al het andere Nederlands.
+    public static string Of(string? language) => string.Equals(language?.Trim(), English, StringComparison.OrdinalIgnoreCase) ? English : Dutch;
 }
 
 // Landen zoals we ze op de factuur zetten, met de EU-landen apart om de btw-regeling te kunnen controleren.
@@ -217,6 +234,8 @@ public class Lead : IWorkspaceOwned, IDemoData
     public string Status { get; set; } = "nieuw";
     public string? Source { get; set; }
     public string? Notes { get; set; }
+    // De taal voor een offerte aan deze lead; wordt hij klant, dan neemt de klant hem over.
+    public string Language { get; set; } = Languages.Dutch;
     public int? CustomerId { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
@@ -284,6 +303,11 @@ public class Invoice : IWorkspaceOwned, IDemoData
     // Referentie of inkoopnummer van de klant.
     public string? Reference { get; set; }
     public string VatRegime { get; set; } = VatRegimes.Normal;
+    // De taal van de factuur: bij aanmaken die van de klant, in het concept aan te passen en vast zodra hij verstuurd is.
+    public string Language { get => language; set { language = value; LanguageGiven = true; } }
+    string language = Languages.Dutch;
+    // Of er bij opslaan een taal is meegestuurd; zo niet, dan neemt een nieuwe factuur die van de klant.
+    [NotMapped, JsonIgnore] public bool LanguageGiven { get; private set; }
     // Leverdatum, of de periode waarin het werk is gedaan als DeliveryTo later ligt.
     public DateTime? DeliveryFrom { get; set; }
     public DateTime? DeliveryTo { get; set; }
@@ -614,6 +638,10 @@ public class Quote : IWorkspaceOwned, IDemoData
     public DateTime ValidUntil { get; set; } = DateTime.UtcNow.Date.AddDays(30);
     public string Status { get; set; } = QuoteStatus.Draft;
     public string VatRegime { get; set; } = VatRegimes.Normal;
+    // De taal van de offerte, net als bij een factuur: die van de klant of lead, vast zodra hij verstuurd is.
+    public string Language { get => language; set { language = value; LanguageGiven = true; } }
+    string language = Languages.Dutch;
+    [NotMapped, JsonIgnore] public bool LanguageGiven { get; private set; }
     public string? Subject { get; set; }
     public string? Intro { get; set; }
     public string? Terms { get; set; }

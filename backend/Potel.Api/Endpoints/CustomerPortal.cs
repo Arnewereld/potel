@@ -239,6 +239,8 @@ public static partial class CustomerPortalEndpoints
             {
                 company = new { name = brand?.CompanyName ?? "", logoDataUrl = brand?.LogoDataUrl, brandColor = brand?.BrandColor ?? "#ff6d5a" },
                 customer = new { name = CustomerName(customer) },
+                // Het portaal spreekt de taal van de klant.
+                language = Languages.Of(customer.Language),
                 note = s.Note,
                 visible = new { hours = s.ShowHours, budget = s.ShowBudget, invoices = s.ShowInvoices, amounts = s.ShowAmounts },
                 projects = projectList,

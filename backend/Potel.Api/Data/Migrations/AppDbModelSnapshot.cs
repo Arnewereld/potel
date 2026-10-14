@@ -377,6 +377,12 @@ namespace Potel.Api.Data.Migrations
                     b.Property<decimal?>("KilometreRate")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("nl");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -699,6 +705,12 @@ namespace Potel.Api.Data.Migrations
                     b.Property<DateTime>("IssueDate")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("nl");
+
                     b.Property<string>("Notes")
                         .HasColumnType("TEXT");
 
@@ -964,6 +976,12 @@ namespace Potel.Api.Data.Migrations
 
                     b.Property<bool>("IsDemo")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("nl");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -1313,6 +1331,12 @@ namespace Potel.Api.Data.Migrations
 
                     b.Property<DateTime>("IssueDate")
                         .HasColumnType("TEXT");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("nl");
 
                     b.Property<int?>("LeadId")
                         .HasColumnType("INTEGER");

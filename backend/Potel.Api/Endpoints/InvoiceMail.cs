@@ -220,7 +220,7 @@ public static class InvoiceMailEndpoints
                 invoice = new
                 {
                     inv.Number, inv.Status, inv.IssueDate, inv.DueDate, inv.DeliveryFrom, inv.DeliveryTo, inv.Reference, inv.VatRegime, inv.Notes, inv.PaidAt,
-                    inv.Seller,
+                    inv.Language, inv.Seller,
                     // Van de klant alleen wat op de factuur staat.
                     buyer = b is null ? null : new { b.Name, b.Contact, b.Address, b.City, b.Country, b.VatNumber },
                     lines = inv.Lines.OrderBy(l => l.Position).ThenBy(l => l.Id).Select(l => new { l.Description, l.Quantity, l.Unit, l.UnitPrice, l.VatRate }),
@@ -243,7 +243,8 @@ public static class InvoiceMailEndpoints
             NoIndex(response);
             if (await OpenLinkAsync(db, clock, req.Token) is not { Invoice: var inv } || HourSpecs.Sent(inv) is not { } spec)
                 return Results.NotFound(new { error = LinkGone });
-            return Results.File(HourSpecs.Csv(spec, inv.Number, inv.Seller?.Name), "text/csv; charset=utf-8", HourSpecs.CsvFileName(inv.Number));
+            return Results.File(HourSpecs.Csv(spec, inv.Number, inv.Seller?.Name, inv.Language), "text/csv; charset=utf-8",
+                HourSpecs.CsvFileName(inv.Number, inv.Language));
         }).AllowAnonymous().RequireRateLimiting("public");
     }
 }

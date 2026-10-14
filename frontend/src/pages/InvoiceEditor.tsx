@@ -9,7 +9,7 @@ import { useTabs, useTabTitle } from '../lib/tabs'
 import { useToast } from '../lib/toast'
 import { useAuth } from '../lib/auth'
 import type {
-  BillableTrips, Customer, Invoice, InvoiceHours, InvoiceLine, InvoiceMailInfo, MailServerStatus, MailStep, Project, RecurringInvoice, Settings, VatRegime,
+  BillableTrips, Customer, Invoice, InvoiceHours, InvoiceLine, InvoiceMailInfo, Language, MailServerStatus, MailStep, Project, RecurringInvoice, Settings, VatRegime,
 } from '../lib/types'
 import { km } from '../lib/trips'
 import { date, euro, hours, invoiceTotals, lineAmount, num, toDateInput } from '../lib/format'
@@ -22,6 +22,9 @@ import { InvoicePaper } from '../components/InvoicePaper'
 import { HourSpecPaper } from '../components/HourSpecPaper'
 import { MailDialog, MailPanel } from '../components/InvoiceMail'
 import { PaymentsPanel } from '../components/InvoicePayments'
+import { LanguageBadge, LanguageField } from '../components/DocLanguage'
+import { usePrintTitle } from '../lib/printTitle'
+import { docTitle, t } from '../lib/docTexts'
 
 type Draft = Omit<Invoice, 'id'> & { id?: number }
 
@@ -67,16 +70,21 @@ export function InvoiceEditorPage() {
   const toast = useToast()
   const { user } = useAuth()
   useTabTitle(isNew ? 'Nieuwe factuur' : draft ? invoiceTitle(draft) : null)
+  // De PDF heet zoals je klant hem leest: "Invoice 2026-0012 from ..." bij een Engelse factuur.
+  usePrintTitle(draft ? docTitle(draft.language, isCredit(draft) ? 'credit' : 'invoice', draft.number, draft.seller?.name ?? settings?.companyName ?? '') : document.title)
 
   useEffect(() => {
     if (isNew) {
       const today = toDateInput(new Date())
       const customerId = Number(params.get('klant')) || 0
       Promise.all([api.get<Settings>('/settings'), api.get<Customer[]>('/customers')]).then(([s, list]) => {
-        const regime = defaultRegime(s, list.find(c => c.id === customerId))
+        const chosen = list.find(c => c.id === customerId)
+        const regime = defaultRegime(s, chosen)
+        // In de taal van de klant, ook de standaardopmerking.
+        const language = chosen?.language ?? 'nl'
         setDraft({
           number: null, customerId, issueDate: today, dueDate: addDays(today, s.paymentTermDays), status: 'concept', reference: '',
-          vatRegime: regime, deliveryFrom: today, deliveryTo: null, notes: 'Bedankt voor de fijne samenwerking!',
+          vatRegime: regime, language, deliveryFrom: today, deliveryTo: null, notes: t(language, 'note.default'),
           lines: [newLine('uur', s.defaultHourlyRate, zeroVat(regime) ? 0 : 21)],
         })
       }).catch(e => setError(e.message))
@@ -121,8 +129,15 @@ export function InvoiceEditorPage() {
     vatRegime: regime,
     lines: zeroVat(regime) === noVat ? draft.lines : draft.lines.map(l => ({ ...l, vatRate: zeroVat(regime) ? 0 : 21 })),
   })
-  const chooseCustomer = (customerId: number) =>
-    update({ customerId, ...withRegime(defaultRegime(settings, customers?.find(c => c.id === customerId))) })
+  // Andere taal: staat de standaardopmerking er nog, dan gaat die mee naar de nieuwe taal.
+  const withLanguage = (language: Language): Partial<Draft> => ({
+    language,
+    notes: draft.notes === t(draft.language, 'note.default') ? t(language, 'note.default') : draft.notes,
+  })
+  const chooseCustomer = (customerId: number) => {
+    const chosen = customers?.find(c => c.id === customerId)
+    update({ customerId, ...withRegime(defaultRegime(settings, chosen)), ...(chosen ? withLanguage(chosen.language ?? 'nl') : {}) })
+  }
 
   // Slaat op en geeft het id terug; een nieuwe factuur krijgt daarbij een eigen tabblad.
   // Met stay blijft een nieuwe factuur nog even op dit tabblad, zodat er eerst iets aan toegevoegd kan worden.
@@ -264,7 +279,7 @@ export function InvoiceEditorPage() {
     await save(patch, true)
   }
   const downloadHours = () =>
-    api.download(`/invoices/${id}/hours.csv`, `urenspecificatie-${draft.number ?? 'concept'}.csv`).catch(e => toast((e as Error).message, 'error'))
+    api.download(`/invoices/${id}/hours.csv`, t(draft.language, 'public.csvFile', { number: draft.number ?? 'concept' })).catch(e => toast((e as Error).message, 'error'))
 
   const statusInfo = invoiceStatuses.find(s => s.id === draft.status)!
   // Al een deel betaald: dat staat erbij, met wat er nog openstaat.
@@ -394,6 +409,13 @@ export function InvoiceEditorPage() {
                     {regimeError ?? regimeInfo?.help}
                   </p>
                 )}
+                {/* Een creditnota volgt de taal van de factuur die hij corrigeert. */}
+                <LanguageField kind={credit ? 'creditnota' : 'factuur'} value={draft.language} disabled={linked} onChange={language => update(withLanguage(language))} />
+                {draft.language === 'en' && (
+                  <p className="muted" style={{ fontSize: 13, margin: 0, alignSelf: 'end' }}>
+                    Je klant krijgt de {credit ? 'creditnota' : 'factuur'}, de mails en de pagina achter de link in het Engels. Je eigen omschrijvingen en opmerking vertaalt Potel niet.
+                  </p>
+                )}
               </div>
 
               <h4 className="section-title">Regels</h4>
@@ -514,6 +536,7 @@ export function InvoiceEditorPage() {
         </div>
 
         <div className="invoice-papers">
+          <LanguageBadge lang={draft.language} kind={credit ? 'creditnota' : 'factuur'} />
           <InvoicePaper invoice={draft} customer={customer} company={company} />
           {spec && specOn && <HourSpecPaper spec={spec} invoice={draft} customer={customer} company={company} />}
         </div>

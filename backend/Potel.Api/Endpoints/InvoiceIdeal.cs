@@ -89,7 +89,7 @@ public static class InvoiceIdealEndpoints
             InvoiceMailEndpoints.NoIndex(response);
             if (await InvoiceMailEndpoints.OpenLinkAsync(db, clock, req.Token) is not { } found)
                 return Results.NotFound(new { error = InvoiceMailEndpoints.LinkGone });
-            var start = await ideal.StartAsync(db, engine, found.Link.WorkspaceId, found.Invoice.Id);
+            var start = await ideal.StartAsync(db, engine, found.Link.WorkspaceId, found.Invoice.Id, found.Invoice.Language);
             return start.Problem?.ToResult() ?? Results.Ok(new { checkoutUrl = start.CheckoutUrl });
         }).AllowAnonymous().RequireRateLimiting("pay");
 
@@ -124,7 +124,7 @@ public static class InvoiceIdealEndpoints
             var p = await db.OnlinePayments.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(x => x.ReturnTokenHash == hash);
             if (p is null) return Results.NotFound(new { error = UnknownPayment });
             var inv = await db.Invoices.IgnoreQueryFilters().AsNoTracking().Where(i => i.Id == p.InvoiceId && i.WorkspaceId == p.WorkspaceId)
-                .Select(i => new { i.Number, i.Status, Seller = i.Seller == null ? null : i.Seller.Name }).FirstOrDefaultAsync();
+                .Select(i => new { i.Number, i.Status, i.Language, Seller = i.Seller == null ? null : i.Seller.Name }).FirstOrDefaultAsync();
             if (inv is null) return Results.NotFound(new { error = UnknownPayment });
             var brand = await db.Settings.IgnoreQueryFilters().AsNoTracking().Where(s => s.WorkspaceId == p.WorkspaceId).OrderBy(s => s.Id)
                 .Select(s => new { s.LogoDataUrl, s.BrandColor }).FirstOrDefaultAsync();
@@ -137,6 +137,7 @@ public static class InvoiceIdealEndpoints
                 number = inv.Number,
                 seller = inv.Seller,
                 invoicePaid = inv.Status == InvoiceStatus.Paid,
+                language = Languages.Of(inv.Language),
                 brand = new { logoDataUrl = brand?.LogoDataUrl, brandColor = brand?.BrandColor ?? "#ff6d5a" },
             });
         }).AllowAnonymous().RequireRateLimiting("public");

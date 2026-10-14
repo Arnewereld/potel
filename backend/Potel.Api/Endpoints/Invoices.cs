@@ -99,6 +99,7 @@ public static partial class InvoiceEndpoints
         if (input.DueDate < input.IssueDate) return "De vervaldatum ligt voor de factuurdatum";
         if (input.DeliveryFrom is { } from && input.DeliveryTo is { } to && to < from) return "De leverperiode eindigt voordat hij begint";
         if (!VatRegimes.All.Contains(input.VatRegime)) return "Kies een btw-regeling";
+        if (!Languages.IsKnown(input.Language)) return Languages.Error;
         return credit ? null : RegimeError(input.VatRegime, customer);
     }
 
@@ -340,6 +341,8 @@ public static partial class InvoiceEndpoints
                 // Zonder leverdatum gaan we uit van de factuurdatum; in het concept is dat nog aan te passen.
                 VatRegime = input.VatRegime, DeliveryFrom = (input.DeliveryFrom ?? input.IssueDate).Date, DeliveryTo = input.DeliveryTo?.Date, Notes = input.Notes,
                 HourSpecification = input.HourSpecification, HourAmounts = input.HourAmounts, Lines = CopyLines(input.Lines, input.VatRegime),
+                // Zonder meegestuurde taal die van de klant.
+                Language = input.LanguageGiven ? Languages.Of(input.Language) : customer.Language,
             };
             db.Invoices.Add(inv);
             db.Log("factuur", $"Conceptfactuur voor {CustomerName(customer)} aangemaakt");
@@ -364,7 +367,8 @@ public static partial class InvoiceEndpoints
             if (inv.Status != InvoiceStatus.Draft) return Results.Conflict(new { error = FrozenError });
             // Een creditnota hoort bij de klant en de btw-regeling van de factuur die hij corrigeert.
             var credit = inv.CreditForInvoiceId is not null;
-            if (credit) { input.CustomerId = inv.CustomerId; input.VatRegime = inv.VatRegime; }
+            // En in de taal van die factuur.
+            if (credit) { input.CustomerId = inv.CustomerId; input.VatRegime = inv.VatRegime; input.Language = inv.Language; }
             if (await ValidateAsync(db, input, credit) is { } error) return Results.BadRequest(new { error });
             var rows = inv.Lines.ToDictionary(l => l.Id);
             if (input.Lines.Any(l => l.Id != 0 && !rows.ContainsKey(l.Id))) return Results.Conflict(new { error = ChangedElsewhere });
@@ -394,6 +398,7 @@ public static partial class InvoiceEndpoints
                 db.Log("factuur", $"{TripEndpoints.Km(releasedTrips.Sum(t => t.Kilometres))} km aan ritten van de conceptfactuur gehaald; die ritten staan weer open");
             inv.CustomerId = input.CustomerId; inv.IssueDate = input.IssueDate.Date; inv.DueDate = input.DueDate.Date;
             inv.Reference = input.Reference; inv.VatRegime = input.VatRegime; inv.Notes = input.Notes;
+            if (input.LanguageGiven) inv.Language = Languages.Of(input.Language);
             inv.DeliveryFrom = input.DeliveryFrom?.Date; inv.DeliveryTo = input.DeliveryTo?.Date;
             inv.HourSpecification = input.HourSpecification; inv.HourAmounts = input.HourAmounts;
             var removed = inv.Lines.Where(l => !keptIds.Contains(l.Id)).ToList();
@@ -476,6 +481,8 @@ public static partial class InvoiceEndpoints
                 CustomerId = source.CustomerId, IssueDate = today, DueDate = today.AddDays(settings.PaymentTermDays), Reference = source.Reference,
                 VatRegime = source.VatRegime, DeliveryFrom = today, Notes = source.Notes, HourSpecification = source.HourSpecification,
                 HourAmounts = source.HourAmounts, Lines = CopyLines(source.Lines, source.VatRegime),
+                // Een nieuw concept krijgt de taal die de klant nu heeft.
+                Language = source.Customer?.Language ?? source.Language,
             };
             db.Invoices.Add(inv);
             db.Log("factuur", $"Conceptfactuur gemaakt als kopie van {Label(source)}");
@@ -504,7 +511,7 @@ public static partial class InvoiceEndpoints
             {
                 CustomerId = source.CustomerId, IssueDate = today, DueDate = today, Reference = source.Reference, VatRegime = source.VatRegime,
                 DeliveryFrom = source.DeliveryFrom, DeliveryTo = source.DeliveryTo, CreditForInvoiceId = source.Id, Buyer = source.Buyer?.Copy(),
-                Lines = CopyLines(source.Lines, source.VatRegime, -1),
+                Lines = CopyLines(source.Lines, source.VatRegime, -1), Language = source.Language,
             };
             db.Invoices.Add(inv);
             db.Log("factuur", $"Conceptcreditnota gemaakt voor factuur {source.Number}");
@@ -528,7 +535,7 @@ public static partial class InvoiceEndpoints
             if (entries.Count == 0) return Results.BadRequest(new { error = "Er zijn geen open uren op dit project" });
             // Een leeg beginregeltje van een nieuwe factuur hoeft niet te blijven staan.
             db.InvoiceLines.RemoveRange(inv.Lines.Where(l => string.IsNullOrWhiteSpace(l.Description) || (l.Description == "-" && l.UnitPrice == 0)));
-            var parts = ProjectEndpoints.HourLines(project, entries, req.Detailed);
+            var parts = ProjectEndpoints.HourLines(project, entries, req.Detailed, inv.Language);
             // De nieuwe regels komen onderaan.
             var position = inv.Lines.Select(l => l.Position).DefaultIfEmpty(-1).Max() + 1;
             foreach (var line in parts.Select(p => p.Line))
@@ -562,7 +569,7 @@ public static partial class InvoiceEndpoints
             if (open.Count == 0) return Results.BadRequest(new { error = "Er zijn geen open ritten met een kilometertarief voor deze klant" });
             // Een leeg beginregeltje van een nieuwe factuur hoeft niet te blijven staan.
             db.InvoiceLines.RemoveRange(inv.Lines.Where(l => string.IsNullOrWhiteSpace(l.Description) || (l.Description == "-" && l.UnitPrice == 0)));
-            var parts = TripEndpoints.TripLines(open);
+            var parts = TripEndpoints.TripLines(open, inv.Language);
             var position = inv.Lines.Select(l => l.Position).DefaultIfEmpty(-1).Max() + 1;
             foreach (var line in parts.Select(p => p.Line))
             {
@@ -597,7 +604,7 @@ public static partial class InvoiceEndpoints
             if (spec is null) return Results.NotFound(new { error = "Op deze factuur staan geen uren, dus er is geen urenspecificatie." });
             var seller = inv.Seller?.Name ?? (await SettingsEndpoints.GetAsync(db)).CompanyName;
             http.Response.Headers.CacheControl = "private, no-store";
-            return Results.File(HourSpecs.Csv(spec, inv.Number, seller), "text/csv; charset=utf-8", HourSpecs.CsvFileName(inv.Number));
+            return Results.File(HourSpecs.Csv(spec, inv.Number, seller, inv.Language), "text/csv; charset=utf-8", HourSpecs.CsvFileName(inv.Number, inv.Language));
         });
 
         // Alleen een concept mag weg. Een verstuurde factuur moet je bewaren; corrigeren doe je met een creditnota.

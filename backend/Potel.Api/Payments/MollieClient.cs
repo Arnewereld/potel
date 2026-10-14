@@ -146,10 +146,12 @@ public class MollieClient(HttpClient http, IOptions<MollieOptions> options)
         SendAsync<MolliePaymentInfo>(HttpMethod.Get, $"payments/{Uri.EscapeDataString(id)}", allowNotFound: true);
 
     // Een iDEAL-betaling voor een factuur, met de eigen sleutel van de werkruimte. Geen klant of abonnement bij Mollie.
-    public async Task<MolliePaymentInfo> CreateInvoicePaymentAsync(string apiKey, MollieAmount amount, string description, string redirectUrl, string webhookUrl, object metadata) =>
+    // De betaalpagina van Mollie in de taal van de factuur (nl_NL of en_GB).
+    public async Task<MolliePaymentInfo> CreateInvoicePaymentAsync(string apiKey, MollieAmount amount, string description, string locale, string redirectUrl,
+        string webhookUrl, object metadata) =>
         (await SendAsync<MolliePaymentInfo>(HttpMethod.Post, "payments", new
         {
-            amount, description, redirectUrl, webhookUrl, metadata, method = "ideal", locale = "nl_NL",
+            amount, description, redirectUrl, webhookUrl, metadata, method = "ideal", locale,
         }, apiKey: apiKey))!;
 
     // Null als Mollie deze betaling niet kent met deze sleutel, bijvoorbeeld omdat hij bij een ander Mollie-account hoort.
