@@ -1490,6 +1490,38 @@ namespace Potel.Api.Data.Migrations
                     b.ToTable("QuoteLinks");
                 });
 
+            modelBuilder.Entity("Potel.Api.Data.RecoveryCode", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("UsedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.HasIndex("UserId", "CodeHash")
+                        .IsUnique();
+
+                    b.ToTable("RecoveryCodes");
+                });
+
             modelBuilder.Entity("Potel.Api.Data.RecurringInvoice", b =>
                 {
                     b.Property<int>("Id")
@@ -2092,6 +2124,18 @@ namespace Potel.Api.Data.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("TwoFactorEnabledAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("TwoFactorLastStep")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("TwoFactorPendingSecret")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TwoFactorSecret")
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("WorkspaceId")
                         .HasColumnType("INTEGER");
 
@@ -2274,6 +2318,9 @@ namespace Potel.Api.Data.Migrations
                     b.Property<string>("Plan")
                         .IsRequired()
                         .HasColumnType("TEXT");
+
+                    b.Property<bool>("RequireTwoFactorForAdmins")
+                        .HasColumnType("INTEGER");
 
                     b.Property<DateTime?>("SubscriptionCanceledAt")
                         .HasColumnType("TEXT");
@@ -2708,6 +2755,15 @@ namespace Potel.Api.Data.Migrations
                     b.HasOne("Potel.Api.Data.Quote", null)
                         .WithMany()
                         .HasForeignKey("QuoteId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.RecoveryCode", b =>
+                {
+                    b.HasOne("Potel.Api.Data.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

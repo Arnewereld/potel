@@ -121,6 +121,6 @@ public static class PlatformEndpoints
         var admins = await db.Users.IgnoreQueryFilters().Where(u => u.IsPlatformAdmin).OrderBy(u => u.Email).ToListAsync();
         var ids = admins.Select(u => u.WorkspaceId).ToList();
         var names = await db.Workspaces.Where(w => ids.Contains(w.Id)).ToDictionaryAsync(w => w.Id, w => w.Name);
-        return admins.Select(u => (object)new { u.Id, u.Name, u.Email, workspace = names.GetValueOrDefault(u.WorkspaceId) }).ToList();
+        return admins.Select(u => (object)new { u.Id, u.Name, u.Email, workspace = names.GetValueOrDefault(u.WorkspaceId), twoFactor = u.TwoFactorEnabled }).ToList();
     }
 }

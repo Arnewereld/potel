@@ -40,6 +40,7 @@ import { ProjectsPage } from './pages/Projects'
 import { ProjectDetailPage } from './pages/ProjectDetail'
 import { SettingsPage } from './pages/Settings'
 import { PlatformPage } from './pages/Platform'
+import { TwoFactorRequiredPage } from './components/TwoFactor'
 
 // Pagina's die los van inloggen werken, zoals de links uit een mail en de juridische teksten.
 const standalone: Record<string, () => React.ReactNode> = {
@@ -62,7 +63,7 @@ export default function App() {
   if (Page) return <ToastProvider><Page /></ToastProvider>
   return (
     <ToastProvider>
-      <AuthProvider fallback={<Loading />} publicSite={auth => <PublicSite auth={auth} />}>
+      <AuthProvider fallback={<Loading />} publicSite={auth => <PublicSite auth={auth} />} twoFactorSetup={<TwoFactorRequiredPage />}>
       <WorkspaceProvider>
       <ModulesProvider>
       <TimerProvider>

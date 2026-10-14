@@ -26,6 +26,10 @@ async function send(method: string, url: string, body?: unknown): Promise<Respon
       const body = data as { error?: string; title?: string } | null
       if (body?.error) message = body.error
       else if (body?.title) message = body.title
+      // Een beheerder die inloggen in twee stappen nog moet instellen (verplicht in zijn werkruimte).
+      if (res.status === 403 && (data as { twoFactorSetupRequired?: boolean } | null)?.twoFactorSetupRequired) {
+        window.dispatchEvent(new Event('potel:two-factor-setup'))
+      }
     } catch { /* geen JSON */ }
     throw new ApiError(message, res.status, data)
   }

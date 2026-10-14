@@ -77,6 +77,32 @@ public static class Seed
         return true;
     }
 
+    public const string ResetTwoFactorCommand = "reset-two-factor";
+
+    // De opdracht "reset-two-factor <e-mailadres>": voor wie zijn telefoon en herstelcodes kwijt is, ook de laatste beheerder of de
+    // platformbeheerder. Alleen wie bij de server kan, doet dit. Alle sessies van dat account stoppen.
+    public static bool ResetTwoFactor(AppDb db, string email, ILogger logger)
+    {
+        email = email.Trim().ToLower();
+        var user = db.Users.IgnoreQueryFilters().FirstOrDefault(u => u.Email == email);
+        if (user is null)
+        {
+            logger.LogError("Er is geen account met e-mailadres {Email}.", email);
+            return false;
+        }
+        db.Tenant.WorkspaceId = user.WorkspaceId;
+        user.TwoFactorSecret = null;
+        user.TwoFactorPendingSecret = null;
+        user.TwoFactorEnabledAt = null;
+        user.TwoFactorLastStep = null;
+        user.NewSecurityStamp();
+        db.RecoveryCodes.RemoveRange(db.RecoveryCodes.Where(r => r.UserId == user.Id));
+        db.Log("gebruiker", $"Inloggen in twee stappen van {user.Name} uitgezet op de server");
+        db.SaveChanges();
+        logger.LogWarning("Inloggen in twee stappen staat nu uit voor {Email}. Log in met alleen je wachtwoord en zet het daarna opnieuw aan.", user.Email);
+        return true;
+    }
+
     public const string DemoNumberPrefix = "VOORBEELD-";
 
     // Voorbeeldoffertes in elke stand: een concept, twee openstaande, een geaccepteerde (met project en aanbetaling), een

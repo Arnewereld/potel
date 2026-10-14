@@ -174,6 +174,9 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
             <div className="user-menu" onMouseLeave={() => setUserMenu(false)}>
               <div className="cell-sub" style={{ padding: '6px 10px' }}>{user.email}</div>
               <button className="nav-item" onClick={() => { setUserMenu(false); setChangingPassword(true) }}><KeyRound size={16} /><span>Wachtwoord wijzigen</span></button>
+              <button className="nav-item" onClick={() => { setUserMenu(false); navigate('/instellingen?tab=account') }}>
+                <ShieldCheck size={16} /><span>Inloggen in twee stappen{user.twoFactor ? ' (aan)' : ''}</span>
+              </button>
               {/* De timer staat op de server en loopt na uitloggen gewoon door. */}
               <button className="nav-item" onClick={() => logout()}><LogOut size={16} /><span>Uitloggen</span></button>
             </div>

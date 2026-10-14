@@ -184,7 +184,7 @@ function PlatformBackups() {
   )
 }
 
-interface PlatformAdmin { id: number; name: string; email: string; workspace?: string | null }
+interface PlatformAdmin { id: number; name: string; email: string; workspace?: string | null; twoFactor: boolean }
 
 // Wie deze pagina nog meer mag zien. Een platformbeheerder wijst anderen aan; een e-mailadres alleen geeft geen toegang.
 function PlatformAdmins() {
@@ -221,10 +221,21 @@ function PlatformAdmins() {
         {error && <ErrorBox message={error} />}
         {data?.map(a => (
           <div key={a.id} className="row between" style={{ padding: '6px 0' }}>
-            <div><strong>{a.name}</strong><div className="cell-sub">{a.email}{a.workspace ? ` · ${a.workspace}` : ''}</div></div>
+            <div>
+              <div className="row wrap" style={{ gap: 6 }}>
+                <strong>{a.name}</strong>
+                <span className={`badge badge-${a.twoFactor ? 'green' : 'yellow'} badge-plain`}>{a.twoFactor ? 'Inloggen in twee stappen aan' : 'Inloggen in twee stappen uit'}</span>
+              </div>
+              <div className="cell-sub">{a.email}{a.workspace ? ` · ${a.workspace}` : ''}</div>
+            </div>
             {a.id !== user.id && <button type="button" className="icon-btn danger" title="Weghalen" onClick={() => remove(a)}><Trash2 size={16} /></button>}
           </div>
         ))}
+        {data?.some(a => !a.twoFactor) && (
+          <p className="muted" style={{ fontSize: 13, margin: '8px 0 0' }}>
+            Een platformbeheerder kan bij elke werkruimte. Vraag wie inloggen in twee stappen nog uit heeft om het aan te zetten bij Instellingen, Account.
+          </p>
+        )}
         <form className="row" style={{ gap: 8, marginTop: 10 }} onSubmit={add}>
           <input type="email" required placeholder="E-mailadres van een bestaand account" value={email} onChange={e => setEmail(e.target.value)} />
           <button className="btn"><UserPlus size={15} /> Toevoegen</button>

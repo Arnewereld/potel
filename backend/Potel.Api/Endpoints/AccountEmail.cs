@@ -3,6 +3,8 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
 using Potel.Api.Data;
 using Potel.Api.Workflows;
@@ -177,7 +179,8 @@ public static class AccountEmailEndpoints
         }).AllowAnonymous().RequireRateLimiting("auth");
 
         // Een nieuw wachtwoord met de link uit de mail. Alle sessies en andere herstellinks van die gebruiker stoppen; hier log je meteen in.
-        g.MapPost("/reset-password", async (AppDb db, AccountMail mail, HttpContext http, ResetPasswordRequest req) =>
+        // Staat inloggen in twee stappen aan, dan komt eerst de code: wie alleen de mailbox heeft, komt er zo niet in.
+        g.MapPost("/reset-password", async (AppDb db, AccountMail mail, HttpContext http, TwoFactor twoFactor, ResetPasswordRequest req) =>
         {
             if ((req.Password ?? "").Length < AuthEndpoints.MinPasswordLength)
                 return Results.BadRequest(new { error = $"Kies een wachtwoord van minstens {AuthEndpoints.MinPasswordLength} tekens" });
@@ -188,12 +191,19 @@ public static class AccountEmailEndpoints
             u.NewSecurityStamp();
             // De link kwam aan in deze inbox, dus het adres klopt.
             u.EmailVerifiedAt ??= DateTime.UtcNow;
-            u.LastLoginAt = DateTime.UtcNow;
             await AccountMail.RevokeAsync(db, u.Id, TokenPurposes.PasswordReset);
             db.Log("gebruiker", $"{u.Name} heeft een nieuw wachtwoord gekozen via de link in de mail");
+            if (u.TwoFactorEnabled)
+            {
+                await db.SaveChangesAsync();
+                await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                twoFactor.StartPendingLogin(http, u);
+                return Results.Ok(new { twoFactorRequired = true });
+            }
+            u.LastLoginAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
             await AuthEndpoints.SignIn(http, u);
-            return Results.Ok(UserDto.From(u));
+            return Results.Ok(await AuthEndpoints.MeAsync(db, u));
         }).AllowAnonymous().RequireRateLimiting("auth");
 
         // De link uit de bevestigingsmail; werkt ook als je in deze browser niet bent ingelogd.

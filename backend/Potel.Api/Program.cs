@@ -54,7 +54,12 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
             var u = await db.Users.FindAsync(id);
             // Cookies van voor de stempel bestonden hebben er geen; die horen bij een lege stempel.
             var stamp = ctx.Principal.FindFirstValue(AuthEndpoints.StampClaim) ?? "";
-            if (u is { Active: true } && u.SecurityStamp == stamp && ctx.Principal.FindFirstValue(ClaimTypes.Role) == u.Role) return;
+            if (u is { Active: true } && u.SecurityStamp == stamp && ctx.Principal.FindFirstValue(ClaimTypes.Role) == u.Role)
+            {
+                // Verplicht de werkruimte inloggen in twee stappen voor beheerders, dan kan deze beheerder eerst alleen dat instellen.
+                if (await TwoFactor.SetupRequiredAsync(db, u)) ctx.HttpContext.Items[TwoFactor.SetupRequiredItem] = true;
+                return;
+            }
             db.Tenant.WorkspaceId = 0;
             ctx.RejectPrincipal();
             await ctx.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
@@ -71,6 +76,8 @@ var authPerMinute = builder.Configuration.GetValue("RateLimit:AuthPerMinute", 10
 builder.Services.AddSingleton<LoginThrottle>();
 builder.Services.AddSingleton<SignupThrottle>();
 builder.Services.AddSingleton<WorkflowRunBudget>();
+// Inloggen in twee stappen (TOTP), met het geheim versleuteld via Data Protection.
+builder.Services.AddSingleton<TwoFactor>();
 builder.Services.AddRateLimiter(o =>
 {
     o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -182,6 +189,12 @@ using (var scope = app.Services.CreateScope())
         Environment.ExitCode = Seed.MakePlatformAdmin(db, platformEmail, logger) ? 0 : 1;
         return;
     }
+    // "dotnet Potel.Api.dll reset-two-factor jij@example.com": telefoon en herstelcodes kwijt, dan zet je het zo uit op de server.
+    if (args is [Seed.ResetTwoFactorCommand, var resetEmail])
+    {
+        Environment.ExitCode = Seed.ResetTwoFactor(db, resetEmail, logger) ? 0 : 1;
+        return;
+    }
     Seed.Bootstrap(db, app.Configuration, logger);
     Seed.PlatformAdmins(db, logger);
 }
@@ -207,13 +220,28 @@ app.UseDefaultFiles();
 app.UseStaticFiles(appShell);
 
 app.UseAuthentication();
+
+// Een beheerder die inloggen in twee stappen nog moet instellen (verplicht in zijn werkruimte), kan alleen dat doen, uitloggen
+// en openbare pagina's gebruiken. Al het andere onder /api wacht tot het is ingesteld.
+app.Use(async (http, next) =>
+{
+    if (http.Items.ContainsKey(TwoFactor.SetupRequiredItem) && http.Request.Path.StartsWithSegments("/api") && !TwoFactor.AllowedBeforeSetup(http.Request))
+    {
+        http.Response.StatusCode = StatusCodes.Status403Forbidden;
+        await http.Response.WriteAsJsonAsync(new { error = TwoFactor.SetupRequiredMessage, twoFactorSetupRequired = true });
+        return;
+    }
+    await next();
+});
+
 app.UseAuthorization();
 app.UseRateLimiter();
 
 // Na een verlopen proefperiode, of als een abonnement is afgelopen of niet betaald, kun je nog alles bekijken en exporteren,
 // maar niets meer wijzigen tot je (weer) een abonnement kiest. Wel mag je nog inloggen, je wachtwoord wijzigen of herstellen,
-// je e-mailadres bevestigen (alles onder /api/auth), betalen of opzeggen (/api/billing), gebruikers uitschakelen of
-// verwijderen, een link naar het klantportaal intrekken, het GitHub-token of de sleutel van Mollie weghalen, een offerte of de links ernaar intrekken,
+// je e-mailadres bevestigen en inloggen in twee stappen regelen (alles onder /api/auth), betalen of opzeggen (/api/billing),
+// gebruikers uitschakelen of verwijderen of hun inloggen in twee stappen uitzetten, dat verplicht maken voor beheerders,
+// een link naar het klantportaal intrekken, het GitHub-token of de sleutel van Mollie weghalen, een offerte of de links ernaar intrekken,
 // de welkomstwizard sluiten, je eigen lopende timer weggooien (er wordt dan niets geboekt) en je werkruimte verwijderen. Openbare
 // pagina's (/api/public) werken gewoon, ook akkoord op een offerte. Al het andere is dicht, ook wat hier later bijkomt: een timer
 // starten, pauzeren of stoppen en boeken kan dus pas weer met een abonnement. Een lopende timer blijft tot dan gewoon staan.
@@ -230,7 +258,8 @@ static bool WritableAfterTrial(HttpRequest r)
     if (TimerEndpoints.IsDiscard(r)) return true;
     if (r.Path.StartsWithSegments("/api/workspace", out var rest))
         return (HttpMethods.IsDelete(r.Method) && (!rest.HasValue || rest == "/"))
-               || (HttpMethods.IsPost(r.Method) && rest.Equals("/onboarded", StringComparison.OrdinalIgnoreCase));
+               || (HttpMethods.IsPost(r.Method) && rest.Equals("/onboarded", StringComparison.OrdinalIgnoreCase))
+               || (HttpMethods.IsPut(r.Method) && rest.Equals("/two-factor", StringComparison.OrdinalIgnoreCase));
     return false;
 }
 
@@ -254,6 +283,7 @@ app.Use(async (http, next) =>
 var api = app.MapGroup("/api").RequireAuthorization();
 api.MapAuth();
 api.MapAccountEmail();
+api.MapTwoFactor();
 api.MapPublicInfo();
 api.MapUsers();
 api.MapDashboard();

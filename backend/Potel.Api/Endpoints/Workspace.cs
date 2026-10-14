@@ -82,6 +82,7 @@ public static partial class WorkspaceEndpoints
         // Online betalen via Mollie staat aan, en hoe het abonnement ervoor staat.
         onlinePayment, subscriptionActive = w.MollieSubscriptionId != null, w.PaidUntil, w.SubscriptionCanceledAt,
         readOnly = w.ReadOnlyReason(DateTime.UtcNow),
+        w.RequireTwoFactorForAdmins,
     };
 
     public static void MapWorkspace(this RouteGroupBuilder api)
@@ -142,6 +143,26 @@ public static partial class WorkspaceEndpoints
             await db.SaveChangesAsync();
             return Results.Ok(Dto(w));
         });
+
+        // Inloggen in twee stappen verplicht maken voor alle beheerders van deze werkruimte. Wie het nog niet heeft, stelt het
+        // bij de volgende stap in de app eerst in. Aanzetten kan alleen als je het zelf al gebruikt, anders sluit je jezelf even buiten.
+        g.MapPut("/two-factor", async (AppDb db, ClaimsPrincipal me, MollieBilling billing, TwoFactorPolicyRequest req) =>
+        {
+            var w = await db.Workspaces.FindAsync(db.TenantId);
+            var u = me.UserId() is { } id ? await db.Users.FindAsync(id) : null;
+            if (w is null || u is null) return Results.NotFound();
+            if (req.RequireForAdmins && !u.TwoFactorEnabled)
+                return Results.BadRequest(new { error = "Zet eerst voor jezelf inloggen in twee stappen aan, bij Instellingen, Account. Daarna kun je het verplicht maken voor alle beheerders." });
+            if (w.RequireTwoFactorForAdmins != req.RequireForAdmins)
+            {
+                w.RequireTwoFactorForAdmins = req.RequireForAdmins;
+                db.Log("gebruiker", req.RequireForAdmins
+                    ? $"{u.Name} heeft inloggen in twee stappen verplicht gemaakt voor beheerders"
+                    : $"{u.Name} heeft inloggen in twee stappen niet meer verplicht voor beheerders");
+                await db.SaveChangesAsync();
+            }
+            return Results.Ok(Dto(w, await PlatformEndpoints.IsPlatformAdmin(db, me), billing.Enabled));
+        }).RequireAuthorization(p => p.RequireRole(Roles.Admin));
 
         g.MapPost("/demo-data", async (AppDb db) =>
         {
@@ -339,6 +360,7 @@ public static partial class WorkspaceEndpoints
             db.Activities.RemoveRange(db.Activities);
             db.Settings.RemoveRange(db.Settings);
             db.AccountTokens.RemoveRange(db.AccountTokens);
+            db.RecoveryCodes.RemoveRange(db.RecoveryCodes);
             db.MolliePayments.RemoveRange(db.MolliePayments);
             db.Users.RemoveRange(db.Users);
             if (await db.Workspaces.FindAsync(db.TenantId) is { } w) db.Workspaces.Remove(w);

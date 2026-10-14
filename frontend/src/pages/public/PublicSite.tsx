@@ -16,10 +16,10 @@ export function PublicSite({ auth }: { auth: PublicAuth }) {
   const [app] = useState(standalone)
   return (
     <Routes>
-      <Route path="/" element={app ? <LoginPage onLogin={auth.login} /> : <LandingPage />} />
+      <Route path="/" element={app ? <LoginPage auth={auth} /> : <LandingPage />} />
       <Route path="/aanmelden" element={<SignupPage onRegister={auth.register} />} />
       <Route path="/wachtwoord-vergeten" element={<ForgotPasswordPage />} />
-      <Route path="*" element={<LoginPage onLogin={auth.login} />} />
+      <Route path="*" element={<LoginPage auth={auth} />} />
     </Routes>
   )
 }

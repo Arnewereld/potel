@@ -555,6 +555,8 @@ export interface Workspace {
   subscriptionCanceledAt?: string | null
   // Waarom de werkruimte alleen-lezen is, of null als alles kan.
   readOnly?: string | null
+  // Beheerders moeten inloggen in twee stappen aan hebben.
+  requireTwoFactorForAdmins: boolean
 }
 
 export interface Dashboard {

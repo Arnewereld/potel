@@ -1314,3 +1314,15 @@ a.btn { text-decoration: none; color: inherit; display: inline-flex; align-items
   .focus-actions { width: 100%; }
   .focus-actions .btn { flex: 1 1 140px; min-width: 0; }
 }
+
+/* ---------- Inloggen in twee stappen ---------- */
+.link-btn { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; color: var(--primary); font: inherit; cursor: pointer; text-align: left; }
+.link-btn:hover { text-decoration: underline; }
+.two-factor-steps li { align-items: flex-start; }
+.two-factor-steps li > div { min-width: 0; padding-top: 3px; }
+.setup-key-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.setup-key { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 15px; letter-spacing: 0.04em; padding: 8px 10px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--border); word-break: break-word; user-select: all; min-width: 0; }
+.recovery-codes { list-style: none; margin: 0; padding: 12px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 16px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); }
+.recovery-codes code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; user-select: all; }
+.login-card.two-factor-required { width: min(480px, calc(100% - 32px)); }
+.badge-plain { text-transform: none; }

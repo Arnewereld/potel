@@ -74,6 +74,8 @@ public class Workspace
     public DateTime? SubscriptionCanceledAt { get; set; }
     // De klant die bij deze werkruimte hoort in de werkruimte van de eigenaar, voor de facturen van het abonnement.
     public int? BillingCustomerId { get; set; }
+    // Beheerders moeten inloggen in twee stappen. Wie het nog niet heeft, stelt het in voordat hij verder kan.
+    public bool RequireTwoFactorForAdmins { get; set; }
 
     // Na de proef zonder abonnement is een werkruimte alleen-lezen: niets wijzigen en geen werkstromen meer.
     public bool TrialExpired(DateTime utcNow) => Plan == Plans.Trial && TrialEndsAt is { } end && end < utcNow;
@@ -1325,8 +1327,28 @@ public class User : IWorkspaceOwned
     public DateTime? EmailVerifiedAt { get; set; }
     // Hoe lang een focusblok duurt bij deze gebruiker, op elk apparaat. Leeg is de standaard van 25 minuten.
     public int? FocusMinutes { get; set; }
+    // Inloggen in twee stappen: het geheim voor de app op je telefoon (versleuteld met Data Protection), sinds wanneer het aan staat,
+    // en de laatst gebruikte tijdstap, zodat elke code maar één keer werkt. Tijdens het instellen staat het nieuwe geheim apart,
+    // tot de eerste code uit de app klopt.
+    [JsonIgnore] public string? TwoFactorSecret { get; set; }
+    [JsonIgnore] public string? TwoFactorPendingSecret { get; set; }
+    public DateTime? TwoFactorEnabledAt { get; set; }
+    [JsonIgnore] public long? TwoFactorLastStep { get; set; }
+
+    public bool TwoFactorEnabled => TwoFactorEnabledAt is not null && TwoFactorSecret is not null;
 
     public void NewSecurityStamp() => SecurityStamp = Guid.NewGuid().ToString("N");
+}
+
+// Een herstelcode voor inloggen in twee stappen, voor als je telefoon kwijt is. Alleen de hash staat hier; elke code werkt één keer.
+public class RecoveryCode : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int UserId { get; set; }
+    public string CodeHash { get; set; } = "";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? UsedAt { get; set; }
 }
 
 public static class TokenPurposes

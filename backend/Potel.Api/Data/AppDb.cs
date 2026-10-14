@@ -29,6 +29,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
     public DbSet<Settings> Settings => Set<Settings>();
     public DbSet<PlatformCounter> PlatformCounters => Set<PlatformCounter>();
     public DbSet<AccountToken> AccountTokens => Set<AccountToken>();
+    public DbSet<RecoveryCode> RecoveryCodes => Set<RecoveryCode>();
     public DbSet<MolliePayment> MolliePayments => Set<MolliePayment>();
     public DbSet<Expense> Expenses => Set<Expense>();
     public DbSet<ExpenseReceipt> ExpenseReceipts => Set<ExpenseReceipt>();
@@ -100,6 +101,10 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         // Een link uit een mail vinden we terug aan de hash van het token; weg met de gebruiker.
         b.Entity<AccountToken>().HasIndex(t => t.TokenHash).IsUnique();
         b.Entity<AccountToken>().HasOne<User>().WithMany().HasForeignKey(t => t.UserId).OnDelete(DeleteBehavior.Cascade);
+        // Herstelcodes voor inloggen in twee stappen: per gebruiker elke code één keer, en weg met de gebruiker.
+        b.Entity<RecoveryCode>().HasIndex(r => new { r.UserId, r.CodeHash }).IsUnique();
+        b.Entity<RecoveryCode>().HasOne<User>().WithMany().HasForeignKey(r => r.UserId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<User>().Ignore(u => u.TwoFactorEnabled);
         // Een werkruimte vinden we terug aan zijn klant bij Mollie, voor de incasso's van het abonnement.
         b.Entity<Workspace>().HasIndex(w => w.MollieCustomerId);
         // Een uitgave mag aan een project of klant hangen; gaat die weg, dan blijft de uitgave staan zonder koppeling.
@@ -182,7 +187,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
     {
         Filter<Customer>(b); Filter<Lead>(b); Filter<Invoice>(b); Filter<Appointment>(b); Filter<Project>(b); Filter<TimeEntry>(b); Filter<RunningTimer>(b);
         Filter<Settings>(b); Filter<CustomModule>(b); Filter<CustomRecord>(b); Filter<Workflow>(b); Filter<Activity>(b);
-        Filter<User>(b); Filter<WorkflowRun>(b); Filter<AccountToken>(b); Filter<MolliePayment>(b);
+        Filter<User>(b); Filter<WorkflowRun>(b); Filter<AccountToken>(b); Filter<RecoveryCode>(b); Filter<MolliePayment>(b);
         Filter<Expense>(b); Filter<ExpenseReceipt>(b); Filter<RecurringInvoice>(b);
         Filter<InvoiceMail>(b); Filter<InvoiceLink>(b); Filter<ReminderSettings>(b); Filter<CustomerPortal>(b); Filter<PortalLink>(b);
         Filter<GitHubSettings>(b); Filter<GitHubAuthor>(b); Filter<GitHubCommit>(b);

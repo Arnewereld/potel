@@ -18,6 +18,7 @@ import { GitHubSettingsTab } from '../components/GitHub'
 import { IdealSettingsTab } from '../components/IdealSettings'
 import { TaxReserveSettingsTab } from '../components/TaxReserveSettings'
 import { InstallAppTab } from '../components/InstallApp'
+import { TwoFactorCard } from '../components/TwoFactor'
 
 type Tab = 'bedrijf' | 'huisstijl' | 'email' | 'belastingpot' | 'ideal' | 'github' | 'telefoon' | 'abonnement' | 'account'
 
@@ -479,10 +480,16 @@ function Account({ admin }: { admin: boolean }) {
     }
   }
 
-  if (!admin) return <div className="card"><div className="card-body muted">Alleen een beheerder kan gegevens exporteren of de werkruimte verwijderen.</div></div>
+  if (!admin) return (
+    <div className="grid grid-1-1">
+      <TwoFactorCard />
+      <div className="card"><div className="card-body muted">Alleen een beheerder kan gegevens exporteren of de werkruimte verwijderen.</div></div>
+    </div>
+  )
 
   return (
     <div className="grid grid-1-1">
+      <TwoFactorCard />
       {workspace?.demoData && (
         <div className="card">
           <div className="card-head"><h3><Trash2 size={16} /> Voorbeelddata verwijderen</h3></div>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, CheckCircle2, KeyRound, MailWarning } from 'lucide-react'
 import { api } from '../../lib/api'
 import { Logo } from './PublicSite'
+import { TwoFactorLoginStep } from '../../components/TwoFactor'
 
 // Het token staat achter een # in de link uit de mail, zodat het niet in logboeken van servers belandt.
 function useTokenFromLink() {
@@ -25,12 +26,14 @@ function LinkCard({ children }: { children: React.ReactNode }) {
 }
 
 // Een nieuw wachtwoord kiezen met de link uit de mail. Daarna ben je meteen ingelogd en overal anders uitgelogd.
+// Met inloggen in twee stappen vraagt de server daarna nog een code: een nieuw wachtwoord slaat die stap nooit over.
 export function ResetPasswordPage() {
   const token = useTokenFromLink()
   const [password, setPassword] = useState('')
   const [repeat, setRepeat] = useState('')
   const [error, setError] = useState<string | null>(token ? null : 'Deze link is niet compleet. Vraag hieronder een nieuwe aan.')
   const [busy, setBusy] = useState(false)
+  const [code, setCode] = useState<'nodig' | 'verlopen' | null>(null)
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -38,13 +41,31 @@ export function ResetPasswordPage() {
     setBusy(true)
     setError(null)
     try {
-      await api.post('/auth/reset-password', { token, password })
-      window.location.assign('/')
+      const r = await api.post<{ twoFactorRequired?: boolean }>('/auth/reset-password', { token, password })
+      if (r?.twoFactorRequired) {
+        setCode('nodig')
+        setBusy(false)
+      } else window.location.assign('/')
     } catch (err) {
       setError((err as Error).message)
       setBusy(false)
     }
   }
+
+  if (code === 'nodig') return (
+    <LinkCard>
+      <div className="login-ok" style={{ margin: '0 0 18px' }}><CheckCircle2 size={16} /> Je nieuwe wachtwoord is opgeslagen.</div>
+      <TwoFactorLoginStep onDone={() => window.location.assign('/')} onExpired={() => setCode('verlopen')} onBack={() => window.location.assign('/')} />
+    </LinkCard>
+  )
+
+  if (code === 'verlopen') return (
+    <LinkCard>
+      <h1>Nieuw wachtwoord</h1>
+      <div className="login-ok"><CheckCircle2 size={16} /> Je nieuwe wachtwoord is opgeslagen. Je inlogpoging is wel verlopen; log opnieuw in met je e-mailadres en je nieuwe wachtwoord.</div>
+      <a className="btn btn-primary login-btn" href="/">Naar inloggen <ArrowRight size={16} /></a>
+    </LinkCard>
+  )
 
   return (
     <LinkCard>

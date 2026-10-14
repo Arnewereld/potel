@@ -11,9 +11,12 @@ namespace Potel.Api.Endpoints;
 public record LoginRequest(string Email, string Password);
 public record PasswordRequest(string Current, string New);
 public record UserInput(string Name, string Email, string Role, bool Active, string? Password);
-public record UserDto(int Id, int WorkspaceId, string Name, string Email, string Role, bool Active, DateTime CreatedAt, DateTime? LastLoginAt, bool EmailVerified)
+public record UserDto(int Id, int WorkspaceId, string Name, string Email, string Role, bool Active, DateTime CreatedAt, DateTime? LastLoginAt, bool EmailVerified, bool TwoFactor)
 {
-    public static UserDto From(User u) => new(u.Id, u.WorkspaceId, u.Name, u.Email, u.Role, u.Active, u.CreatedAt, u.LastLoginAt, u.EmailVerifiedAt != null);
+    // Alleen voor jezelf (zie AuthEndpoints.MeAsync): je moet eerst inloggen in twee stappen instellen voordat je verder kunt.
+    public bool TwoFactorSetupRequired { get; init; }
+
+    public static UserDto From(User u) => new(u.Id, u.WorkspaceId, u.Name, u.Email, u.Role, u.Active, u.CreatedAt, u.LastLoginAt, u.EmailVerifiedAt != null, u.TwoFactorEnabled);
 }
 
 // Begrenst mislukte inlogpogingen. Streng per e-mailadres en IP-adres samen: wie het wachtwoord raadt, zit na een paar
@@ -78,6 +81,21 @@ public static class AuthEndpoints
 
     public static string Hash(User u, string password) => Hasher.HashPassword(u, password);
 
+    public static bool PasswordMatches(User u, string? password) =>
+        Hasher.VerifyHashedPassword(u, u.PasswordHash, password ?? "") != PasswordVerificationResult.Failed;
+
+    // Jezelf, met of je eerst inloggen in twee stappen moet instellen.
+    public static async Task<UserDto> MeAsync(AppDb db, User u) =>
+        UserDto.From(u) with { TwoFactorSetupRequired = await Endpoints.TwoFactor.SetupRequiredAsync(db, u) };
+
+    // Te veel mislukte pogingen voor dit e-mailadres, met het wachtwoord of met de code van inloggen in twee stappen.
+    public static IResult? Blocked(LoginThrottle throttle, string email, string ip) => throttle.Blocked(email, ip) switch
+    {
+        LoginThrottle.Block.ThisAddress => Results.Json(new { error = "Te veel mislukte pogingen voor dit e-mailadres. Probeer het over een minuut opnieuw." }, statusCode: 429),
+        LoginThrottle.Block.ThisAccount => Results.Json(new { error = "Er zijn te veel mislukte pogingen voor dit e-mailadres. Probeer het over een uur opnieuw, of log in vanaf een adres waar je eerder inlogde." }, statusCode: 429),
+        _ => null,
+    };
+
     public const string WorkspaceClaim = "potel:ws";
     public const string StampClaim = "potel:stamp";
 
@@ -109,32 +127,33 @@ public static class AuthEndpoints
     {
         var g = api.MapGroup("/auth");
 
-        g.MapPost("/login", async (AppDb db, HttpContext http, LoginThrottle throttle, LoginRequest req) =>
+        g.MapPost("/login", async (AppDb db, HttpContext http, LoginThrottle throttle, TwoFactor twoFactor, LoginRequest req) =>
         {
             var email = (req.Email ?? "").Trim().ToLower();
             var ip = http.Connection.RemoteIpAddress?.ToString() ?? "onbekend";
-            switch (throttle.Blocked(email, ip))
-            {
-                case LoginThrottle.Block.ThisAddress:
-                    return Results.Json(new { error = "Te veel mislukte pogingen voor dit e-mailadres. Probeer het over een minuut opnieuw." }, statusCode: 429);
-                case LoginThrottle.Block.ThisAccount:
-                    return Results.Json(new { error = "Er zijn te veel mislukte pogingen voor dit e-mailadres. Probeer het over een uur opnieuw, of log in vanaf een adres waar je eerder inlogde." }, statusCode: 429);
-            }
+            if (Blocked(throttle, email, ip) is { } blocked) return blocked;
             // Inloggen gebeurt voordat de werkruimte bekend is; het e-mailadres is uniek over alle werkruimtes.
             var u = await db.Users.IgnoreQueryFilters().FirstOrDefaultAsync(x => x.Email == email);
-            var ok = u is not null && u.Active &&
-                     Hasher.VerifyHashedPassword(u, u.PasswordHash, req.Password ?? "") != PasswordVerificationResult.Failed;
+            var ok = u is not null && u.Active && PasswordMatches(u, req.Password);
             if (!ok)
             {
                 throttle.Failed(email, ip);
                 return Results.Json(new { error = "E-mailadres of wachtwoord klopt niet" }, statusCode: 401);
             }
-            throttle.Succeeded(email, ip);
             db.Tenant.WorkspaceId = u!.WorkspaceId;
+            // Met inloggen in twee stappen ben je na het wachtwoord nog niet binnen: eerst de code (zie TwoFactorEndpoints),
+            // behalve op een apparaat dat je liet onthouden. Een oude sessie in deze browser stopt.
+            if (u.TwoFactorEnabled && !twoFactor.IsRemembered(http, u))
+            {
+                await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                twoFactor.StartPendingLogin(http, u);
+                return Results.Ok(new { twoFactorRequired = true });
+            }
+            throttle.Succeeded(email, ip);
             u.LastLoginAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
             await SignIn(http, u);
-            return Results.Ok(UserDto.From(u));
+            return Results.Ok(await MeAsync(db, u));
         }).AllowAnonymous().RequireRateLimiting("auth");
 
         g.MapPost("/logout", async (HttpContext http) =>
@@ -145,14 +164,14 @@ public static class AuthEndpoints
 
         g.MapGet("/me", async (AppDb db, ClaimsPrincipal user) =>
             user.UserId() is { } id && await db.Users.FindAsync(id) is { Active: true } u
-                ? Results.Ok(UserDto.From(u)) : Results.Unauthorized());
+                ? Results.Ok(await MeAsync(db, u)) : Results.Unauthorized());
 
         // Een nieuw wachtwoord logt je overal anders uit en maakt open herstellinks ongeldig; deze sessie krijgt een nieuwe cookie en blijft ingelogd.
         g.MapPut("/password", async (AppDb db, HttpContext http, ClaimsPrincipal user, PasswordRequest req) =>
         {
             var u = user.UserId() is { } id ? await db.Users.FindAsync(id) : null;
             if (u is null) return Results.Unauthorized();
-            if (Hasher.VerifyHashedPassword(u, u.PasswordHash, req.Current ?? "") == PasswordVerificationResult.Failed)
+            if (!PasswordMatches(u, req.Current))
                 return Results.BadRequest(new { error = "Je huidige wachtwoord klopt niet" });
             if ((req.New ?? "").Length < MinPasswordLength)
                 return Results.BadRequest(new { error = $"Kies een wachtwoord van minstens {MinPasswordLength} tekens" });
@@ -222,6 +241,32 @@ public static class AuthEndpoints
             return Results.Ok(UserDto.From(u));
         }).RequireRateLimiting("accounts");
 
+        // Telefoon kwijt en geen herstelcodes meer: een beheerder zet inloggen in twee stappen uit voor een medewerker in zijn eigen
+        // werkruimte. Die moet daarna opnieuw inloggen (nieuwe SecurityStamp) en kan het opnieuw instellen. Een beheerder zet het
+        // alleen voor zichzelf uit, met wachtwoord en code; een platformbeheerder alleen zelf of via een andere platformbeheerder.
+        g.MapDelete("/{id:int}/two-factor", async (AppDb db, ClaimsPrincipal me, ILogger<TwoFactor> logger, int id) =>
+        {
+            await using var tx = await WriteLock.BeginAsync(db);
+            var u = await db.Users.FindAsync(id);
+            if (u is null) return Results.NotFound();
+            if (me.UserId() == id)
+                return Results.BadRequest(new { error = "Zet inloggen in twee stappen voor jezelf uit bij Instellingen, Account, met je wachtwoord en een code." });
+            if (u.Role != Roles.Employee)
+                return Results.Json(new { error = "Je kunt inloggen in twee stappen alleen opnieuw instellen voor een medewerker. Een beheerder zet het zelf uit." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            if (await ProtectedPlatformAdmin(db, me, u, PlatformAdminTwoFactorProtected) is { } refused) return refused;
+            if (!u.TwoFactorEnabled && u.TwoFactorPendingSecret is null)
+                return Results.BadRequest(new { error = $"Inloggen in twee stappen staat voor {u.Name} niet aan." });
+            await TwoFactor.ClearAsync(db, u);
+            u.NewSecurityStamp();
+            var by = me.UserId() is { } myId ? (await db.Users.FindAsync(myId))?.Name : null;
+            db.Log("gebruiker", $"Inloggen in twee stappen van {u.Name} uitgezet door {by ?? "een beheerder"}; {u.Name} moet opnieuw inloggen");
+            await db.SaveChangesAsync();
+            await tx.CommitAsync();
+            logger.LogInformation("Inloggen in twee stappen van gebruiker {UserId} uitgezet door gebruiker {ById} in werkruimte {WorkspaceId}", u.Id, me.UserId(), u.WorkspaceId);
+            return Results.Ok(UserDto.From(u));
+        }).RequireRateLimiting("accounts");
+
         g.MapDelete("/{id:int}", async (AppDb db, ClaimsPrincipal me, int id) =>
         {
             var u = await db.Users.FindAsync(id);
@@ -231,6 +276,7 @@ public static class AuthEndpoints
                 return Results.BadRequest(new { error = "Er moet minstens één actieve beheerder overblijven" });
             if (await ProtectedPlatformAdmin(db, me, u) is { } refused) return refused;
             db.AccountTokens.RemoveRange(db.AccountTokens.Where(t => t.UserId == id));
+            db.RecoveryCodes.RemoveRange(db.RecoveryCodes.Where(r => r.UserId == id));
             db.Users.Remove(u);
             db.Log("gebruiker", $"Gebruiker {u.Name} verwijderd");
             await db.SaveChangesAsync();
@@ -238,14 +284,18 @@ public static class AuthEndpoints
         });
     }
 
+    public const string PlatformAdminTwoFactorProtected =
+        "Dit account beheert ook het platform. Daarom kun je inloggen in twee stappen voor dit account niet opnieuw instellen. Vraag het aan een platformbeheerder.";
+
     public const string PlatformAdminProtected =
         "Dit account beheert ook het platform. Daarom kun je het e-mailadres, het wachtwoord en de rol niet wijzigen, en het account niet uitschakelen of verwijderen. Vraag een platformbeheerder eerst die rechten weg te halen.";
 
     // Een platformbeheerder kan alle werkruimtes zien en abonnementen omzetten. Een beheerder van zijn werkruimte mag dat account
-    // dus niet overnemen (nieuw wachtwoord of e-mailadres), uitschakelen of verwijderen; alleen hijzelf of een andere platformbeheerder.
-    static async Task<IResult?> ProtectedPlatformAdmin(AppDb db, ClaimsPrincipal me, User target) =>
+    // dus niet overnemen (nieuw wachtwoord of e-mailadres, inloggen in twee stappen uitzetten), uitschakelen of verwijderen;
+    // alleen hijzelf of een andere platformbeheerder.
+    static async Task<IResult?> ProtectedPlatformAdmin(AppDb db, ClaimsPrincipal me, User target, string message = PlatformAdminProtected) =>
         target.IsPlatformAdmin && me.UserId() != target.Id && !await PlatformEndpoints.IsPlatformAdmin(db, me)
-            ? Results.Json(new { error = PlatformAdminProtected }, statusCode: StatusCodes.Status403Forbidden)
+            ? Results.Json(new { error = message }, statusCode: StatusCodes.Status403Forbidden)
             : null;
 
     // Het abonnement bepaalt hoeveel gebruikers er in een werkruimte passen (zie Plans.MaxUsers).
