@@ -1,18 +1,22 @@
 import { useState } from 'react'
-import { Pause, Play, Square, Trash2 } from 'lucide-react'
+import { Coffee, Pause, Play, Square, Target, Trash2 } from 'lucide-react'
 import { useApi } from '../lib/useApi'
 import type { Project } from '../lib/types'
 import { clock, useTimer } from '../lib/timer'
+import { mmss } from '../lib/focus'
+import { FocusStartModal } from './FocusStart'
 
 // Start/stop-timer bovenaan de urenpagina. Hij staat op de server, dus op elk apparaat dezelfde.
 export function TimerCard() {
-  const { running, elapsed, paused, stopping, start, stop, update, discard, pause, resume, switchTo } = useTimer()
+  const { running, elapsed, paused, stopping, start, stop, update, discard, pause, resume, switchTo, focus, focusMinutes, startFocus, openFocus, nextBlock } = useTimer()
   const { data: projects } = useApi<Project[]>('/projects')
   const active = (projects ?? []).filter(p => p.status === 'actief')
   const [projectId, setProjectId] = useState(0)
   const [description, setDescription] = useState('')
   const [starting, setStarting] = useState(false)
+  const [choosingFocus, setChoosingFocus] = useState(false)
   const chosen = projectId || active[0]?.id || 0
+  const chosenProject = active.find(x => x.id === chosen)
 
   const begin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -30,7 +34,7 @@ export function TimerCard() {
       const p = active.find(x => x.id === id)
       if (p && p.id !== running.projectId) void switchTo({ projectId: p.id, projectName: p.name, description: '', billable: p.billing === 'uur' })
     }
-    return (
+    return (<>
       <div className={`card timer-card running ${paused ? 'paused' : ''}`} style={{ '--accent': running.projectColor } as React.CSSProperties}>
         <span className="timer-pulse" />
         <div className="grow timer-main">
@@ -40,20 +44,28 @@ export function TimerCard() {
           </select>
           <input className="timer-desc" value={running.description} placeholder="Waar werk je aan?" onChange={e => update({ description: e.target.value })} />
         </div>
-        <div className="timer-clock">{clock(elapsed)}{paused && <small>gepauzeerd</small>}</div>
+        <div className="timer-clock">{clock(elapsed)}{paused && <small>{focus && focus.phase !== 'focus' ? 'pauze, niet geboekt' : 'gepauzeerd'}</small>}</div>
         <div className="timer-actions">
           <button className="icon-btn timer-icon" title="Timer weggooien" aria-label="Timer weggooien"
             onClick={() => confirm('Timer stoppen zonder de tijd te boeken?') && void discard()}><Trash2 size={16} /></button>
+          {focus
+            ? <button type="button" className="btn timer-focus-on" onClick={openFocus} title="Focusweergave openen">
+                {focus.phase === 'focus' ? <Target size={14} /> : <Coffee size={14} />} {focus.phase === 'ready' ? 'Pauze voorbij' : mmss(focus.remaining)}
+              </button>
+            : <button type="button" className="btn" onClick={() => setChoosingFocus(true)} title="Werken in focusblokken met pauzes ertussen"><Target size={14} /> Focus</button>}
           {paused
-            ? <button className="btn" onClick={() => void resume()}><Play size={14} fill="currentColor" /> Verder</button>
+            ? focus && focus.phase !== 'focus'
+              ? <button className="btn" onClick={() => void nextBlock()}><Play size={14} fill="currentColor" /> Volgend blok</button>
+              : <button className="btn" onClick={() => void resume()}><Play size={14} fill="currentColor" /> Verder</button>
             : <button className="btn" onClick={() => void pause()}><Pause size={14} fill="currentColor" /> Pauze</button>}
           <button className="btn btn-stop" disabled={stopping} onClick={() => void stop()}><Square size={14} fill="currentColor" /> {stopping ? 'Boeken…' : 'Stop'}</button>
         </div>
       </div>
-    )
+      {choosingFocus && <FocusStartModal minutes={focusMinutes} projectName={running.projectName} onStart={m => startFocus(m)} onClose={() => setChoosingFocus(false)} />}
+    </>)
   }
 
-  return (
+  return (<>
     <form className="card timer-card" onSubmit={begin}>
       <input className="timer-desc" value={description} placeholder="Waar ga je aan werken?" onChange={e => setDescription(e.target.value)} />
       <select value={chosen} onChange={e => setProjectId(Number(e.target.value))} aria-label="Project">
@@ -62,8 +74,17 @@ export function TimerCard() {
       </select>
       <div className="timer-clock muted">0:00:00</div>
       <div className="timer-actions">
+        <button type="button" className="btn" disabled={!chosenProject} onClick={() => setChoosingFocus(true)} title="Starten in focusblokken met pauzes ertussen"><Target size={14} /> Focus</button>
         <button className="btn btn-primary" disabled={!chosen || starting}><Play size={14} fill="currentColor" /> Start</button>
       </div>
     </form>
-  )
+    {choosingFocus && chosenProject && (
+      <FocusStartModal minutes={focusMinutes} projectName={chosenProject.name} onClose={() => setChoosingFocus(false)}
+        onStart={async m => {
+          const ok = await startFocus(m, { projectId: chosenProject.id, description, billable: chosenProject.billing === 'uur' })
+          if (ok) setDescription('')
+          return ok
+        }} />
+    )}
+  </>)
 }

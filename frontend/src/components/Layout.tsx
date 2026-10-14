@@ -3,9 +3,10 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, CalendarDays, Users, Target, Receipt, Workflow, Blocks, X, Search, FileSignature,
   ChevronsLeft, ChevronsRight, Moon, Sun, Plus, ShieldCheck, LogOut, KeyRound, Timer, FolderKanban, Settings, Square, Pause, Crown, Wallet, Landmark, CalendarRange,
-  ArrowLeftRight, Car, Package,
+  ArrowLeftRight, Car, Package, Coffee,
 } from 'lucide-react'
 import { clock, useTimer } from '../lib/timer'
+import { mmss } from '../lib/focus'
 import { useWorkspace } from '../lib/workspace'
 import { OnboardingWizard } from './OnboardingWizard'
 import { useAuth } from '../lib/auth'
@@ -18,6 +19,7 @@ import { ModuleIcon } from './Icon'
 import { CommandPalette } from './CommandPalette'
 import { VerifyEmailBanner } from './VerifyEmailBanner'
 import { UpdateBanner } from './UpdateBanner'
+import { FocusView } from './FocusView'
 
 // Het menu, per groep in de volgorde waarin het in de zijbalk staat.
 const nav = [
@@ -213,6 +215,7 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
         ))}
       </div>
 
+      <FocusView />
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
       {changingPassword && <PasswordModal onClose={() => setChangingPassword(false)} />}
       {workspace && !workspace.onboarded && user.role === 'beheerder' && <OnboardingWizard onDone={reloadWorkspace} />}
@@ -221,16 +224,20 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
 }
 
 // De lopende timer, altijd zichtbaar rechts in de tabbalk, op elk apparaat dezelfde.
+// In focusmodus staat de tijd tot het eind van het blok of de pauze erin, en opent een klik de focusweergave.
 function TimerChip() {
-  const { running, elapsed, paused, stopping, stop } = useTimer()
+  const { running, elapsed, paused, stopping, stop, focus, openFocus } = useTimer()
   const navigate = useNavigate()
   if (!running) return null
   return (
     <div className={`timer-chip ${paused ? 'paused' : ''}`} style={{ '--accent': running.projectColor } as React.CSSProperties}>
-      <button className="timer-chip-main" onClick={() => navigate('/uren')} title={running.description || running.projectName}>
-        {paused ? <Pause size={12} className="timer-chip-paused" /> : <span className="timer-pulse" />}
-        <span className="truncate">{running.projectName}</span>
-        <strong>{clock(elapsed)}</strong>
+      <button className="timer-chip-main" onClick={() => focus ? openFocus() : navigate('/uren')}
+        title={focus ? 'Focusweergave openen' : running.description || running.projectName}>
+        {focus
+          ? focus.phase === 'focus' && !paused ? <Target size={13} className="timer-chip-paused" /> : <Coffee size={13} className="timer-chip-paused" />
+          : paused ? <Pause size={12} className="timer-chip-paused" /> : <span className="timer-pulse" />}
+        <span className="truncate">{focus && focus.phase !== 'focus' ? (focus.phase === 'ready' ? 'Pauze voorbij' : 'Pauze') : running.projectName}</span>
+        <strong>{focus ? mmss(focus.remaining) : clock(elapsed)}</strong>
       </button>
       <button className="timer-chip-stop" disabled={stopping} onClick={() => void stop()} title="Stoppen en boeken" aria-label="Timer stoppen en boeken"><Square size={11} fill="currentColor" /></button>
     </div>

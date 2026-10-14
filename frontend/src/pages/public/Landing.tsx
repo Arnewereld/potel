@@ -9,7 +9,7 @@ import { CompanyDetails } from './Legal'
 import { legalLinks, usePlatformInfo } from '../../lib/platform'
 
 const features = [
-  { icon: Timer, color: '#ff6d5a', title: 'Uren met één klik', text: 'Start de timer als je begint en stop als je klaar bent, op je laptop of je telefoon. Hij loopt door als je je laptop dichtklapt en staat altijd in beeld.' },
+  { icon: Timer, color: '#ff6d5a', title: 'Uren met één klik', text: 'Start de timer als je begint en stop als je klaar bent, op je laptop of je telefoon. Hij loopt door als je je laptop dichtklapt en staat altijd in beeld. Met de focusmodus werk je in blokken met pauzes ertussen.' },
   { icon: FolderKanban, color: '#4ea5ff', title: 'Projecten en budget', text: 'Per uur of voor een vaste prijs. Je ziet direct hoeveel budget er nog is en wat je effectief per uur verdient.' },
   { icon: Receipt, color: '#3ecf8e', title: 'Factureren in een minuut', text: 'Open uren op een strakke factuur, btw verlegd voor zakelijke klanten in de EU, de KOR, creditnota\'s en herinneringen als iemand te laat is.' },
   { icon: Award, color: '#f5b83d', title: 'Urencriterium en btw', text: 'Haal je de 1.225 uur voor de zelfstandigenaftrek? En hoeveel btw moet je dit kwartaal afdragen? Het staat op je dashboard.' },

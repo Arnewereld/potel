@@ -1,16 +1,17 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Timer, Plus, ChevronLeft, ChevronRight, Lock, Euro, CalendarCheck, Target, GitCommitHorizontal } from 'lucide-react'
 import { useApi } from '../lib/useApi'
 import type { Project, Settings, TimeEntry } from '../lib/types'
 import { euro, hm, hours, parseDate, toDateInput, weekNumber, weekStart } from '../lib/format'
-import { useOnTimeChanged } from '../lib/timer'
+import { useOnTimeChanged, useTimer } from '../lib/timer'
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/ui'
 import { TimerCard } from '../components/TimerCard'
 import { TimeEntryForm } from '../components/TimeEntryForm'
 import { GitHubSuggestionsModal } from '../components/GitHub'
 
 const dayNames = ['ma', 'di', 'wo', 'do', 'vr', 'za', 'zo']
+const focusLabel = (n: number) => n === 1 ? '1 focusblok' : `${n} focusblokken`
 
 export function TimePage() {
   const [monday, setMonday] = useState(() => weekStart(new Date()))
@@ -21,8 +22,13 @@ export function TimePage() {
   const [editing, setEditing] = useState<{ entry?: TimeEntry; date?: string; projectId?: number } | null>(null)
   const [suggesting, setSuggesting] = useState(false)
   const navigate = useNavigate()
+  // Je eigen afgemaakte focusblokken per dag, met die van de timer die nu loopt erbij.
+  const { data: focusDays, reload: reloadFocus } = useApi<{ date: string; blocks: number }[]>(`/timer/focus/days?from=${days[0]}&to=${days[6]}`)
+  const { running } = useTimer()
+  const runningBlocks = running?.focus?.blocks ?? 0
+  useEffect(() => { if (runningBlocks > 0) void reloadFocus(true) }, [runningBlocks, reloadFocus])
 
-  useOnTimeChanged(useCallback(() => { reload(true); reloadProjects(true) }, [reload, reloadProjects]))
+  useOnTimeChanged(useCallback(() => { reload(true); reloadProjects(true); reloadFocus(true) }, [reload, reloadProjects, reloadFocus]))
 
   const shift = (weeks: number) => setMonday(m => { const d = new Date(m); d.setDate(d.getDate() + weeks * 7); return d })
   const today = toDateInput(new Date())
@@ -46,6 +52,8 @@ export function TimePage() {
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
   }, [entries, days])
   const dayTotals = days.map(d => list.filter(e => e.date.startsWith(d)).reduce((a, e) => a + e.minutes, 0))
+  const focusPerDay = days.map(d => focusDays?.find(f => f.date === d)?.blocks ?? 0)
+  const focusTotal = focusPerDay.reduce((a, b) => a + b, 0)
 
   const end = parseDate(days[6]!)
   const month = (d: Date) => d.toLocaleDateString('nl-NL', { month: 'short' })
@@ -116,13 +124,22 @@ export function TimePage() {
                   </tr>
                 ))}
               </tbody>
-              {rows.length > 0 && (
+              {(rows.length > 0 || focusTotal > 0) && (
                 <tfoot>
-                  <tr>
-                    <td>Totaal</td>
-                    {dayTotals.map((m, i) => <td key={i} className={`num ${days[i] === today ? 'today' : ''}`}>{m ? hm(m) : ''}</td>)}
-                    <td className="num"><strong>{hm(total)}</strong></td>
-                  </tr>
+                  {rows.length > 0 && (
+                    <tr>
+                      <td>Totaal</td>
+                      {dayTotals.map((m, i) => <td key={i} className={`num ${days[i] === today ? 'today' : ''}`}>{m ? hm(m) : ''}</td>)}
+                      <td className="num"><strong>{hm(total)}</strong></td>
+                    </tr>
+                  )}
+                  {focusTotal > 0 && (
+                    <tr className="focus-row" title="Je eigen afgemaakte focusblokken per dag">
+                      <td><Target size={13} /> Focusblokken</td>
+                      {focusPerDay.map((n, i) => <td key={i} className={`num ${days[i] === today ? 'today' : ''}`}>{n || ''}</td>)}
+                      <td className="num"><strong>{focusTotal}</strong></td>
+                    </tr>
+                  )}
                 </tfoot>
               )}
             </table>
@@ -137,7 +154,10 @@ export function TimePage() {
                 <div key={d} className="day-group">
                   <div className="day-head">
                     <span>{parseDate(d).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
-                    <span>{hm(list.filter(e => e.date.startsWith(d)).reduce((a, e) => a + e.minutes, 0))}</span>
+                    <span>
+                      {focusPerDay[days.indexOf(d)] > 0 && <span className="day-focus">{focusLabel(focusPerDay[days.indexOf(d)]!)} · </span>}
+                      {hm(list.filter(e => e.date.startsWith(d)).reduce((a, e) => a + e.minutes, 0))}
+                    </span>
                   </div>
                   {list.filter(e => e.date.startsWith(d)).map(e => (
                     <button key={e.id} className="entry-row" onClick={() => e.invoiceId ? navigate(`/facturen/${e.invoiceId}`) : setEditing({ entry: e })}>

@@ -29,6 +29,17 @@ self.addEventListener('message', event => {
   if (event.data === 'skip-waiting') self.skipWaiting()
 })
 
+// Een klik op een melding van de focusmodus brengt je terug naar Potel.
+self.addEventListener('notificationclick', event => {
+  event.notification.close()
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    const open = windows.find(w => new URL(w.url).origin === self.location.origin)
+    if (open) return open.focus()
+    return self.clients.openWindow('/uren')
+  })())
+})
+
 const isShell = url => SHELL.includes(url.pathname) || url.pathname.startsWith('/assets/')
 
 self.addEventListener('fetch', event => {

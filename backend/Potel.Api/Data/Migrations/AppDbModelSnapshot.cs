@@ -1665,6 +1665,24 @@ namespace Potel.Api.Data.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("FocusBlockStart")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("FocusBlocks")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("FocusBreakMinutes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("FocusBreakStartedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("FocusMinutes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("FocusRound")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Key")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -1853,6 +1871,9 @@ namespace Potel.Api.Data.Migrations
                     b.Property<string>("Description")
                         .IsRequired()
                         .HasColumnType("TEXT");
+
+                    b.Property<int>("FocusBlocks")
+                        .HasColumnType("INTEGER");
 
                     b.Property<int?>("InvoiceId")
                         .HasColumnType("INTEGER");
@@ -2045,6 +2066,9 @@ namespace Potel.Api.Data.Migrations
 
                     b.Property<DateTime?>("EmailVerifiedAt")
                         .HasColumnType("TEXT");
+
+                    b.Property<int?>("FocusMinutes")
+                        .HasColumnType("INTEGER");
 
                     b.Property<bool>("IsPlatformAdmin")
                         .HasColumnType("INTEGER");

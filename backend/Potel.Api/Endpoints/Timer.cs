@@ -7,7 +7,7 @@ namespace Potel.Api.Endpoints;
 // De timer op de server: per gebruiker hooguit één, op elk apparaat dezelfde. Stoppen maakt een boeking zoals de timer in de
 // browser dat altijd deed, met dezelfde afronding en controles. Loopt hij over middernacht of langer dan 12 uur, dan vragen we
 // eerst of de eindtijd klopt, in plaats van stilletjes een enorme boeking te maken.
-public static class TimerEndpoints
+public static partial class TimerEndpoints
 {
     // Langer dan dit aan gewerkte tijd, of over middernacht: eerst de eindtijd bevestigen.
     public const int LongHours = 12;
@@ -16,11 +16,12 @@ public static class TimerEndpoints
 
     public record TimerDto(
         string Key, int ProjectId, string ProjectName, string ProjectColor, string? CustomerName, string Description, bool Billable,
-        DateTime StartedAt, DateTime? PausedAt, int PausedSeconds, int ElapsedSeconds, bool NeedsConfirmation);
+        DateTime StartedAt, DateTime? PausedAt, int PausedSeconds, int ElapsedSeconds, bool NeedsConfirmation, FocusDto? Focus);
 
     // Elk antwoord geeft de stand van nu en de tijd van de server, zodat elk apparaat dezelfde verstreken tijd laat zien,
-    // ook als de klok van dat apparaat afwijkt. Na stoppen of wisselen staat de nieuwe boeking erbij.
-    public record TimerState(TimerDto? Timer, DateTime ServerNow, TimeEntry? Entry = null);
+    // ook als de klok van dat apparaat afwijkt. Na stoppen of wisselen staat de nieuwe boeking erbij. Bij ophalen staat ook
+    // de lengte van een focusblok erbij die deze gebruiker het laatst koos.
+    public record TimerState(TimerDto? Timer, DateTime ServerNow, TimeEntry? Entry = null, int? FocusMinutes = null);
 
     public record StartRequest(int ProjectId, string? Description, bool? Billable);
     public record KeyRequest(string? Key);
@@ -61,14 +62,17 @@ public static class TimerEndpoints
     static async Task<TimerDto?> DtoAsync(AppDb db, RunningTimer? t, DateTime now)
     {
         if (t is null) return null;
+        Settle(t, now);
         var p = await db.Projects.Include(x => x.Customer).AsNoTracking().FirstOrDefaultAsync(x => x.Id == t.ProjectId);
         return new TimerDto(t.Key, t.ProjectId, p?.Name ?? "", p?.Color ?? "#ff6d5a", p?.Customer?.Company ?? p?.Customer?.Name,
             t.Description, t.Billable, Utc(t.StartedAt), t.PausedAt is { } paused ? Utc(paused) : null, t.PausedSeconds,
-            (int)WorkedSeconds(t, now), IsLong(t, now));
+            (int)WorkedSeconds(t, now), IsLong(t, now), Focus(t, now));
     }
 
+    // Ophalen verandert niets op de server: een afgelopen focusblok rekenen we hier alleen uit, op dezelfde manier als bij opslaan.
     static async Task<TimerState> StateAsync(AppDb db, int me, DateTime now, TimeEntry? entry = null) =>
-        new(await DtoAsync(db, await db.RunningTimers.AsNoTracking().FirstOrDefaultAsync(t => t.UserId == me), now), now, entry);
+        new(await DtoAsync(db, await db.RunningTimers.AsNoTracking().FirstOrDefaultAsync(t => t.UserId == me), now), now, entry,
+            await db.Users.Where(u => u.Id == me).Select(u => u.FocusMinutes).FirstOrDefaultAsync() ?? DefaultFocusMinutes);
 
     // Weigeren, met de echte stand erbij, zodat het apparaat meteen bijgewerkt is.
     static IResult Refuse(TimerState state, string error, bool needsConfirmation = false) =>
@@ -103,7 +107,7 @@ public static class TimerEndpoints
         var entry = new TimeEntry
         {
             ProjectId = t.ProjectId, Date = LocalDate(t.StartedAt), Minutes = Minutes(t, end),
-            Description = t.Description.Trim(), Billable = t.Billable, ClientId = t.Key,
+            Description = t.Description.Trim(), Billable = t.Billable, ClientId = t.Key, FocusBlocks = t.FocusBlocks,
             // Wie boekt, altijd uit de inlog en nooit uit wat de browser meestuurt.
             UserId = me,
         };
@@ -127,6 +131,7 @@ public static class TimerEndpoints
         var now = Utc(clock.UtcNow);
         var t = await db.RunningTimers.FirstOrDefaultAsync(x => x.UserId == me);
         if (t is null || !Matches(t, key)) return Refuse(await StateAsync(db, me, now), t is null ? NotRunning : Changed);
+        Settle(t, now);
         change(t, now);
         t.UpdatedAt = now;
         await db.SaveChangesAsync();
@@ -175,13 +180,9 @@ public static class TimerEndpoints
         g.MapPost("/pause", (AppDb db, ClaimsPrincipal user, BusinessClock clock, KeyRequest req) =>
             ChangeAsync(db, user, clock, req.Key, (t, now) => t.PausedAt ??= now));
 
+        // Verder na een pauze. In focusmodus begint daarmee ook het volgende blok, ook als de pauze nog niet om is.
         g.MapPost("/resume", (AppDb db, ClaimsPrincipal user, BusinessClock clock, KeyRequest req) =>
-            ChangeAsync(db, user, clock, req.Key, (t, now) =>
-            {
-                if (t.PausedAt is not { } paused) return;
-                t.PausedSeconds += (int)Math.Round(Math.Max(0, (now - paused).TotalSeconds));
-                t.PausedAt = null;
-            }));
+            ChangeAsync(db, user, clock, req.Key, Resume));
 
         g.MapPost("/stop", async (AppDb db, ClaimsPrincipal user, BusinessClock clock, StopRequest req) =>
         {
@@ -195,6 +196,7 @@ public static class TimerEndpoints
                 if (await BookedAsync(db, req.Key) is { UserId: var by } booked && by == me) return Results.Ok(await StateAsync(db, me, now, booked));
                 return Refuse(await StateAsync(db, me, now), t is null ? NotRunning : Changed);
             }
+            Settle(t, now);
             var (end, problem, ask) = EndTime(t, req.EndedAt, req.Confirmed, now);
             if (problem is not null) return Results.BadRequest(new { error = problem });
             if (ask) return Refuse(new TimerState(await DtoAsync(db, t, now), now), ConfirmEnd, needsConfirmation: true);
@@ -216,6 +218,7 @@ public static class TimerEndpoints
             var project = await db.Projects.AsNoTracking().FirstOrDefaultAsync(p => p.Id == req.ProjectId);
             if (project is null) return Results.BadRequest(new { error = "Kies een project" });
             if (project.Id == t.ProjectId) return Results.BadRequest(new { error = "De timer loopt al op dit project." });
+            Settle(t, now);
             var (end, problem, ask) = EndTime(t, req.EndedAt, req.Confirmed, now);
             if (problem is not null) return Results.BadRequest(new { error = problem });
             if (ask) return Refuse(new TimerState(await DtoAsync(db, t, now), now), ConfirmEnd, needsConfirmation: true);
@@ -224,6 +227,7 @@ public static class TimerEndpoints
             // Eerst de oude timer weg, dan pas de nieuwe erbij: er mag er maar één tegelijk zijn.
             await db.SaveChangesAsync();
             var next = NewTimer(me, project, req.Description, req.Billable, now);
+            CarryFocus(t, next, end, now);
             db.RunningTimers.Add(next);
             await db.SaveChangesAsync();
             await tx.CommitAsync();
@@ -266,5 +270,7 @@ public static class TimerEndpoints
             await tx.CommitAsync();
             return Results.Ok(new TimerState(await DtoAsync(db, timer, now), now));
         });
+
+        MapFocus(g);
     }
 }

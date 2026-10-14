@@ -892,6 +892,8 @@ public class TimeEntry : IWorkspaceOwned, IDemoData
     public int? UserId { get; set; }
     // Kenmerk dat de timer meestuurt, zodat dubbel stoppen maar één boeking oplevert.
     public string? ClientId { get; set; }
+    // Afgemaakte focusblokken van de timer die deze boeking maakte, voor het aantal per dag op de urenpagina.
+    public int FocusBlocks { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
@@ -914,6 +916,16 @@ public class RunningTimer : IWorkspaceOwned
     // nooit een nieuwere timer stopt. De boeking krijgt hetzelfde kenmerk, dus twee keer stoppen geeft één boeking.
     public string Key { get; set; } = "";
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    // Focusmodus: werken in blokken van FocusMinutes minuten, met een pauze ertussen. Leeg is een gewone timer.
+    public int? FocusMinutes { get; set; }
+    // Gewerkte seconden van de timer toen het huidige blok begon. Na wisselen van project negatief, zodat het blok doorloopt.
+    public int FocusBlockStart { get; set; }
+    // Gevuld tijdens de pauze na een blok. De timer staat dan stil, want een pauze boeken we niet.
+    public DateTime? FocusBreakStartedAt { get; set; }
+    public int FocusBreakMinutes { get; set; }
+    // Afgemaakte blokken met deze timer; die gaan mee op de boeking. FocusRound telt de blokken tot de lange pauze.
+    public int FocusBlocks { get; set; }
+    public int FocusRound { get; set; }
 }
 
 // Soorten ritten. Alleen zakelijke kilometers met je eigen auto geven aftrek voor de inkomstenbelasting. Met een auto van
@@ -1311,6 +1323,8 @@ public class User : IWorkspaceOwned
     public bool IsPlatformAdmin { get; set; }
     // Wanneer de gebruiker zijn e-mailadres bevestigde via de link in de mail. Leeg na een nieuw adres.
     public DateTime? EmailVerifiedAt { get; set; }
+    // Hoe lang een focusblok duurt bij deze gebruiker, op elk apparaat. Leeg is de standaard van 25 minuten.
+    public int? FocusMinutes { get; set; }
 
     public void NewSecurityStamp() => SecurityStamp = Guid.NewGuid().ToString("N");
 }
