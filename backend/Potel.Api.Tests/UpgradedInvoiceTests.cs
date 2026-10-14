@@ -13,7 +13,7 @@ using static Potel.Api.Tests.InvoiceKit;
 namespace Potel.Api.Tests;
 
 // Een database van voor de koppeling tussen uren en factuurregels, met concepten waar al uren op staan.
-public class LegacyInvoiceDatabaseFactory : WebApplicationFactory<Program>
+public class LegacyInvoiceDatabaseFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
     readonly string dbPath = Path.Combine(Path.GetTempPath(), $"potel-legacy-{Guid.NewGuid():N}.db");
 
@@ -56,6 +56,10 @@ public class LegacyInvoiceDatabaseFactory : WebApplicationFactory<Program>
         cmd.ExecuteNonQuery();
     }
 
+    public Task InitializeAsync() => TestHostStart.OnOwnThread(this);
+
+    Task IAsyncLifetime.DisposeAsync() => Task.CompletedTask;
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("DatabasePath", dbPath);
@@ -66,8 +70,7 @@ public class LegacyInvoiceDatabaseFactory : WebApplicationFactory<Program>
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
-        SqliteConnection.ClearAllPools();
-        foreach (var f in new[] { dbPath, dbPath + "-wal", dbPath + "-shm" }) if (File.Exists(f)) File.Delete(f);
+        TestDatabase.Delete(dbPath);
     }
 }
 

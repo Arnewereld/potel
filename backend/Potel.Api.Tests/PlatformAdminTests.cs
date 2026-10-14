@@ -109,6 +109,13 @@ public class RestartTests
             builder.UseSetting("DatabasePath", dbPath);
             foreach (var (key, value) in settings) builder.UseSetting(key, value);
         }
+
+        // Zoals bij een echte herstart: de volgende host begint zonder de open verbindingen van deze.
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            TestDatabase.ClearPool(dbPath);
+        }
     }
 
     static async Task WithSharedDb(Func<string, Task> test)
@@ -117,8 +124,7 @@ public class RestartTests
         try { await test(path); }
         finally
         {
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-            foreach (var f in new[] { path, path + "-wal", path + "-shm" }) if (File.Exists(f)) File.Delete(f);
+            TestDatabase.Delete(path);
         }
     }
 

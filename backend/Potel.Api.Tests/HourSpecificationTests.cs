@@ -363,7 +363,6 @@ public class HourSpecificationMigrationTests : IDisposable
 
     public void Dispose()
     {
-        SqliteConnection.ClearAllPools();
-        foreach (var f in new[] { path, path + "-wal", path + "-shm" }) if (File.Exists(f)) File.Delete(f);
+        TestDatabase.Delete(path);
     }
 }

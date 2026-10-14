@@ -198,6 +198,8 @@ cd backend
 dotnet test
 ```
 
+Elke testklasse krijgt een eigen, tijdelijke database, en de klassen draaien tegelijk. Maakt een test zelf een database aan, ruim die dan op met `TestDatabase.Delete(pad)`. Gebruik nooit `SqliteConnection.ClearAllPools()`: dat sluit ook de verbindingen van de andere testklassen, en dan faalt af en toe een willekeurige test. Een test bewaakt dat. Een eigen testfactory erft van `PortalFactory`; die start de host vooraf op een eigen thread (`TestHostStart`), zodat het opstarten de threads van xUnit niet bezet houdt.
+
 ## Opbouw
 
 ```
