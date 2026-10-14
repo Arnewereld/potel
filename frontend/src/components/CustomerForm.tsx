@@ -4,6 +4,7 @@ import type { Customer, Language } from '../lib/types'
 import { useToast } from '../lib/toast'
 import { euCountries, inEu, isNetherlands, netherlands, otherCountries } from '../lib/invoice'
 import { languages } from '../lib/docTexts'
+import { vatFormats, vatNumberProblem } from '../lib/vat'
 import { Field, Modal } from './ui'
 
 const empty: Omit<Customer, 'id'> = {
@@ -24,6 +25,8 @@ export function CustomerForm({ customer, onClose, onSaved }: {
   const country = form.country?.trim() || netherlands
   const listed = [...euCountries, ...otherCountries].includes(country)
   const [typing, setTyping] = useState(!listed)
+  // Alleen de vorm per EU-land; de server controleert hetzelfde bij opslaan.
+  const vatProblem = vatNumberProblem(form.vatNumber, country)
   const pickCountry = (e: React.ChangeEvent<HTMLSelectElement>) => {
     if (e.target.value === '') setTyping(true)
     setForm(f => ({ ...f, country: e.target.value }))
@@ -84,9 +87,10 @@ export function CustomerForm({ customer, onClose, onSaved }: {
           </p>
         )}
         <Field label="Btw-nummer">
-          <input value={form.vatNumber ?? ''} onChange={set('vatNumber')}
-            placeholder={isNetherlands(country) ? 'Bijv. NL001234567B01' : inEu(country) ? 'Nodig voor btw verlegd, bijv. DE123456789' : 'Optioneel'} />
+          <input value={form.vatNumber ?? ''} onChange={set('vatNumber')} aria-invalid={!!vatProblem}
+            placeholder={isNetherlands(country) ? 'Bijv. NL001234567B01' : inEu(country) ? `Nodig voor btw verlegd, bijv. ${vatFormats[country]?.[2] ?? 'DE123456789'}` : 'Optioneel'} />
         </Field>
+        {vatProblem && <p className="text-red field-full" style={{ fontSize: 13, margin: 0 }}>{vatProblem}</p>}
         <Field label="Rekeningnummer (IBAN)">
           <input value={form.iban ?? ''} onChange={set('iban')} placeholder="Optioneel, bijv. NL91 ABNA 0417 1643 00" autoComplete="off" spellCheck={false} />
         </Field>

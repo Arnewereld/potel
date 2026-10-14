@@ -673,6 +673,10 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 a.btn { text-decoration: none; color: inherit; display: inline-flex; align-items: center; }
 .notice { background: color-mix(in srgb, var(--yellow) 14%, var(--panel)); border: 1px solid color-mix(in srgb, var(--yellow) 45%, transparent); border-radius: 12px; padding: 10px 14px; margin-bottom: 12px; font-size: 13px; }
 .notice-ok { background: color-mix(in srgb, var(--green) 12%, var(--panel)); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+/* Een voorstel voor de btw-regeling in de editor: tekst met een knop ernaast, of eronder als het niet past. */
+.regime-suggestion { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 0; }
+.regime-suggestion > svg { flex: none; }
+.regime-suggestion > span { flex: 1 1 220px; min-width: 0; }
 .input-with-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 /* Past het veld met de knoppen niet op één regel, dan gaan de knoppen eronder. */
 .input-with-chips > input { flex: 1 1 130px; min-width: 0; }

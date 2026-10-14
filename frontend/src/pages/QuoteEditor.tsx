@@ -17,6 +17,7 @@ import { depositAmount, missingForQuote, quoteBuyer, quoteMail, quoteState, quot
 import { Badge, ErrorBox, Field, Loading, Modal, PageHeader } from '../components/ui'
 import { QuotePaper } from '../components/QuotePaper'
 import { LanguageBadge, LanguageField } from '../components/DocLanguage'
+import { RegimeSuggestion } from '../components/RegimeSuggestion'
 import { usePrintTitle } from '../lib/printTitle'
 import { docTitle } from '../lib/docTexts'
 
@@ -311,6 +312,9 @@ export function QuoteEditorPage() {
                 )}
                 {(regimeError || draft.vatRegime !== 'normaal') && (
                   <p className={regimeError ? 'text-red' : 'muted'} style={{ fontSize: 13, margin: 0, gridColumn: '1 / -1' }}>{regimeError ?? regimeInfo?.help}</p>
+                )}
+                {!readOnly && (
+                  <RegimeSuggestion kind="offerte" regime={draft.vatRegime} customer={customer} onAccept={regime => update(withRegime(regime))} />
                 )}
                 <LanguageField kind="offerte" value={draft.language} onChange={(language: Language) => update({ language })} />
                 {draft.language === 'en' && (

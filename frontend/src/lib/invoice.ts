@@ -1,6 +1,7 @@
 import type { Customer, Invoice, InvoiceParty, Language, PaymentMethod, Settings, VatRegime } from './types'
 import { invoiceTotals, parseDate } from './format'
 import { docDate, docEuro, t } from './docTexts'
+import { vatNumberLooksValid } from './vat'
 
 export const units = ['uur', 'dag', 'stuk', 'km', 'maand', 'jaar']
 
@@ -45,14 +46,18 @@ export const vatRegimes: { id: VatRegime; label: string; help: string }[] = [
 // Alleen bij normaal staat er btw op de regels.
 export const zeroVat = (regime: VatRegime) => regime !== 'normaal'
 
-// De regeling voor een nieuwe factuur, net als op de server: verlegd voor een zakelijke klant in een ander EU-land,
-// buiten de EU daarbuiten, en anders wat je bij Instellingen als standaard hebt gekozen.
+// De regeling die bij een klant in het buitenland past, net als VatRegimes.Suggest op de server: verlegd voor een
+// klant in een ander EU-land met een btw-nummer van de juiste vorm, buiten de EU daarbuiten, anders geen voorstel.
+export function suggestedRegime(customer: Customer | null | undefined): VatRegime | null {
+  if (!customer || isNetherlands(customer.country)) return null
+  if (!inEu(customer.country)) return 'buiten-eu'
+  return vatNumberLooksValid(customer.vatNumber, customer.country) ? 'verlegd' : null
+}
+
+// De regeling voor een nieuwe factuur, net als op de server: het voorstel voor de klant, en anders wat je bij
+// Instellingen als standaard hebt gekozen.
 export function defaultRegime(settings: Pick<Settings, 'vatRegime'> | null | undefined, customer: Customer | null | undefined): VatRegime {
-  if (customer && !isNetherlands(customer.country)) {
-    if (!inEu(customer.country)) return 'buiten-eu'
-    if (customer.vatNumber?.trim()) return 'verlegd'
-  }
-  return settings?.vatRegime === 'kor' || settings?.vatRegime === 'vrijgesteld' ? settings.vatRegime : 'normaal'
+  return suggestedRegime(customer) ?? (settings?.vatRegime === 'kor' || settings?.vatRegime === 'vrijgesteld' ? settings.vatRegime : 'normaal')
 }
 
 // Past de regeling bij de klant? Dezelfde controle als RegimeError op de server.
@@ -61,6 +66,8 @@ export function regimeProblem(regime: VatRegime, customer: Customer | null | und
   if (regime === 'verlegd' && (isNetherlands(customer.country) || !inEu(customer.country)))
     return 'Btw verlegd kan alleen voor een zakelijke klant in een ander EU-land. Een klant in Nederland betaalt gewoon btw.'
   if (regime === 'verlegd' && !customer.vatNumber?.trim()) return 'Voor btw verlegd moet het btw-nummer van de klant bekend zijn.'
+  if (regime === 'verlegd' && !vatNumberLooksValid(customer.vatNumber, customer.country))
+    return `Het btw-nummer van de klant (${customer.vatNumber!.trim()}) heeft niet de vorm van een btw-nummer uit ${customer.country!.trim()}. Pas het aan bij de klant.`
   if (regime === 'buiten-eu' && inEu(customer.country)) return '"Buiten de EU" kan alleen voor een klant buiten de EU.'
   return null
 }

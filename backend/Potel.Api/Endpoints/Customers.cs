@@ -32,12 +32,14 @@ public static class CustomerEndpoints
             if (!TryIban(input.Iban, out var iban)) return Results.BadRequest(new { error = IbanError });
             if (TripEndpoints.RateProblem(input.KilometreRate) is { } rateProblem) return Results.BadRequest(new { error = rateProblem });
             if (!Languages.IsKnown(input.Language)) return Results.BadRequest(new { error = Languages.Error });
+            input.Country = Countries.Normalize(input.Country);
+            if (VatNumbers.Problem(input.VatNumber, input.Country) is { } vatProblem) return Results.BadRequest(new { error = vatProblem });
+            input.VatNumber = VatNumbers.Clean(input.VatNumber, input.Country);
             input.Language = Languages.Of(input.Language);
             input.Iban = iban;
             input.KilometreRate = TripEndpoints.CleanRate(input.KilometreRate);
             input.Id = 0;
             input.CreatedAt = DateTime.UtcNow;
-            input.Country = Countries.Normalize(input.Country);
             db.Customers.Add(input);
             db.Log("klant", $"Klant {input.Name} toegevoegd");
             await db.SaveChangesAsync();
@@ -55,10 +57,13 @@ public static class CustomerEndpoints
             if (!TryIban(input.Iban, out var iban)) return Results.BadRequest(new { error = IbanError });
             if (TripEndpoints.RateProblem(input.KilometreRate) is { } rateProblem) return Results.BadRequest(new { error = rateProblem });
             if (!Languages.IsKnown(input.Language)) return Results.BadRequest(new { error = Languages.Error });
+            var country = Countries.Normalize(input.Country);
+            // Alleen de vorm, zonder VIES. Facturen die al verstuurd zijn houden het nummer dat erop staat.
+            if (VatNumbers.Problem(input.VatNumber, country) is { } vatProblem) return Results.BadRequest(new { error = vatProblem });
             c.Iban = iban;
             c.KilometreRate = TripEndpoints.CleanRate(input.KilometreRate);
             c.Name = input.Name; c.Company = input.Company; c.Email = input.Email; c.Phone = input.Phone;
-            c.Address = input.Address; c.City = input.City; c.Country = Countries.Normalize(input.Country); c.VatNumber = input.VatNumber; c.Notes = input.Notes;
+            c.Address = input.Address; c.City = input.City; c.Country = country; c.VatNumber = VatNumbers.Clean(input.VatNumber, country); c.Notes = input.Notes;
             c.RemindersOff = input.RemindersOff;
             // Alleen voor nieuwe facturen en offertes: een concept houdt zijn taal tot je die zelf aanpast, een verstuurde ligt vast.
             c.Language = Languages.Of(input.Language);

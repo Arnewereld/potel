@@ -23,6 +23,7 @@ import { HourSpecPaper } from '../components/HourSpecPaper'
 import { MailDialog, MailPanel } from '../components/InvoiceMail'
 import { PaymentsPanel } from '../components/InvoicePayments'
 import { LanguageBadge, LanguageField } from '../components/DocLanguage'
+import { RegimeSuggestion } from '../components/RegimeSuggestion'
 import { usePrintTitle } from '../lib/printTitle'
 import { docTitle, t } from '../lib/docTexts'
 
@@ -408,6 +409,9 @@ export function InvoiceEditorPage() {
                   <p className={regimeError ? 'text-red' : 'muted'} style={{ fontSize: 13, margin: 0, gridColumn: '1 / -1' }}>
                     {regimeError ?? regimeInfo?.help}
                   </p>
+                )}
+                {!readOnly && !linked && (
+                  <RegimeSuggestion kind="factuur" regime={draft.vatRegime} customer={customer} onAccept={regime => update(withRegime(regime))} />
                 )}
                 {/* Een creditnota volgt de taal van de factuur die hij corrigeert. */}
                 <LanguageField kind={credit ? 'creditnota' : 'factuur'} value={draft.language} disabled={linked} onChange={language => update(withLanguage(language))} />

@@ -171,7 +171,8 @@ public class InvoiceRulesTests(PortalFactory factory) : IClassFixture<PortalFact
 
         // Verhuist de klant later naar Nederland, dan kan een nieuw concept met btw verlegd niet meer verstuurd worden.
         var concept = await Json(await c.PostAsJsonAsync("/api/invoices", Body(german, vatRegime: "verlegd")));
-        await c.PutAsJsonAsync($"/api/customers/{german}", new { name = "Duits", address = "Dorpsstraat 1", city = "Utrecht", country = "Nederland", vatNumber = "DE123456789" });
+        // Met de verhuizing krijgt hij een Nederlands btw-nummer; een Duits nummer past niet bij een klant in Nederland.
+        (await c.PutAsJsonAsync($"/api/customers/{german}", new { name = "Duits", address = "Dorpsstraat 1", city = "Utrecht", country = "Nederland", vatNumber = "NL812345678B01" })).EnsureSuccessStatusCode();
         Assert.Equal(HttpStatusCode.BadRequest, (await SetStatusAsync(c, concept.GetProperty("id").GetInt32(), "verzonden")).StatusCode);
     }
 

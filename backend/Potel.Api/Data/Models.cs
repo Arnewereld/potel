@@ -275,17 +275,20 @@ public static class VatRegimes
     // Alleen bij normaal staat er btw op de regels.
     public static bool ZeroVat(string regime) => regime != Normal;
 
-    // De regeling voor een nieuwe factuur: verlegd voor een zakelijke klant in een ander EU-land, buiten de EU daarbuiten,
-    // en anders wat de werkruimte standaard gebruikt (normaal, KOR of vrijgesteld).
-    public static string DefaultFor(Settings settings, Customer? customer)
+    // De regeling die bij een klant in het buitenland past: verlegd voor een zakelijke klant in een ander EU-land met een
+    // btw-nummer dat de juiste vorm heeft, buiten de EU daarbuiten. Voor een klant in Nederland, of in de EU zonder (geldig)
+    // btw-nummer, geen voorstel: dan geldt wat de werkruimte standaard gebruikt. De frontend doet hetzelfde (lib/vat.ts).
+    public static string? Suggest(Customer? customer)
     {
-        if (customer is not null && !Countries.IsNetherlands(customer.Country))
-        {
-            if (!Countries.InEu(customer.Country)) return OutsideEu;
-            if (!string.IsNullOrWhiteSpace(customer.VatNumber)) return ReverseCharge;
-        }
-        return WorkspaceDefaults.Contains(settings.VatRegime) ? settings.VatRegime : Normal;
+        if (customer is null || Countries.IsNetherlands(customer.Country)) return null;
+        if (!Countries.InEu(customer.Country)) return OutsideEu;
+        return VatNumbers.LooksValid(customer.VatNumber, customer.Country) ? ReverseCharge : null;
     }
+
+    // De regeling voor een nieuwe factuur: het voorstel voor de klant, en anders wat de werkruimte standaard gebruikt
+    // (normaal, KOR of vrijgesteld).
+    public static string DefaultFor(Settings settings, Customer? customer) =>
+        Suggest(customer) ?? (WorkspaceDefaults.Contains(settings.VatRegime) ? settings.VatRegime : Normal);
 }
 
 public class Invoice : IWorkspaceOwned, IDemoData

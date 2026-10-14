@@ -110,6 +110,9 @@ public static partial class InvoiceEndpoints
             "Btw verlegd kan alleen voor een zakelijke klant in een ander EU-land. Een klant in Nederland betaalt gewoon btw. Zit je klant in een ander EU-land? Vul dan het land in bij de klant.",
         VatRegimes.ReverseCharge when string.IsNullOrWhiteSpace(c.VatNumber) =>
             "Voor btw verlegd moet het btw-nummer van de klant bekend zijn. Vul het in bij de klant.",
+        // Een nummer van voor de controle bij de klant kan nog een verkeerde vorm hebben; op de factuur moet het kloppen.
+        VatRegimes.ReverseCharge when !VatNumbers.LooksValid(c.VatNumber, c.Country) =>
+            $"Het btw-nummer van de klant ({c.VatNumber!.Trim()}) heeft niet de vorm van een btw-nummer uit {Countries.Normalize(c.Country)}. Pas het aan bij de klant.",
         VatRegimes.OutsideEu when Countries.InEu(c.Country) =>
             "\"Buiten de EU\" kan alleen voor een klant buiten de EU. Vul het land van de klant in bij de klant.",
         _ => null,
