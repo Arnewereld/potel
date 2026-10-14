@@ -260,6 +260,7 @@ api.MapQuotes();
 api.MapExpenses();
 api.MapBank();
 api.MapTax();
+api.MapTaxReserve();
 api.MapAppointments();
 api.MapModules();
 api.MapWorkflows();

@@ -960,6 +960,63 @@ public class Settings : IWorkspaceOwned
     public string BrandColor { get; set; } = "#ff6d5a";
 }
 
+// Voor de belastingpot: hoe je reserveert, per kalenderjaar. Berekend (schijven, heffingskortingen en Zvw) of een vast
+// percentage van wat er op je facturen betaald is.
+public static class ReserveModes
+{
+    public const string Calculated = "berekend";
+    public const string Percentage = "percentage";
+    public static readonly string[] All = [Calculated, Percentage];
+}
+
+// Een voorlopige aanslag: geen, één bedrag voor het hele jaar, of een bedrag per maand gedurende een aantal maanden.
+public static class ProvisionalKinds
+{
+    public const string None = "geen";
+    public const string Total = "totaal";
+    public const string Monthly = "per-maand";
+    public static readonly string[] All = [None, Total, Monthly];
+}
+
+// Je persoonlijke situatie in een jaar, voor de belastingpot: loon uit loondienst met de ingehouden loonheffing, of je starter
+// bent, je voorlopige aanslag (inkomstenbelasting en Zvw samen) en hoe je reserveert. Bedragen voor het hele jaar.
+// Eén rij per werkruimte per jaar; alleen een beheerder ziet en wijzigt dit.
+public class TaxReserveYear : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int Year { get; set; }
+    public decimal Wage { get; set; }
+    public decimal WageTaxWithheld { get; set; }
+    public bool Starter { get; set; }
+    public string Provisional { get; set; } = ProvisionalKinds.None;
+    public decimal ProvisionalAmount { get; set; }
+    public int ProvisionalMonths { get; set; } = 12;
+    public string Mode { get; set; } = ReserveModes.Calculated;
+    public decimal Percentage { get; set; }
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public string? UpdatedBy { get; set; }
+
+    // Wat de voorlopige aanslag over het hele jaar dekt.
+    [NotMapped] public decimal ProvisionalTotal => Provisional switch
+    {
+        ProvisionalKinds.Total => ProvisionalAmount,
+        ProvisionalKinds.Monthly => ProvisionalAmount * ProvisionalMonths,
+        _ => 0,
+    };
+}
+
+// Een btw-aangifte die je al hebt gedaan. Die telt dan niet meer mee in de belastingpot.
+public class VatFiling : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int Year { get; set; }
+    public int Quarter { get; set; }
+    public DateTime FiledAt { get; set; } = DateTime.UtcNow;
+    public string? FiledBy { get; set; }
+}
+
 // Soorten zakelijke kosten, met de naam zoals we hem tonen (ook in de export voor je boekhouder).
 public static class ExpenseCategories
 {

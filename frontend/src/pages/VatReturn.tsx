@@ -1,9 +1,12 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Landmark, ChevronLeft, ChevronRight, CalendarClock, Euro, Receipt, Info } from 'lucide-react'
+import { Landmark, ChevronLeft, ChevronRight, CalendarClock, Euro, Receipt, Info, CheckCircle2 } from 'lucide-react'
+import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
+import { useAuth } from '../lib/auth'
+import { useToast } from '../lib/toast'
 import type { VatReturn } from '../lib/types'
-import { date, euro } from '../lib/format'
+import { date, euro, toDateInput, utcDateTime } from '../lib/format'
 import { ErrorBox, Loading, PageHeader } from '../components/ui'
 import { MiniStat } from './Time'
 
@@ -34,6 +37,10 @@ export function VatReturnPage() {
   if (withDemo) params.set('demo', 'true')
   const { data, error, loading, reload } = useApi<VatReturn>(`/tax/vat-return${params.size ? `?${params}` : ''}`)
   const navigate = useNavigate()
+  const admin = useAuth().user.role === 'beheerder'
+  const toast = useToast()
+  const [marking, setMarking] = useState(false)
+  const [today] = useState(() => toDateInput(new Date()))
 
   const year = selected?.year ?? data?.year
   const quarter = selected?.quarter ?? data?.quarter
@@ -41,6 +48,22 @@ export function VatReturnPage() {
   const refund = (data?.total ?? 0) < 0
   const outside = data ? data.outsideEu + data.exempt + data.korRevenue : 0
   const rubric3b = data?.rubrics.find(r => r.code === '3b')?.base ?? 0
+  // Een kwartaal dat voorbij is kun je als aangegeven markeren; dan telt het niet meer mee in de belastingpot.
+  const ended = !!data && data.to.slice(0, 10) < today
+
+  const markFiled = async (filed: boolean) => {
+    if (!data) return
+    setMarking(true)
+    try {
+      await api.put('/tax/vat-return/filed', { year: data.year, quarter: data.quarter, filed })
+      toast(filed ? `Aangifte over ${data.label} gemarkeerd als gedaan` : `Aangifte over ${data.label} weer op niet gedaan gezet`)
+      await reload(true)
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    } finally {
+      setMarking(false)
+    }
+  }
 
   return (
     <>
@@ -75,7 +98,7 @@ export function VatReturnPage() {
             De cijfers hieronder zijn ter informatie.
           </div>
         )}
-        {data.pending && (data.pending.year !== data.year || data.pending.quarter !== data.quarter) && (
+        {data.pending && !data.pending.filed && (data.pending.year !== data.year || data.pending.quarter !== data.quarter) && (
           <div className="notice row between">
             <span>De aangifte over {data.pending.label} moet uiterlijk {date(data.pending.dueDate)} binnen zijn.</span>
             <button className="btn btn-sm" onClick={() => pick(data.pending!.year, data.pending!.quarter)}>Bekijk {data.pending.label}</button>
@@ -89,6 +112,18 @@ export function VatReturnPage() {
                 ? 'Je ziet nu ook de voorbeelddata. Neem deze bedragen niet over in je aangifte.'
                 : 'Voorbeeldfacturen en -kosten tellen niet mee. Vink aan om te zien hoe het eruitziet met de voorbeelddata.'}</span>
             </label>
+          </div>
+        )}
+
+        {ended && !data.kor && (
+          <div className={`notice row between wrap ${data.filedAt ? 'notice-ok' : ''}`}>
+            {data.filedAt
+              ? <span><CheckCircle2 size={13} /> Je hebt de aangifte over {data.label} als gedaan gemarkeerd op {utcDateTime(data.filedAt)}{data.filedBy ? ` (${data.filedBy})` : ''}.</span>
+              : <span>{admin ? `Heb je de aangifte over ${data.label} gedaan? Markeer hem dan als gedaan, zodat deze btw niet meer in je belastingpot staat.`
+                : `De aangifte over ${data.label} is nog niet als gedaan gemarkeerd.`}</span>}
+            {admin && (data.filedAt
+              ? <button className="btn btn-sm" disabled={marking} onClick={() => markFiled(false)}>Toch nog niet gedaan</button>
+              : <button className="btn btn-sm btn-primary" disabled={marking} onClick={() => markFiled(true)}><CheckCircle2 size={14} /> Aangifte gedaan</button>)}
           </div>
         )}
 

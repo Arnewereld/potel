@@ -580,6 +580,20 @@ export interface Dashboard {
   }
   // De btw-aangifte van dit kwartaal: positief is te betalen, negatief terug te vragen. Met de KOR is er geen datum.
   vat: { label: string; year: number; quarter: number; amount: number; revenue: number; dueDate: string | null; kor: boolean }
+  // De belastingpot van dit jaar; alleen voor beheerders, voor medewerkers null.
+  taxReserve: {
+    year: number
+    available: boolean
+    missing?: string | null
+    mode: ReserveMode
+    kor: boolean
+    vat: number
+    total: number
+    provisional: number
+    remaining: number
+    perMonth: number | null
+    monthsLeft: number
+  } | null
   projects: Project[]
 }
 
@@ -727,7 +741,11 @@ export interface VatReturn {
   sources: VatSource[]
   demoData: boolean
   includesDemo: boolean
-  pending?: { year: number; quarter: number; label: string; dueDate: string } | null
+  // Het vorige kwartaal zolang die aangifte nog op tijd kan; filed als je hem als gedaan hebt gemarkeerd.
+  pending?: { year: number; quarter: number; label: string; dueDate: string; filed: boolean } | null
+  // Wanneer en door wie de aangifte over dit kwartaal als gedaan is gemarkeerd.
+  filedAt?: string | null
+  filedBy?: string | null
 }
 
 export interface TaxIndication {
@@ -770,6 +788,91 @@ export interface AnnualOverview {
   mileage: { trips: number; businessKm: number; companyCarKm: number; privateKm: number; rate: number | null; deduction: number; source: string; note?: string | null }
   // Afschrijving, verkopen en de kleinschaligheidsinvesteringsaftrek van dit jaar.
   investments: InvestmentSummary
+}
+
+// De belastingpot: wat je opzij zet voor de btw, de inkomstenbelasting en de bijdrage Zvw. Een indicatie, geen belastingadvies.
+export type ReserveMode = 'berekend' | 'percentage'
+export type ProvisionalKind = 'geen' | 'totaal' | 'per-maand'
+
+export interface TaxReserveSettings {
+  year: number
+  // false zolang je voor dit jaar nog niets hebt opgeslagen.
+  saved: boolean
+  wage: number
+  wageTaxWithheld: number
+  starter: boolean
+  provisional: ProvisionalKind
+  provisionalAmount: number
+  provisionalMonths: number
+  provisionalTotal: number
+  mode: ReserveMode
+  percentage: number
+  updatedAt?: string | null
+  updatedBy?: string | null
+}
+
+export interface BracketTax { from: number; upTo: number | null; rate: number; income: number; tax: number }
+
+// De som stap voor stap, zoals de server hem maakt (IncomeTax.Estimate). Due is na de ingehouden loonheffing; negatief is terug.
+export interface IncomeTaxEstimate {
+  result: number
+  investmentDeduction: number
+  profit: number
+  hoursMet: boolean
+  starter: boolean
+  selfEmployedDeduction: number
+  starterDeduction: number
+  smeExemption: number
+  taxableProfit: number
+  wage: number
+  taxableIncome: number
+  brackets: BracketTax[]
+  rateAdjustment: number
+  taxBeforeCredits: number
+  labourIncome: number
+  generalCredit: number
+  labourCredit: number
+  credits: number
+  incomeTax: number
+  zvwBase: number
+  zvw: number
+  total: number
+  wageTaxWithheld: number
+  due: number
+}
+
+export interface TaxReserve {
+  year: number
+  today: string
+  current: boolean
+  started: boolean
+  elapsed: number
+  monthsLeft: number
+  settings: TaxReserveSettings
+  kor: boolean
+  // Btw die nog betaald moet worden: het vorige kwartaal (als die aangifte nog niet gedaan is) en het lopende.
+  vat: { year: number; quarter: number; label: string; dueDate: string; amount: number; running: boolean }[]
+  vatTotal: number
+  mode: ReserveMode
+  available: boolean
+  missing?: string | null
+  resultSoFar: number
+  resultFullYear: number
+  hours: AnnualOverview['hours']
+  expectedHours: number
+  hoursMet: boolean
+  soFar: IncomeTaxEstimate | null
+  fullYear: IncomeTaxEstimate | null
+  paidSoFar: number
+  paidFullYear: number
+  soFarAmount: number
+  total: number
+  provisional: number
+  remaining: number
+  perMonth: number | null
+  explanation: string[]
+  leftOut: string[]
+  sources: { label: string; url: string }[]
 }
 
 // Het klantportaal: wat de klant ziet en de stand van de link. Het token zelf bewaart de server niet.

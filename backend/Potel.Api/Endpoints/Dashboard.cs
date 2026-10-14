@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Potel.Api.Data;
 using Potel.Api.Workflows;
@@ -8,7 +9,7 @@ public static class DashboardEndpoints
 {
     public static void MapDashboard(this RouteGroupBuilder api)
     {
-        api.MapGet("/dashboard", async (AppDb db, BusinessClock clock, WorkflowEngine engine) =>
+        api.MapGet("/dashboard", async (AppDb db, BusinessClock clock, WorkflowEngine engine, ClaimsPrincipal user) =>
         {
             await InvoiceEndpoints.MarkOverdue(db, clock, engine);
             // Week, maand, kwartaal en jaar zoals ze in Nederland lopen, niet in de tijdzone van de server.
@@ -45,6 +46,9 @@ public static class DashboardEndpoints
             var openQuotes = quotes.Where(q => QuoteStatus.Of(q, today) == QuoteStatus.Sent).ToList();
             var decided = quotes.Where(q => q.IssueDate >= today.AddMonths(-12)).Select(q => QuoteStatus.Of(q, today))
                 .Where(s => s is QuoteStatus.Accepted or QuoteStatus.Rejected or QuoteStatus.Expired).ToList();
+
+            // De belastingpot gaat ook over je loon en je voorlopige aanslag, dus die ziet alleen een beheerder.
+            var reserve = user.IsInRole(Roles.Admin) ? await TaxReserve.CalculateAsync(db, clock, today.Year) : null;
 
             return new
             {
@@ -95,6 +99,13 @@ public static class DashboardEndpoints
                     revenue = vatReturn.Revenue,
                     kor = vatReturn.Kor,
                     dueDate = vatReturn.Kor ? null : vatReturn.DueDate.ToString("yyyy-MM-dd"),
+                },
+                taxReserve = reserve is null ? null : new
+                {
+                    reserve.Year, reserve.Available, reserve.Missing, reserve.Mode, reserve.Kor,
+                    vat = reserve.VatTotal,
+                    // Inkomstenbelasting en Zvw: voor het hele jaar, wat de voorlopige aanslag dekt, wat je nog opzij zet en per maand.
+                    reserve.Total, reserve.Provisional, reserve.Remaining, reserve.PerMonth, reserve.MonthsLeft,
                 },
                 projects = projects.Where(p => p.Status == "actief").OrderByDescending(p => p.LastEntry).Take(6),
                 upcoming = await db.Appointments.Where(a => a.End >= clock.Now && !a.Done).OrderBy(a => a.Start).Take(5).ToListAsync(),

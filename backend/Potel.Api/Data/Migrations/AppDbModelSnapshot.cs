@@ -1704,6 +1704,60 @@ namespace Potel.Api.Data.Migrations
                     b.ToTable("Settings");
                 });
 
+            modelBuilder.Entity("Potel.Api.Data.TaxReserveYear", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("Percentage")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Provisional")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("ProvisionalAmount")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ProvisionalMonths")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("Starter")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("Wage")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("WageTaxWithheld")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Year")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.HasIndex("WorkspaceId", "Year")
+                        .IsUnique();
+
+                    b.ToTable("TaxReserveYears");
+                });
+
             modelBuilder.Entity("Potel.Api.Data.TimeEntry", b =>
                 {
                     b.Property<int>("Id")
@@ -1951,6 +2005,37 @@ namespace Potel.Api.Data.Migrations
                     b.HasIndex("WorkspaceId");
 
                     b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.VatFiling", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("FiledAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FiledBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Quarter")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Year")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.HasIndex("WorkspaceId", "Year", "Quarter")
+                        .IsUnique();
+
+                    b.ToTable("VatFilings");
                 });
 
             modelBuilder.Entity("Potel.Api.Data.Workflow", b =>

@@ -216,7 +216,7 @@ input, select, textarea {
   width: 100%; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
   padding: 8px 10px; outline: none; transition: border-color 0.12s, box-shadow 0.12s;
 }
-input[type='checkbox'] { width: auto; accent-color: var(--primary); }
+input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--primary); }
 textarea { resize: vertical; min-height: 80px; }
 input:focus, select:focus, textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
 .search-input { position: relative; }
@@ -672,6 +672,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .btn-success:hover { background: color-mix(in srgb, var(--green) 88%, #000); }
 a.btn { text-decoration: none; color: inherit; display: inline-flex; align-items: center; }
 .notice { background: color-mix(in srgb, var(--yellow) 14%, var(--panel)); border: 1px solid color-mix(in srgb, var(--yellow) 45%, transparent); border-radius: 12px; padding: 10px 14px; margin-bottom: 12px; font-size: 13px; }
+.notice-ok { background: color-mix(in srgb, var(--green) 12%, var(--panel)); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
 .input-with-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 /* Past het veld met de knoppen niet op één regel, dan gaan de knoppen eronder. */
 .input-with-chips > input { flex: 1 1 130px; min-width: 0; }
@@ -814,6 +815,30 @@ a.btn { text-decoration: none; color: inherit; display: inline-flex; align-items
 .quote-tile { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 6px; }
 .quote-tile-value { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
 .dash-stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-content: start; }
+
+/* Belastingpot: een tegel op het dashboard en een blok op het jaaroverzicht */
+.grid-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+/* Daaronder drie tegels op de eerste rij en twee brede op de tweede, dan twee per rij, dan één. */
+@media (max-width: 1500px) {
+  .grid-5 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .grid-5 > * { grid-column: span 2; }
+  .grid-5 > :nth-child(n + 4) { grid-column: span 3; }
+}
+@media (max-width: 1200px) {
+  .grid-5 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid-5 > *, .grid-5 > :nth-child(n + 4) { grid-column: auto; }
+  .grid-5 > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
+@media (max-width: 800px) { .grid-5 { grid-template-columns: minmax(0, 1fr); } }
+.tax-reserve { margin-top: 28px; }
+.tax-reserve-head { margin-bottom: 12px; }
+.tax-reserve-head h3 { font-size: 17px; gap: 8px; }
+.tax-reserve-lead { margin: 0 0 14px; font-size: 14px; line-height: 1.55; }
+.tax-reserve-vat { padding: 8px 0; border-bottom: 1px solid var(--border); align-items: flex-start; }
+.tax-reserve-vat:first-child { padding-top: 0; }
+.tax-reserve-vat:last-child { border-bottom: 0; padding-bottom: 0; }
+.tax-reserve-list { font-size: 13px; padding-left: 18px; margin: 0; line-height: 1.55; }
+.tax-reserve-list li + li { margin-top: 6px; }
 @media (max-width: 640px) {
   .quote-decide-choices { grid-template-columns: 1fr; }
   .public-quote .quote-subject { font-size: 14px; }

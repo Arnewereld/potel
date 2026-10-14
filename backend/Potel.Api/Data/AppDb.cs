@@ -49,6 +49,8 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
     public DbSet<BankCsvMapping> BankCsvMappings => Set<BankCsvMapping>();
     public DbSet<Trip> Trips => Set<Trip>();
     public DbSet<TripRoute> TripRoutes => Set<TripRoute>();
+    public DbSet<TaxReserveYear> TaxReserveYears => Set<TaxReserveYear>();
+    public DbSet<VatFiling> VatFilings => Set<VatFiling>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -159,6 +161,9 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         b.Entity<Trip>().HasIndex(t => new { t.WorkspaceId, t.Date });
         b.Entity<TripRoute>().HasOne<Customer>().WithMany().HasForeignKey(r => r.CustomerId).OnDelete(DeleteBehavior.SetNull);
         b.Entity<TripRoute>().HasOne<Project>().WithMany().HasForeignKey(r => r.ProjectId).OnDelete(DeleteBehavior.SetNull);
+        // De belastingpot: per werkruimte één rij per jaar, en elke btw-aangifte staat er hooguit één keer als gedaan.
+        b.Entity<TaxReserveYear>().HasIndex(t => new { t.WorkspaceId, t.Year }).IsUnique();
+        b.Entity<VatFiling>().HasIndex(f => new { f.WorkspaceId, f.Year, f.Quarter }).IsUnique();
         FilterByWorkspace(b);
     }
 
@@ -175,6 +180,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         Filter<InvoicePayment>(b); Filter<MollieAccount>(b); Filter<OnlinePayment>(b);
         Filter<BankTransaction>(b); Filter<BankImport>(b); Filter<BankCsvMapping>(b);
         Filter<Trip>(b); Filter<TripRoute>(b);
+        Filter<TaxReserveYear>(b); Filter<VatFiling>(b);
     }
 
     void Filter<T>(ModelBuilder b) where T : class, IWorkspaceOwned

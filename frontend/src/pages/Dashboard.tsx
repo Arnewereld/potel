@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Euro, Clock, Target, Activity, CalendarDays, TrendingUp, Plus, LayoutDashboard, AlertTriangle, Timer, Hourglass, Landmark,
-  Award, FolderKanban, FileSignature,
+  Award, FolderKanban, FileSignature, PiggyBank,
 } from 'lucide-react'
 import { useApi } from '../lib/useApi'
 import { useOnTimeChanged } from '../lib/timer'
@@ -44,7 +44,7 @@ export function DashboardPage() {
         </>}
       />
 
-      <div className="grid grid-4">
+      <div className={`grid ${data.taxReserve ? 'grid-5' : 'grid-4'}`}>
         <Stat icon={<Euro size={20} />} accent="var(--green)" label="Omzet dit jaar" value={euro(data.revenueYear)} sub="Betaalde facturen, incl. btw" />
         <Stat icon={<Hourglass size={20} />} accent="var(--primary)" label="Klaar om te factureren" value={euro(data.unbilled.value)}
           sub={`${hours(data.unbilled.minutes)} open uren`} onClick={() => navigate('/projecten')} />
@@ -55,6 +55,7 @@ export function DashboardPage() {
           sub={data.vat.kor || !data.vat.dueDate ? 'KOR: je doet geen btw-aangifte'
             : `${data.vat.amount < 0 ? 'Terug te vragen' : 'Te betalen'}, aangifte uiterlijk ${date(data.vat.dueDate)}`}
           onClick={() => navigate('/btw-aangifte')} />
+        {data.taxReserve && <TaxReserveStat pot={data.taxReserve} onClick={() => navigate('/jaaroverzicht#belastingpot')} />}
       </div>
 
       <div className="grid grid-2-1 mt">
@@ -214,6 +215,20 @@ function Stat({ icon, label, value, sub, accent, onClick }: { icon: React.ReactN
         <div className="stat-sub">{sub}</div>
       </div>
     </div>
+  )
+}
+
+// Wat je nog opzij zet voor de belasting: de btw die nog betaald moet worden en wat er van de inkomstenbelasting en de Zvw over is.
+function TaxReserveStat({ pot, onClick }: { pot: NonNullable<Dashboard['taxReserve']>; onClick: () => void }) {
+  const income = pot.available ? pot.remaining : 0
+  const parts = [!pot.kor && pot.vat > 0 ? `${euro(pot.vat)} btw` : null, pot.available ? `${euro(pot.remaining)} inkomstenbelasting` : null].filter(Boolean)
+  return (
+    <Stat icon={<PiggyBank size={20} />} accent="var(--blue)" label="Belastingpot" value={euro(pot.vat + income)} onClick={onClick}
+      sub={<>
+        {parts.length ? `Nog opzij: ${parts.join(' en ')}` : 'Niets meer opzij te zetten'}
+        {pot.available && pot.perMonth != null && pot.remaining > 0 && <>, {euro(pot.perMonth)} per maand</>}
+        {!pot.available && <>. De inkomstenbelasting voor {pot.year} rekenen we nog niet uit.</>}
+      </>} />
   )
 }
 

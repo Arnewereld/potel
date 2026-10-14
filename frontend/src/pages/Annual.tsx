@@ -1,27 +1,55 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { CalendarRange, ChevronLeft, ChevronRight, Download, Euro, Wallet, TrendingUp, Timer, Info } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useToast } from '../lib/toast'
-import type { AnnualOverview } from '../lib/types'
+import { useTabActive } from '../lib/tabs'
+import { useAuth } from '../lib/auth'
+import type { AnnualOverview, TaxReserve, TaxReserveSettings } from '../lib/types'
 import { euro, hours } from '../lib/format'
 import { km } from '../lib/trips'
 import { ErrorBox, Loading, PageHeader } from '../components/ui'
 import { MiniStat } from './Time'
+import { TaxReserveSection } from '../components/TaxReserve'
 
 const monthName = (m: string) => new Date(`${m}-01T00:00:00`).toLocaleDateString('nl-NL', { month: 'short' })
 
 export function AnnualPage() {
   const [year, setYear] = useState<number | null>(null)
-  const [starter, setStarter] = useState(false)
+  // Zonder eigen keuze geldt wat bij de belastingpot is opgeslagen; een medewerker kan het hier alleen even anders bekijken.
+  const [starterOverride, setStarterOverride] = useState<boolean | null>(null)
   const params = new URLSearchParams()
   if (year) params.set('year', String(year))
-  if (starter) params.set('starter', 'true')
+  if (starterOverride !== null) params.set('starter', String(starterOverride))
   const { data, error, loading, reload } = useApi<AnnualOverview>(`/tax/annual${params.size ? `?${params}` : ''}`)
   const [exporting, setExporting] = useState(false)
   const toast = useToast()
   const shown = year ?? data?.year
+  // De belastingpot laat ook je loon en voorlopige aanslag zien, dus alleen voor beheerders.
+  const admin = useAuth().user.role === 'beheerder'
+  const pot = useApi<TaxReserve>(admin && shown ? `/tax/reserve?year=${shown}` : null)
+  const active = useTabActive()
+  const potLoaded = !!pot.data
+
+  // Vanaf het dashboard meteen naar de belastingpot. Een tabblad kent alleen zijn pad, dus de #belastingpot lezen we uit de adresbalk.
+  useEffect(() => {
+    if (active && potLoaded && window.location.hash === '#belastingpot') document.getElementById('belastingpot')?.scrollIntoView({ block: 'start' })
+  }, [active, potLoaded])
+
+  // Een beheerder bewaart de keuze bij de belastingpot van dat jaar, zodat het jaaroverzicht en de pot hetzelfde rekenen.
+  const changeStarter = async (value: boolean) => {
+    setStarterOverride(value)
+    if (!admin || !shown) return
+    try {
+      const current = await api.get<TaxReserveSettings>(`/tax/reserve/settings?year=${shown}`)
+      await api.put(`/tax/reserve/settings?year=${shown}`, { ...current, starter: value })
+      setStarterOverride(null)
+      pot.reload(true)
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    }
+  }
 
   const exportCsv = async () => {
     if (!shown) return
@@ -165,7 +193,7 @@ export function AnnualPage() {
             <div className="card-head">
               <h3>Indicatie aftrekposten</h3>
               <label className="check-row" style={{ fontSize: 13 }}>
-                <input type="checkbox" checked={starter} onChange={e => setStarter(e.target.checked)} />
+                <input type="checkbox" checked={starterOverride ?? ind.starter} onChange={e => changeStarter(e.target.checked)} />
                 <span>Ik ben starter</span>
               </label>
             </div>
@@ -188,7 +216,7 @@ export function AnnualPage() {
                         </tr>
                       )}
                       <tr><td>Zelfstandigenaftrek</td><td className="num">{euro(-ind.selfEmployedDeduction)}</td></tr>
-                      {starter && <tr><td>Startersaftrek</td><td className="num">{euro(-ind.starterDeduction)}</td></tr>}
+                      {ind.starter && <tr><td>Startersaftrek</td><td className="num">{euro(-ind.starterDeduction)}</td></tr>}
                       <tr><td>Na ondernemersaftrek</td><td className="num">{euro(ind.profitAfterDeductions)}</td></tr>
                       <tr>
                         <td>MKB-winstvrijstelling {ind.smePercentage != null ? `(${ind.smePercentage.toLocaleString('nl-NL')}%)` : '(nog niet bekend)'}</td>
@@ -212,6 +240,9 @@ export function AnnualPage() {
             </div>
           </div>
         </div>
+
+        {admin && pot.error && <div className="mt"><ErrorBox message={pot.error} onRetry={() => pot.reload()} /></div>}
+        {admin && pot.data && pot.data.year === shown && <TaxReserveSection r={pot.data} />}
       </>)}
     </>
   )

@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Potel.Api.Data;
 
@@ -12,14 +13,17 @@ public record IcpLine(string VatNumber, string Customer, string Country, decimal
 // Een factuur of uitgave die meetelt, zodat je kunt nagaan waar een bedrag vandaan komt.
 public record VatSource(string Kind, int Id, DateTime Date, string Name, string? Number, string Rubric, decimal Base, decimal Vat);
 
-public record VatQuarterRef(int Year, int Quarter, string Label, DateTime DueDate);
+// Filed: je hebt deze aangifte op de pagina Btw-aangifte als gedaan gemarkeerd.
+public record VatQuarterRef(int Year, int Quarter, string Label, DateTime DueDate, bool Filed = false);
+
+public record VatFiledRequest(int Year, int Quarter, bool Filed);
 
 public record VatReturnDto(
     int Year, int Quarter, string Label, DateTime From, DateTime To, DateTime DueDate,
     string Regime, bool Kor, bool Deduction,
     List<VatRubric> Rubrics, decimal Due, decimal Deductible, decimal Total,
     decimal Revenue, decimal OutsideEu, decimal Exempt, decimal KorRevenue,
-    List<IcpLine> Icp, List<VatSource> Sources, bool DemoData, bool IncludesDemo, VatQuarterRef? Pending);
+    List<IcpLine> Icp, List<VatSource> Sources, bool DemoData, bool IncludesDemo, VatQuarterRef? Pending, DateTime? FiledAt = null, string? FiledBy = null);
 
 // Rekent de btw-aangifte per kwartaal uit. Dezelfde som voor de pagina Btw-aangifte en de tegel op het dashboard.
 // Bronnen per rubriek staan bij de rubrieken hieronder en op de pagina; dit is hulp bij het invullen, geen belastingadvies.
@@ -149,12 +153,15 @@ public static class VatReturn
 
         var revenue = bases.Where(b => b.Key is "1a" or "1b" or "1c" or "1e" or "3b").Sum(b => b.Value) + outsideEu + exempt + korRevenue;
         var demoData = await db.Invoices.AnyAsync(i => i.IsDemo) || await db.Expenses.AnyAsync(e => e.IsDemo);
+        var filed = await db.VatFilings.AsNoTracking().FirstOrDefaultAsync(f => f.Year == year && f.Quarter == quarter);
+        var pending = kor ? null : PendingOn(clock.Today);
+        if (pending is not null && await db.VatFilings.AnyAsync(f => f.Year == pending.Year && f.Quarter == pending.Quarter)) pending = pending with { Filed = true };
 
         return new VatReturnDto(
             year, quarter, Label(year, quarter), from, to, DueDate(year, quarter), settings.VatRegime, kor, deduction,
             rubrics, due, deductible, due - deductible, revenue, outsideEu, exempt, korRevenue,
             icp.OrderBy(x => x.Value.Country).ThenBy(x => x.Key).Select(x => new IcpLine(x.Key, x.Value.Customer, x.Value.Country, x.Value.Amount)).ToList(),
-            sources, demoData, includeDemo && demoData, kor ? null : PendingOn(clock.Today));
+            sources, demoData, includeDemo && demoData, pending, filed?.FiledAt, filed?.FiledBy);
     }
 
     // Het vorige kwartaal, zolang de aangifte daarvan nog op tijd kan.
@@ -421,12 +428,40 @@ public static class TaxEndpoints
             return Results.Ok(await VatReturn.CalculateAsync(db, clock, y, q, demo == true));
         });
 
-        // Het jaaroverzicht; zonder jaar het lopende jaar. Starter geeft de startersaftrek mee in de indicatie.
+        // Een aangifte als gedaan markeren (of dat terugdraaien), zodat hij niet meer in de belastingpot telt. Alleen voor een
+        // kwartaal dat voorbij is, en alleen een beheerder.
+        g.MapPut("/vat-return/filed", async (AppDb db, BusinessClock clock, ClaimsPrincipal user, VatFiledRequest req) =>
+        {
+            if (req.Year is < 2000 or > 2100 || req.Quarter is < 1 or > 4) return Results.BadRequest(new { error = "Kies een kwartaal van 1 tot en met 4 en een geldig jaar." });
+            if (VatReturn.Period(req.Year, req.Quarter).To >= clock.Today)
+                return Results.BadRequest(new { error = "Dit kwartaal is nog niet voorbij. De aangifte doe je pas na het einde van het kwartaal." });
+            await using var tx = await WriteLock.BeginAsync(db);
+            var row = await db.VatFilings.FirstOrDefaultAsync(f => f.Year == req.Year && f.Quarter == req.Quarter);
+            var label = VatReturn.Label(req.Year, req.Quarter);
+            if (req.Filed && row is null)
+            {
+                db.VatFilings.Add(row = new VatFiling { Year = req.Year, Quarter = req.Quarter, FiledAt = clock.UtcNow, FiledBy = user.FindFirstValue(ClaimTypes.Name) });
+                db.Log("btw", $"Btw-aangifte over {label} gemarkeerd als gedaan");
+            }
+            else if (!req.Filed && row is not null)
+            {
+                db.VatFilings.Remove(row);
+                row = null;
+                db.Log("btw", $"Btw-aangifte over {label} weer op niet gedaan gezet");
+            }
+            await db.SaveChangesAsync();
+            await tx.CommitAsync();
+            return Results.Ok(new { year = req.Year, quarter = req.Quarter, filedAt = row?.FiledAt, filedBy = row?.FiledBy });
+        }).RequireAuthorization(p => p.RequireRole(Roles.Admin));
+
+        // Het jaaroverzicht; zonder jaar het lopende jaar. Starter geeft de startersaftrek mee in de indicatie; zonder starter
+        // telt wat een beheerder bij de belastingpot voor dat jaar heeft ingesteld.
         g.MapGet("/annual", async (AppDb db, BusinessClock clock, int? year, bool? starter) =>
         {
             var y = year ?? clock.Today.Year;
             if (y is < 2000 or > 2100) return Results.BadRequest(new { error = "Kies een geldig jaar." });
-            return Results.Ok((await AnnualOverview.CalculateAsync(db, y, starter == true)).Summary);
+            var isStarter = starter ?? (await TaxReserve.SettingsAsync(db, y)).Row.Starter;
+            return Results.Ok((await AnnualOverview.CalculateAsync(db, y, isStarter)).Summary);
         });
 
         // Hetzelfde overzicht als CSV voor je boekhouder, met alle facturen en kosten van dat jaar.
