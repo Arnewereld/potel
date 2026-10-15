@@ -1083,6 +1083,21 @@ public class VatFiling : IWorkspaceOwned
     public string? FiledBy { get; set; }
 }
 
+// De instellingen voor de cashflow-prognose op de pagina Inzichten, één rij per werkruimte. Het banksaldo is wat je zelf invult,
+// met de dag waarop je dat deed; leeg is: geen saldo. Vaste kosten zijn wat je per maand kwijt bent, met btw. Een geaccepteerde
+// offerte komt binnen in de maand na vandaag, of verdeeld over QuoteSpreadMonths maanden.
+public class CashflowSettings : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public decimal? BankBalance { get; set; }
+    public DateTime? BankBalanceDate { get; set; }
+    public decimal FixedCostsPerMonth { get; set; }
+    public int QuoteSpreadMonths { get; set; } = 1;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public string? UpdatedBy { get; set; }
+}
+
 // Soorten zakelijke kosten, met de naam zoals we hem tonen (ook in de export voor je boekhouder).
 public static class ExpenseCategories
 {

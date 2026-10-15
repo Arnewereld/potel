@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Euro, Clock, Target, Activity, CalendarDays, TrendingUp, Plus, LayoutDashboard, AlertTriangle, Timer, Hourglass, Landmark,
-  Award, FolderKanban, FileSignature, PiggyBank,
+  Award, FolderKanban, FileSignature, PiggyBank, BanknoteArrowDown,
 } from 'lucide-react'
 import { useApi } from '../lib/useApi'
 import { useOnTimeChanged } from '../lib/timer'
@@ -27,6 +27,7 @@ export function DashboardPage() {
   const greeting = hour < 12 ? 'Goedemorgen' : hour < 18 ? 'Goedemiddag' : 'Goedenavond'
 
   const h = data.hours
+  const tiles = 4 + (data.taxReserve ? 1 : 0) + (data.cashflow ? 1 : 0)
   const dayMax = Math.max(h.weekTarget * 60 / 5, ...h.byDay.map(d => d.minutes), 1)
   const today = toDateInput(new Date())
   const yearPct = h.yearTarget ? Math.min(1, h.year / 60 / h.yearTarget) : 0
@@ -44,7 +45,7 @@ export function DashboardPage() {
         </>}
       />
 
-      <div className={`grid ${data.taxReserve ? 'grid-5' : 'grid-4'}`}>
+      <div className={`grid ${tiles === 6 ? 'grid-6' : tiles === 5 ? 'grid-5' : 'grid-4'}`}>
         <Stat icon={<Euro size={20} />} accent="var(--green)" label="Omzet dit jaar" value={euro(data.revenueYear)} sub="Betaalde facturen, incl. btw" />
         <Stat icon={<Hourglass size={20} />} accent="var(--primary)" label="Klaar om te factureren" value={euro(data.unbilled.value)}
           sub={`${hours(data.unbilled.minutes)} open uren`} onClick={() => navigate('/projecten')} />
@@ -56,6 +57,7 @@ export function DashboardPage() {
             : `${data.vat.amount < 0 ? 'Terug te vragen' : 'Te betalen'}, aangifte uiterlijk ${date(data.vat.dueDate)}`}
           onClick={() => navigate('/btw-aangifte')} />
         {data.taxReserve && <TaxReserveStat pot={data.taxReserve} onClick={() => navigate('/jaaroverzicht#belastingpot')} />}
+        {data.cashflow && <CashflowStat flow={data.cashflow} onClick={() => navigate('/inzichten?tab=cashflow')} />}
       </div>
 
       <div className="grid grid-2-1 mt">
@@ -229,6 +231,16 @@ function TaxReserveStat({ pot, onClick }: { pot: NonNullable<Dashboard['taxReser
         {pot.available && pot.perMonth != null && pot.remaining > 0 && <>, {euro(pot.perMonth)} per maand</>}
         {!pot.available && <>. De inkomstenbelasting voor {pot.year} rekenen we nog niet uit.</>}
       </>} />
+  )
+}
+
+// Wat er volgens de cashflow-prognose deze maand nog binnenkomt (alleen voor een beheerder).
+function CashflowStat({ flow, onClick }: { flow: NonNullable<Dashboard['cashflow']>; onClick: () => void }) {
+  return (
+    <Stat icon={<BanknoteArrowDown size={20} />} accent="var(--green)" label="Verwacht deze maand binnen" value={euro(flow.expectedIn)} onClick={onClick}
+      sub={flow.late > 0 ? `Waarvan ${euro(flow.late)} al te laat`
+        : flow.expectedIn === 0 && flow.demoData ? 'Voorbeelddata telt niet mee'
+        : 'Een schatting, met btw'} />
   )
 }
 

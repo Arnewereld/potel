@@ -606,6 +606,8 @@ export interface Dashboard {
     perMonth: number | null
     monthsLeft: number
   } | null
+  // Wat er deze maand naar verwachting binnenkomt (uit de cashflow-prognose, zonder voorbeelddata); alleen voor beheerders.
+  cashflow: { month: string; expectedIn: number; late: number; demoData: boolean } | null
   projects: Project[]
 }
 
@@ -1151,4 +1153,56 @@ export interface Insights {
     topShare: number | null
     warning: boolean
   }
+}
+
+// De cashflow-prognose: wat er de komende zes maanden binnenkomt en eruit gaat.
+export type CashflowSourceId = 'facturen' | 'terugkerend' | 'offertes' | 'te-factureren' | 'btw' | 'belasting' | 'vaste-kosten'
+
+export interface CashflowSettings {
+  saved: boolean
+  bankBalance: number | null
+  bankBalanceDate: string | null
+  fixedCostsPerMonth: number
+  quoteSpreadMonths: number
+  updatedAt?: string | null
+  updatedBy?: string | null
+}
+
+export interface CashflowItem {
+  source: CashflowSourceId
+  month: string
+  date: string
+  label: string
+  detail?: string | null
+  // Positief komt binnen, negatief gaat eruit.
+  amount: number
+  link?: string | null
+  late: boolean
+}
+
+export interface CashflowVat {
+  year: number
+  quarter: number
+  label: string
+  dueDate: string
+  month: string
+  base: number
+  parts: Partial<Record<CashflowSourceId, number>>
+  running: boolean
+}
+
+export interface Cashflow {
+  today: string
+  months: string[]
+  paymentTermDays: number
+  sources: { id: CashflowSourceId; label: string; incoming: boolean }[]
+  items: CashflowItem[]
+  vat: CashflowVat[]
+  settings: CashflowSettings
+  hint: { from: string; to: string; suppliers: { supplier: string; average: number }[]; suppliersTotal: number; averageExpenses: number }
+  kor: boolean
+  provisionalOnce: boolean
+  nextYearEstimate: boolean
+  demoData: boolean
+  includesDemo: boolean
 }

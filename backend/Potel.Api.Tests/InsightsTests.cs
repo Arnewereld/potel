@@ -55,7 +55,7 @@ public class InsightsTests(InsightsFactory factory) : IClassFixture<InsightsFact
     }
 
     // Een creditnota voor een deel van de factuur: het aantal (negatief) maal de prijs.
-    static async Task<int> CreditAsync(HttpClient c, int invoiceId, decimal quantity, decimal unitPrice, string unit = "stuk")
+    internal static async Task<int> CreditAsync(HttpClient c, int invoiceId, decimal quantity, decimal unitPrice, string unit = "stuk")
     {
         var credit = await (await c.PostAsync($"/api/invoices/{invoiceId}/credit", null)).JsonAsync();
         var id = credit.GetProperty("id").GetInt32();

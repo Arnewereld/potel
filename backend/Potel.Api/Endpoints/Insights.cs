@@ -282,5 +282,8 @@ public static class InsightsEndpoints
             if (t > f.AddYears(10)) return Results.BadRequest(new { error = InsightPeriods.TooLongError });
             return Results.Ok(await Insights.CalculateAsync(db, clock, p, f, t, demo == true));
         });
+
+        // De cashflow-prognose staat op dezelfde pagina.
+        g.MapCashflow();
     }
 }

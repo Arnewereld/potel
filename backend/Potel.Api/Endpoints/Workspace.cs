@@ -274,6 +274,8 @@ public static partial class WorkspaceEndpoints
             // De belastingpot per jaar (loon, voorlopige aanslag, hoe je reserveert) en welke btw-aangiftes je als gedaan markeerde.
             await Write("taxReserveYears", await db.TaxReserveYears.OrderBy(r => r.Year).ToListAsync());
             await Write("vatFilings", await db.VatFilings.OrderBy(f => f.Year).ThenBy(f => f.Quarter).ToListAsync());
+            // De instellingen van de cashflow-prognose: je banksaldo, vaste kosten en hoe offertes binnenkomen.
+            await Write("cashflowSettings", await db.CashflowSettings.FirstOrDefaultAsync());
             await Write("leads", await db.Leads.ToListAsync());
             await Write("appointments", await db.Appointments.ToListAsync());
             await Write("modules", await db.CustomModules.ToListAsync());
@@ -326,6 +328,7 @@ public static partial class WorkspaceEndpoints
             await db.TripRoutes.ExecuteDeleteAsync();
             await db.TaxReserveYears.ExecuteDeleteAsync();
             await db.VatFilings.ExecuteDeleteAsync();
+            await db.CashflowSettings.ExecuteDeleteAsync();
             await db.BankTransactions.ExecuteDeleteAsync();
             await db.BankImports.ExecuteDeleteAsync();
             await db.BankCsvMappings.ExecuteDeleteAsync();

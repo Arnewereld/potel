@@ -277,6 +277,41 @@ namespace Potel.Api.Data.Migrations
                     b.ToTable("BankTransactions");
                 });
 
+            modelBuilder.Entity("Potel.Api.Data.CashflowSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal?>("BankBalance")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("BankBalanceDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("FixedCostsPerMonth")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("QuoteSpreadMonths")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WorkspaceId")
+                        .IsUnique();
+
+                    b.ToTable("CashflowSettings");
+                });
+
             modelBuilder.Entity("Potel.Api.Data.CustomModule", b =>
                 {
                     b.Property<int>("Id")

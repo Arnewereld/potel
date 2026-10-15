@@ -1363,3 +1363,55 @@ a.btn { text-decoration: none; color: inherit; display: inline-flex; align-items
   .insight-table td.insight-empty { display: none; }
   .insight-table td[data-label]::before { content: attr(data-label); display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
 }
+
+/* ---------- Cashflow-prognose ---------- */
+/* Zes tegels op het dashboard: op een breed scherm naast elkaar, daaronder drie, twee of één per rij. */
+.grid-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+@media (max-width: 1700px) { .grid-6 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 1200px) { .grid-6 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 800px) { .grid-6 { grid-template-columns: minmax(0, 1fr); } }
+.cf-sources { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 32px; }
+.cf-sources .stat-label { margin-bottom: 2px; }
+.cf-source { display: flex; align-items: center; gap: 8px; padding: 7px 0; font-size: 14px; cursor: pointer; border-bottom: 1px solid var(--border); }
+.cf-source:last-child { border-bottom: 0; }
+.cf-source input { flex: none; margin: 0; }
+.cf-source.off .grow, .cf-source.off .muted { opacity: 0.55; text-decoration: line-through; }
+.cf-source.off .legend-dot { opacity: 0.35; }
+/* De grafiek: staven per maand, met daaroverheen een lijn voor het saldo. */
+.cf-plot { position: relative; display: flex; gap: 14px; height: 230px; }
+.cf-col { flex: 1; min-width: 0; display: flex; justify-content: center; }
+.cf-bars { display: flex; align-items: flex-end; gap: 4px; width: 100%; max-width: 76px; height: 100%; }
+.cf-bar { flex: 1; min-height: 2px; border-radius: 6px 6px 0 0; transition: height 0.4s ease; }
+.cf-in { background: color-mix(in srgb, var(--green) 75%, transparent); }
+.cf-out { background: color-mix(in srgb, var(--red) 65%, transparent); }
+.cf-line { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.cf-line polyline { fill: none; stroke: var(--blue); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.cf-dot { position: absolute; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; border-radius: 50%; background: var(--panel); border: 2.5px solid var(--blue); }
+.cf-dot.below { border-color: var(--red); }
+.cf-zero { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--border-strong); pointer-events: none; }
+.cf-zero span { position: absolute; right: 0; top: 2px; font-size: 11px; color: var(--muted); }
+.cf-labels { display: flex; gap: 14px; margin-top: 8px; }
+.cf-labels span { flex: 1; min-width: 0; text-align: center; font-size: 12px; color: var(--muted); }
+.cf-caption { margin: 10px 0 0; font-size: 12px; }
+.cf-legend-line { width: 16px; height: 3px; border-radius: 2px; background: var(--blue); flex: none; }
+/* De tabel per maand, met de posten eronder als je een maand openklikt. */
+.cf-month { display: inline-flex; align-items: center; gap: 6px; }
+.cf-month > span { text-transform: capitalize; }
+.cf-detail-row > td { background: var(--panel-2); padding: 12px 18px 14px; }
+tbody tr.cf-detail-row:hover { background: none; }
+.cf-detail { display: grid; gap: 14px; }
+.cf-group-head { display: flex; align-items: center; gap: 8px; padding-bottom: 6px; font-size: 13px; font-weight: 600; border-bottom: 1px solid var(--border); }
+.cf-item { display: flex; align-items: flex-start; gap: 12px; padding: 6px 0 6px 18px; font-size: 13px; }
+.cf-item + .cf-item { border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+.cf-item a, .cf-hint a { color: var(--primary); }
+.cf-note { margin: 0; font-size: 13px; line-height: 1.5; }
+.cf-hint { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; font-size: 13px; line-height: 1.5; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); }
+@media (max-width: 640px) {
+  .cf-sources { grid-template-columns: minmax(0, 1fr); }
+  .cf-plot, .cf-labels { gap: 6px; }
+  .cf-plot { height: 190px; }
+  .cf-bars { gap: 2px; }
+  .cf-table tr.cf-detail-row { display: block; padding: 0; }
+  .cf-table tr.cf-detail-row > td { display: block; padding: 12px 16px; }
+  .cf-item { padding-left: 0; }
+}

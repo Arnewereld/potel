@@ -21,7 +21,7 @@ const publicPaths = ['/inloggen', '/login', '/aanmelden', '/wachtwoord-vergeten'
 export function defaultTitle(fullPath: string) {
   const path = fullPath.split('?')[0]!
   if (path === '/') return 'Dashboard'
-  if (path === '/inzichten') return 'Inzichten'
+  if (path === '/inzichten') return fullPath.includes('tab=cashflow') ? 'Cashflow' : 'Inzichten'
   if (path === '/uren') return 'Uren'
   if (path === '/projecten') return 'Projecten'
   if (path.startsWith('/projecten/')) return 'Project'

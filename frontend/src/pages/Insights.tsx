@@ -1,13 +1,15 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  ArrowUpDown, ChartNoAxesCombined, ChevronDown, ChevronUp, Gauge, HandCoins, Info, Percent, Scale, Calculator, Users, FolderKanban,
+  ArrowUpDown, BanknoteArrowDown, ChartNoAxesCombined, ChevronDown, ChevronUp, Gauge, HandCoins, Info, Percent, Scale, Calculator, Users, FolderKanban,
 } from 'lucide-react'
 import { useApi } from '../lib/useApi'
 import { useAuth } from '../lib/auth'
+import { useTabTitle } from '../lib/tabs'
 import type { InsightCustomer, InsightPeriod, InsightProject, Insights } from '../lib/types'
 import { date, euro, hours, num } from '../lib/format'
-import { Badge, ErrorBox, Field, Loading, PageHeader } from '../components/ui'
+import { Badge, ErrorBox, Field, Loading, PageHeader, SubTabs } from '../components/ui'
+import { CashflowTab } from '../components/Cashflow'
 import { MiniStat } from './Time'
 
 const periods: { id: InsightPeriod; label: string }[] = [
@@ -24,20 +26,26 @@ const monthLong = (m: string) => new Date(`${m}-01T00:00:00`).toLocaleDateString
 // Een bedrag kort boven een staaf: 12k, of het hele bedrag onder de duizend.
 const short = (n: number) => n === 0 ? '' : Math.abs(n) >= 1000 ? `${Math.round(n / 1000)}k` : String(Math.round(n))
 
+type InsightTab = 'verdienen' | 'cashflow'
+
 export function InsightsPage() {
   const { user } = useAuth()
   const admin = user.role === 'beheerder'
+  // Het dashboard opent de cashflow met ?tab=cashflow.
+  const [params] = useSearchParams()
+  const [tab, setTab] = useState<InsightTab>(params.get('tab') === 'cashflow' ? 'cashflow' : 'verdienen')
+  useTabTitle(tab === 'cashflow' ? 'Cashflow' : 'Inzichten')
   const [period, setPeriod] = useState<InsightPeriod>('jaar')
   const [range, setRange] = useState({ from: '', to: '' })
   const [withDemo, setWithDemo] = useState(false)
   // Dezelfde grenzen als de server: tussen 2000 en 2100 en hooguit tien jaar.
   const tenYears = range.from ? `${Number(range.from.slice(0, 4)) + 10}${range.from.slice(4)}` : ''
   const validRange = !!range.from && !!range.to && range.from <= range.to && range.from >= '2000-01-01' && range.to <= '2100-12-31' && range.to <= tenYears
-  const params = new URLSearchParams({ period })
-  if (period === 'eigen') { params.set('from', range.from); params.set('to', range.to) }
-  if (withDemo) params.set('demo', 'true')
-  const ready = admin && (period !== 'eigen' || validRange)
-  const result = useApi<Insights>(ready ? `/insights?${params}` : null)
+  const query = new URLSearchParams({ period })
+  if (period === 'eigen') { query.set('from', range.from); query.set('to', range.to) }
+  if (withDemo) query.set('demo', 'true')
+  const ready = admin && tab === 'verdienen' && (period !== 'eigen' || validRange)
+  const result = useApi<Insights>(ready ? `/insights?${query}` : null)
   const { error, loading, reload } = result
   // Een eigen periode die nog niet klopt, laat niet de cijfers van de vorige keuze staan.
   const data = ready ? result.data : null
@@ -49,6 +57,21 @@ export function InsightsPage() {
     if (p === 'eigen' && !validRange && data) setRange({ from: data.from.slice(0, 10), to: data.to.slice(0, 10) })
     setPeriod(p)
   }
+
+  const tabs = (
+    <SubTabs<InsightTab> value={tab} onChange={setTab} tabs={[
+      { id: 'verdienen', label: 'Wat je verdient', icon: <HandCoins size={14} /> },
+      { id: 'cashflow', label: 'Cashflow', icon: <BanknoteArrowDown size={14} /> },
+    ]} />
+  )
+
+  if (tab === 'cashflow') return (
+    <>
+      <PageHeader icon={<ChartNoAxesCombined size={20} />} title="Inzichten" subtitle="Wat er de komende zes maanden binnenkomt en eruit gaat" />
+      {tabs}
+      <CashflowTab />
+    </>
+  )
 
   return (
     <>
@@ -62,6 +85,7 @@ export function InsightsPage() {
           </div>
         }
       />
+      {tabs}
 
       {period === 'eigen' && (
         <div className="card card-body insight-range">
@@ -286,7 +310,7 @@ function CustomersCard({ data }: { data: Insights }) {
                   <td className="insight-name">{c.name}<RowBar row={c} rows={rows} sort={sort} /></td>
                   <td className="num" data-label="Uren">{hours(c.minutes)}<div className="cell-sub">{hours(c.billableMinutes)} factureerbaar</div></td>
                   <td className="num" data-label="Omzet">{euro(c.revenue)}</td>
-                  <td className="num" data-label="Open">{c.openValue > 0 ? euro(c.openValue) : '—'}{c.openMinutes > 0 && <div className="cell-sub">{hours(c.openMinutes)}</div>}</td>
+                  <td className="num" data-label="Open">{c.openValue > 0 ? euro(c.openValue) : '-'}{c.openMinutes > 0 && <div className="cell-sub">{hours(c.openMinutes)}</div>}</td>
                   <td className="num" data-label="Effectief">{rate(c.effectiveRate)}</td>
                 </tr>
               ))}
@@ -344,11 +368,11 @@ function ProjectsCard({ data }: { data: Insights }) {
                   </td>
                   <td className="num" data-label="Uren">{hours(p.minutes)}<div className="cell-sub">{hours(p.billableMinutes)} factureerbaar</div></td>
                   <td className="num" data-label="Omzet">{euro(p.revenue)}</td>
-                  <td className="num" data-label="Open">{p.openValue > 0 ? euro(p.openValue) : '—'}{p.openMinutes > 0 && <div className="cell-sub">{hours(p.openMinutes)}</div>}</td>
+                  <td className="num" data-label="Open">{p.openValue > 0 ? euro(p.openValue) : '-'}{p.openMinutes > 0 && <div className="cell-sub">{hours(p.openMinutes)}</div>}</td>
                   <td className="num" data-label="Effectief">{rate(p.effectiveRate)}</td>
                   {fixed && (
                     <td className={`num ${p.billing !== 'vast' ? 'insight-empty' : ''}`} data-label="Vaste prijs">
-                      {p.billing !== 'vast' ? <span className="muted">—</span> : p.earnedRate == null ? <span className="muted">Nog geen uren</span> : (<>
+                      {p.billing !== 'vast' ? <span className="muted">-</span> : p.earnedRate == null ? <span className="muted">Nog geen uren</span> : (<>
                         <span className="nowrap">{euro(p.earnedRate)} per uur</span>
                         <div className="cell-sub">{euro(p.fixedPrice ?? 0)} over {hours(p.minutesTotal)}</div>
                         {p.belowNormal && <span title={`Je normale tarief is ${euro(p.normalRate)} per uur`}><Badge tone="yellow">Onder {euro(p.normalRate)}</Badge></span>}
@@ -362,11 +386,11 @@ function ProjectsCard({ data }: { data: Insights }) {
               <tfoot>
                 <tr>
                   <td className="insight-name">Zonder project<div className="cell-sub">Facturen zonder uren, ritten of offerte met een project</div></td>
-                  <td className="num insight-empty">—</td>
+                  <td className="num insight-empty">-</td>
                   <td className="num" data-label="Omzet">{euro(data.unassignedRevenue)}</td>
-                  <td className="num insight-empty">—</td>
-                  <td className="num insight-empty">—</td>
-                  {fixed && <td className="num insight-empty">—</td>}
+                  <td className="num insight-empty">-</td>
+                  <td className="num insight-empty">-</td>
+                  {fixed && <td className="num insight-empty">-</td>}
                 </tr>
               </tfoot>
             )}

@@ -49,6 +49,8 @@ public static class DashboardEndpoints
 
             // De belastingpot gaat ook over je loon en je voorlopige aanslag, dus die ziet alleen een beheerder.
             var reserve = user.IsInRole(Roles.Admin) ? await TaxReserve.CalculateAsync(db, clock, today.Year) : null;
+            // Wat er deze maand naar verwachting binnenkomt, uit de cashflow-prognose op de pagina Inzichten. Ook alleen voor een beheerder.
+            (decimal ExpectedIn, decimal Late)? expected = user.IsInRole(Roles.Admin) ? await Cashflow.ThisMonthAsync(db, clock) : null;
 
             return new
             {
@@ -106,6 +108,14 @@ public static class DashboardEndpoints
                     vat = reserve.VatTotal,
                     // Inkomstenbelasting en Zvw: voor het hele jaar, wat de voorlopige aanslag dekt, wat je nog opzij zet en per maand.
                     reserve.Total, reserve.Provisional, reserve.Remaining, reserve.PerMonth, reserve.MonthsLeft,
+                },
+                cashflow = expected is not { } c ? null : new
+                {
+                    month = monthStart.ToString("yyyy-MM"),
+                    expectedIn = c.ExpectedIn,
+                    late = c.Late,
+                    // Voorbeelddata telt in de prognose niet mee, dus bij alleen voorbeelden staat hier nul.
+                    demoData = await db.Invoices.AnyAsync(i => i.IsDemo),
                 },
                 projects = projects.Where(p => p.Status == "actief").OrderByDescending(p => p.LastEntry).Take(6),
                 upcoming = await db.Appointments.Where(a => a.End >= clock.Now && !a.Done).OrderBy(a => a.Start).Take(5).ToListAsync(),
