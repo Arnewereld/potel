@@ -300,6 +300,7 @@ api.MapExpenses();
 api.MapBank();
 api.MapTax();
 api.MapTaxReserve();
+api.MapInsights();
 api.MapAppointments();
 api.MapModules();
 api.MapWorkflows();

@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, CalendarDays, Users, Target, Receipt, Workflow, Blocks, X, Search, FileSignature,
   ChevronsLeft, ChevronsRight, Moon, Sun, Plus, ShieldCheck, LogOut, KeyRound, Timer, FolderKanban, Settings, Square, Pause, Crown, Wallet, Landmark, CalendarRange,
-  ArrowLeftRight, Car, Package, Coffee,
+  ArrowLeftRight, Car, Package, Coffee, ChartNoAxesCombined,
 } from 'lucide-react'
 import { clock, useTimer } from '../lib/timer'
 import { mmss } from '../lib/focus'
@@ -24,6 +24,8 @@ import { FocusView } from './FocusView'
 // Het menu, per groep in de volgorde waarin het in de zijbalk staat.
 const nav = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true, group: 'Werk' },
+  // Alleen voor beheerders: wat je echt verdient, net als de bank.
+  { to: '/inzichten', label: 'Inzichten', icon: ChartNoAxesCombined, group: 'Werk', admin: true },
   { to: '/uren', label: 'Uren', icon: Timer, group: 'Werk' },
   { to: '/projecten', label: 'Projecten', icon: FolderKanban, group: 'Werk' },
   { to: '/facturen', label: 'Facturen', icon: Receipt, group: 'Werk' },

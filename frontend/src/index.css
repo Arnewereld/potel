@@ -1326,3 +1326,40 @@ a.btn { text-decoration: none; color: inherit; display: inline-flex; align-items
 .recovery-codes code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; user-select: all; }
 .login-card.two-factor-required { width: min(480px, calc(100% - 32px)); }
 .badge-plain { text-transform: none; }
+
+/* ---------- Inzichten ---------- */
+.insight-range { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 16px; margin-bottom: 12px; }
+.insight-range .field { flex: 0 1 180px; min-width: 0; }
+.insight-range > .muted { font-size: 13px; padding-bottom: 9px; }
+.sort-btn { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; cursor: pointer; }
+.sort-btn:hover, th[aria-sort] .sort-btn { color: var(--text); }
+.insight-name { min-width: 180px; }
+.insight-bar { max-width: 220px; }
+/* Twee staven per maand: een jaar eerder (grijs) en nu. */
+.bars-pair .bar-track { gap: 2px; }
+.bars-pair .bar { width: auto; flex: 1; border-radius: 4px 4px 0 0; }
+.bar.bar-prev, .legend-prev { background: color-mix(in srgb, var(--muted) 40%, transparent); }
+.insight-legend { gap: 8px 18px; margin-top: 14px; font-size: 13px; color: var(--text-2); }
+.insight-legend > .row { gap: 6px; }
+.insight-shares { display: grid; gap: 12px; font-size: 14px; }
+.insight-below { padding-bottom: 0; }
+.insight-below .notice { margin-bottom: 0; }
+.insight-list { font-size: 13px; padding-left: 18px; margin: 0; line-height: 1.55; }
+.insight-list li + li { margin-top: 6px; }
+@media (max-width: 640px) {
+  .bars-pair .bar-value { display: none; }
+  .insight-range .field { flex: 1 1 140px; }
+}
+/* Op een telefoon: elke rij als een blokje, met het label boven elk getal en een keuzelijst om te sorteren. */
+.insight-sort { display: none; }
+@media (max-width: 640px) {
+  .insight-sort { display: block; width: auto; font-size: 13px; padding: 5px 8px; }
+  .insight-table thead { display: none; }
+  .insight-table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .insight-table tbody tr:last-child { border-bottom: 0; }
+  .insight-table tfoot tr { border-top: 1px solid var(--border); }
+  .insight-table td, .insight-table td.num { padding: 0; border: 0; text-align: left; }
+  .insight-table td.insight-name { grid-column: 1 / -1; min-width: 0; }
+  .insight-table td.insight-empty { display: none; }
+  .insight-table td[data-label]::before { content: attr(data-label); display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
+}

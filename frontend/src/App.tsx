@@ -29,6 +29,7 @@ import { TripsPage } from './pages/Trips'
 import { BankPage } from './pages/Bank'
 import { VatReturnPage } from './pages/VatReturn'
 import { AnnualPage } from './pages/Annual'
+import { InsightsPage } from './pages/Insights'
 import { InvestmentsPage } from './pages/Investments'
 import { PlanningPage } from './pages/Planning'
 import { WorkflowsPage } from './pages/Workflows'
@@ -87,6 +88,7 @@ function AppRoutes({ location }: { location: string }) {
   return (
     <Routes location={location}>
       <Route path="/" element={<DashboardPage />} />
+      <Route path="/inzichten" element={<InsightsPage />} />
       <Route path="/uren" element={<TimePage />} />
       <Route path="/projecten" element={<ProjectsPage />} />
       <Route path="/projecten/:id" element={<ProjectDetailPage />} />

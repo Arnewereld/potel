@@ -1083,3 +1083,72 @@ export interface BankOverview {
 export type BankImportResult =
   | { needsMapping: true; headers: string[]; sample: string[][]; mapping: BankCsvMapping | null }
   | { needsMapping: false; importId: number | null; format: string; added: number; skipped: number; skippedOtherCurrency: number; skippedNotBooked: number }
+
+// Inzichten: wat je echt verdient over een periode.
+export type InsightPeriod = 'maand' | 'kwartaal' | 'jaar' | '12-maanden' | 'eigen'
+
+export interface InsightCustomer {
+  id: number
+  name: string
+  minutes: number
+  billableMinutes: number
+  revenue: number
+  openMinutes: number
+  openValue: number
+  effectiveRate: number | null
+}
+
+export interface InsightProject {
+  id: number
+  name: string
+  customerId: number
+  customerName?: string | null
+  color: string
+  billing: BillingType
+  status: string
+  minutes: number
+  billableMinutes: number
+  revenue: number
+  openMinutes: number
+  openValue: number
+  effectiveRate: number | null
+  fixedPrice: number | null
+  minutesTotal: number
+  earnedRate: number | null
+  normalRate: number
+  belowNormal: boolean
+}
+
+export interface Insights {
+  period: InsightPeriod
+  from: string
+  to: string
+  label: string
+  today: string
+  demoData: boolean
+  includesDemo: boolean
+  revenue: number
+  minutes: number
+  billableMinutes: number
+  effectiveRate: number | null
+  billableRate: number | null
+  billableShare: number | null
+  occupancy: number | null
+  goalHours: number
+  weeklyTarget: number
+  normalRate: number
+  openMinutes: number
+  openValue: number
+  unassignedRevenue: number
+  customers: InsightCustomer[]
+  projects: InsightProject[]
+  months: { month: string; revenue: number; previous: number }[]
+  concentration: {
+    from: string
+    to: string
+    revenue: number
+    customers: { customerId: number; name: string; revenue: number; share: number }[]
+    topShare: number | null
+    warning: boolean
+  }
+}
