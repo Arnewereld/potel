@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Potel.Api.Data;
+using Potel.Api.Notifications;
 using Potel.Api.Endpoints;
 
 namespace Potel.Api.Workflows;
@@ -11,7 +12,7 @@ namespace Potel.Api.Workflows;
 // Een "Wachten"-blok parkeert de run; de WorkflowScheduler pakt hem later weer op.
 // Werkruimtes met een verlopen proef draaien niets meer, en elke run blijft binnen de grenzen uit WorkflowLimits.
 public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSender email, IOptions<WorkflowLimits> options, BusinessClock clock,
-    WorkflowRunBudget budget, ILogger<WorkflowEngine> logger)
+    WorkflowRunBudget budget, Notifier notifier, ILogger<WorkflowEngine> logger)
 {
     readonly WorkflowLimits limits = options.Value;
 
@@ -51,29 +52,32 @@ public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSend
     }
 
     // Start een run. Zonder run terug als de proef verlopen is of de werkruimte deze minuut al genoeg runs startte.
-    public async Task<(WorkflowRun? Run, StartRefusal Refusal)> RunAsync(Workflow wf, List<string> startNodeIds, Dictionary<string, string> ctx, string trigger)
+    // StartedBy is wie de run met de hand startte: die krijgt een melding als hij later vastloopt.
+    public async Task<(WorkflowRun? Run, StartRefusal Refusal)> RunAsync(Workflow wf, List<string> startNodeIds, Dictionary<string, string> ctx, string trigger,
+        int? startedBy = null)
     {
         if (!await CanRunAsync()) return (null, StartRefusal.ReadOnly);
-        return await StartRunAsync(wf, startNodeIds, ctx, trigger) is { } run ? (run, StartRefusal.None) : (null, StartRefusal.TooManyRuns);
+        return await StartRunAsync(wf, startNodeIds, ctx, trigger, startedBy) is { } run ? (run, StartRefusal.None) : (null, StartRefusal.TooManyRuns);
     }
 
     public string TooManyRunsMessage => $"Even rustig aan: deze werkruimte startte de afgelopen minuut al {budget.PerMinute} werkstromen. Probeer het over een minuut opnieuw.";
 
     // Elke nieuwe run telt mee voor het budget per minuut van de werkruimte. Is dat op, dan start hij niet en staat dat in het logboek.
-    async Task<WorkflowRun?> StartRunAsync(Workflow wf, List<string> startNodeIds, Dictionary<string, string> ctx, string trigger)
+    async Task<WorkflowRun?> StartRunAsync(Workflow wf, List<string> startNodeIds, Dictionary<string, string> ctx, string trigger, int? startedBy = null)
     {
-        if (budget.TryStart(db.TenantId)) return await BeginRunAsync(wf, startNodeIds, ctx, trigger);
+        if (budget.TryStart(db.TenantId)) return await BeginRunAsync(wf, startNodeIds, ctx, trigger, startedBy);
         db.Log("werkstroom", $"Werkstroom {wf.Name} niet gestart ({trigger}): deze werkruimte startte de afgelopen minuut al {budget.PerMinute} werkstromen");
         await db.SaveChangesAsync();
         return null;
     }
 
-    async Task<WorkflowRun> BeginRunAsync(Workflow wf, List<string> startNodeIds, Dictionary<string, string> ctx, string trigger)
+    async Task<WorkflowRun> BeginRunAsync(Workflow wf, List<string> startNodeIds, Dictionary<string, string> ctx, string trigger, int? startedBy = null)
     {
-        var run = new WorkflowRun { WorkflowId = wf.Id, Trigger = trigger, ContextJson = JsonSerializer.Serialize(ctx) };
+        var run = new WorkflowRun { WorkflowId = wf.Id, Trigger = trigger, ContextJson = JsonSerializer.Serialize(ctx), StartedByUserId = startedBy };
         db.WorkflowRuns.Add(run);
         await db.SaveChangesAsync();
-        await ExecuteAsync(run, wf, startNodeIds, ctx, [], []);
+        // Wie hem met de hand startte, ziet een fout meteen op het scherm en krijgt er geen melding over.
+        await ExecuteAsync(run, wf, startNodeIds, ctx, [], [], seenBy: startedBy);
         return run;
     }
 
@@ -130,8 +134,11 @@ public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSend
     public async Task FailAsync(int runId)
     {
         var now = DateTime.UtcNow;
-        await db.WorkflowRuns.Where(r => r.Id == runId && r.Status != "klaar")
+        var changed = await db.WorkflowRuns.Where(r => r.Id == runId && r.Status != "klaar" && r.Status != "fout")
             .ExecuteUpdateAsync(s => s.SetProperty(r => r.Status, "fout").SetProperty(r => r.FinishedAt, now).SetProperty(r => r.ResumeAt, (DateTime?)null));
+        if (changed == 1 && await db.WorkflowRuns.AsNoTracking().FirstOrDefaultAsync(r => r.Id == runId) is { } run
+            && await db.Workflows.AsNoTracking().FirstOrDefaultAsync(w => w.Id == run.WorkflowId) is { } wf)
+            await notifier.WorkflowFailedAsync(wf, run, null);
     }
 
     // Actieve werkstromen met een Schema-trigger die nu aan de beurt zijn.
@@ -189,7 +196,8 @@ public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSend
 
     static bool IsCall(GraphNode node) => node.Type is "action.email" or "action.webhook";
 
-    async Task ExecuteAsync(WorkflowRun run, Workflow wf, List<string> start, Dictionary<string, string> ctx, List<LogEntry> log, List<PendingStep> pending)
+    async Task ExecuteAsync(WorkflowRun run, Workflow wf, List<string> start, Dictionary<string, string> ctx, List<LogEntry> log, List<PendingStep> pending,
+        int? seenBy = null)
     {
         var graph = Graph.Parse(wf.GraphJson);
         var nodes = graph.Nodes.ToDictionary(n => n.Id);
@@ -262,6 +270,7 @@ public class WorkflowEngine(AppDb db, IHttpClientFactory httpFactory, IEmailSend
 
         if (failed) db.Log("werkstroom", $"Werkstroom {wf.Name} is vastgelopen");
         await db.SaveChangesAsync();
+        if (failed) await notifier.WorkflowFailedAsync(wf, run, log.LastOrDefault(l => l.Status == "fout")?.Message, except: seenBy);
     }
 
     // Telt een webhook mee voor de daglimiet van deze werkruimte, net als e-mail (MailQuota).

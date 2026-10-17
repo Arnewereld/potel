@@ -283,6 +283,9 @@ public static class AuthEndpoints
             // Zijn agendalink werkt niet meer, en wat voor hem was ingepland, is daarna voor iedereen.
             db.CalendarFeeds.RemoveRange(db.CalendarFeeds.Where(f => f.UserId == id));
             await db.Appointments.Where(a => a.UserId == id).ExecuteUpdateAsync(x => x.SetProperty(a => a.UserId, (int?)null));
+            // Zijn meldingen en meldingsinstellingen gaan mee.
+            await db.Notifications.Where(n => n.UserId == id).ExecuteDeleteAsync();
+            await db.NotificationSettings.Where(s => s.UserId == id).ExecuteDeleteAsync();
             db.Users.Remove(u);
             db.Log("gebruiker", $"Gebruiker {u.Name} verwijderd");
             await db.SaveChangesAsync();

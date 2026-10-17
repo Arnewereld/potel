@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Potel.Api.Data;
 using Potel.Api.Endpoints;
+using Potel.Api.Notifications;
 using Potel.Api.Workflows;
 
 namespace Potel.Api.Invoicing;
@@ -10,7 +11,7 @@ namespace Potel.Api.Invoicing;
 // een aanmaning, elk een ingesteld aantal dagen na de vervaldatum. Stappen gaan altijd op volgorde en met tussenruimte, ook als
 // je herinneringen pas aanzet bij een factuur die al lang open staat. Een betaalde, helemaal gecrediteerde of voorbeeldfactuur
 // krijgt er nooit een, en ook niet als je ze voor de factuur of de klant hebt uitgezet.
-public class ReminderService(AppDb db, BusinessClock clock, InvoiceMailer mailer, AppUrls urls, IOptions<InvoicingLimits> options)
+public class ReminderService(AppDb db, BusinessClock clock, InvoiceMailer mailer, AppUrls urls, Notifier notifier, IOptions<InvoicingLimits> options)
 {
     // Na een fout van de mailserver proberen we dezelfde stap pas na een paar uur opnieuw.
     static readonly TimeSpan RetryAfter = TimeSpan.FromHours(6);
@@ -102,7 +103,11 @@ public class ReminderService(AppDb db, BusinessClock clock, InvoiceMailer mailer
                 continue;
             }
             var result = await mailer.SendAsync(inv.Id, step, automatic: true, baseUrl, ct: ct);
-            if (result.Outcome == SendOutcome.Sent) sent++;
+            if (result.Outcome == SendOutcome.Sent)
+            {
+                sent++;
+                await notifier.ReminderSentAsync(inv, step);
+            }
             else if (result.Outcome == SendOutcome.Blocked)
             {
                 // De daglimiet is bereikt (of iets anders voor de hele werkruimte): de rest wacht tot een volgende ronde.
@@ -126,13 +131,13 @@ public class ReminderService(AppDb db, BusinessClock clock, InvoiceMailer mailer
 
 // De planner: eerst facturen die verlopen zijn op "verlopen" zetten (met de trigger "Factuur te laat"), dan de herinneringen.
 // Vanaf StartHour Nederlandse tijd, zodat er 's nachts geen mail naar klanten gaat, en niet in een werkruimte die alleen-lezen is.
-public class ReminderJob(AppDb db, BusinessClock clock, WorkflowEngine engine, ReminderService reminders, IOptions<InvoicingLimits> options) : IWorkspaceJob
+public class ReminderJob(AppDb db, BusinessClock clock, WorkflowEngine engine, ReminderService reminders, Notifier notifier, IOptions<InvoicingLimits> options) : IWorkspaceJob
 {
     public async Task RunAsync(CancellationToken ct)
     {
         if (clock.Now.Hour < options.Value.StartHour) return;
         if (await db.Workspaces.FindAsync([db.TenantId], ct) is not { } w || w.ReadOnly(DateTime.UtcNow)) return;
-        await InvoiceEndpoints.MarkOverdue(db, clock, engine);
+        await InvoiceEndpoints.MarkOverdue(db, clock, engine, notifier);
         await reminders.RunAsync(ct);
     }
 }

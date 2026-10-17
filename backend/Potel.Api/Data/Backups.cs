@@ -271,7 +271,7 @@ public partial class DatabaseBackups
 
 // Maakt elke dag een back-up, en meteen na het starten als de nieuwste ouder is dan 24 uur. Kijkt elk uur opnieuw,
 // zodat het ook klopt na een nacht waarin je laptop sliep. Na een fout of een volle schijf probeert hij het een uur later opnieuw.
-public class BackupScheduler(DatabaseBackups backups, BusinessClock clock, ILogger<BackupScheduler> logger) : BackgroundService
+public class BackupScheduler(DatabaseBackups backups, BusinessClock clock, IServiceScopeFactory scopes, ILogger<BackupScheduler> logger) : BackgroundService
 {
     static readonly TimeSpan MaxWait = TimeSpan.FromHours(1);
     static readonly TimeSpan MinWait = TimeSpan.FromMinutes(1);
@@ -291,6 +291,7 @@ public class BackupScheduler(DatabaseBackups backups, BusinessClock clock, ILogg
                     {
                         var result = await Task.Run(() => backups.Create(), stoppingToken);
                         if (result.Ok) wait = TimeSpan.FromHours(24);
+                        else if (result.Outcome is BackupOutcome.Failed or BackupOutcome.Skipped) await NotifyAsync(result);
                     }
                     else wait = due - clock.Now;
                 }
@@ -304,5 +305,12 @@ public class BackupScheduler(DatabaseBackups backups, BusinessClock clock, ILogg
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
         }
+    }
+
+    // Een melding voor de platformbeheerders; de sleutel per dag houdt het bij één melding, ook als het elk uur opnieuw misgaat.
+    async Task NotifyAsync(BackupResult result)
+    {
+        using var scope = scopes.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<Notifications.Notifier>().BackupFailedAsync(result);
     }
 }

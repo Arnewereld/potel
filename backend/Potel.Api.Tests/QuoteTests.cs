@@ -352,6 +352,12 @@ public class QuoteTests(QuoteFactory factory) : IClassFixture<QuoteFactory>
         Assert.Contains("Sanne de Vries", mail.Body);
         Assert.Contains($"https://potel.test/offertes/{id}", mail.Body);
         Assert.Empty(factory.Mail.To(s.CustomerEmail));
+
+        // En een melding in de bel, met dezelfde link.
+        var bell = (await s.Client.GetFromJsonAsync<JsonElement>("/api/notifications")).GetProperty("items").EnumerateArray().Single();
+        Assert.Equal("offerte", bell.GetProperty("kind").GetString());
+        Assert.Equal("Bakkerij De Vries heeft offerte OFF-2026-001 geaccepteerd.", bell.GetProperty("text").GetString());
+        Assert.Equal($"/offertes/{id}", bell.GetProperty("link").GetString());
     }
 
     [Fact]

@@ -48,7 +48,7 @@ public static class WorkflowEndpoints
 
         // Handmatig uitvoeren, eventueel met een lead, klant of factuur als startgegevens. Per werkruimte begrensd
         // (WorkflowRunBudget), samen met runs die een trigger of de planner start.
-        g.MapPost("/{id:int}/run", async (AppDb db, WorkflowEngine engine, int id, RunRequest req) =>
+        g.MapPost("/{id:int}/run", async (AppDb db, WorkflowEngine engine, ClaimsPrincipal user, int id, RunRequest req) =>
         {
             var w = await db.Workflows.FindAsync(id);
             if (w is null) return Results.NotFound();
@@ -78,7 +78,7 @@ public static class WorkflowEndpoints
             }
 
             // De motor start niets in een werkruimte met een verlopen proef, ook als dit verzoek er toch doorheen komt.
-            var (run, refusal) = await engine.RunAsync(w, starts, ctx, "Handmatig gestart");
+            var (run, refusal) = await engine.RunAsync(w, starts, ctx, "Handmatig gestart", user.UserId());
             return refusal switch
             {
                 WorkflowEngine.StartRefusal.ReadOnly => Results.Json(

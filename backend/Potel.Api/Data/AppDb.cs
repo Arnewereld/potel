@@ -56,6 +56,8 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
     public DbSet<TaxReserveYear> TaxReserveYears => Set<TaxReserveYear>();
     public DbSet<VatFiling> VatFilings => Set<VatFiling>();
     public DbSet<CashflowSettings> CashflowSettings => Set<CashflowSettings>();
+    public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<NotificationSettings> NotificationSettings => Set<NotificationSettings>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -194,6 +196,12 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         b.Entity<VatFiling>().HasIndex(f => new { f.WorkspaceId, f.Year, f.Quarter }).IsUnique();
         // De cashflow-prognose: één rij met instellingen per werkruimte.
         b.Entity<CashflowSettings>().HasIndex(c => c.WorkspaceId).IsUnique();
+        // Meldingen: per gebruiker elke gebeurtenis één keer, en weg met de gebruiker. De planner van de mails zoekt op wat nog wacht.
+        b.Entity<Notification>().HasOne<User>().WithMany().HasForeignKey(n => n.UserId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<Notification>().HasIndex(n => new { n.UserId, n.Key }).IsUnique();
+        b.Entity<Notification>().HasIndex(n => n.Mail).HasFilter($"\"Mail\" IN ('{NotificationMail.Direct}', '{NotificationMail.Digest}')");
+        b.Entity<NotificationSettings>().HasOne<User>().WithMany().HasForeignKey(s => s.UserId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<NotificationSettings>().HasIndex(s => s.UserId).IsUnique();
         FilterByWorkspace(b);
     }
 
@@ -211,6 +219,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         Filter<BankTransaction>(b); Filter<BankImport>(b); Filter<BankCsvMapping>(b);
         Filter<Trip>(b); Filter<TripRoute>(b);
         Filter<TaxReserveYear>(b); Filter<VatFiling>(b); Filter<CashflowSettings>(b);
+        Filter<Notification>(b); Filter<NotificationSettings>(b);
     }
 
     void Filter<T>(ModelBuilder b) where T : class, IWorkspaceOwned

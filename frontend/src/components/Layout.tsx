@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, CalendarDays, Users, Target, Receipt, Workflow, Blocks, X, Search, FileSignature,
   ChevronsLeft, ChevronsRight, Moon, Sun, Plus, ShieldCheck, LogOut, KeyRound, Timer, FolderKanban, Settings, Square, Pause, Crown, Wallet, Landmark, CalendarRange,
-  ArrowLeftRight, Car, Package, Coffee, ChartNoAxesCombined,
+  ArrowLeftRight, Car, Package, Coffee, ChartNoAxesCombined, Bell,
 } from 'lucide-react'
 import { clock, useTimer } from '../lib/timer'
 import { mmss } from '../lib/focus'
@@ -20,6 +20,7 @@ import { CommandPalette } from './CommandPalette'
 import { VerifyEmailBanner } from './VerifyEmailBanner'
 import { UpdateBanner } from './UpdateBanner'
 import { FocusView } from './FocusView'
+import { NotificationBell } from './Notifications'
 
 // Het menu, per groep in de volgorde waarin het in de zijbalk staat.
 const nav = [
@@ -55,6 +56,7 @@ const navLinks = (items: typeof nav) => items.map(item => (
 function tabIcon(path: string) {
   path = path.split('?')[0]!
   if (path === '/') return <LayoutDashboard size={14} />
+  if (path === '/meldingen') return <Bell size={14} />
   const item = nav.find(n => n.to !== '/' && path.startsWith(n.to))
   if (item) return <item.icon size={14} />
   return <Blocks size={14} />
@@ -189,6 +191,7 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
       <div className="main">
         <UpdateBanner />
         {!user.emailVerified && <VerifyEmailBanner email={user.email} />}
+        <div className="topbar">
         <div className="tabbar" role="tablist">
           {tabs.map(t => {
             const active = t.path === current
@@ -211,7 +214,12 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
               </div>
             )
           })}
+        </div>
+        {/* Buiten de tabbladen, zodat de timer en de bel nooit wegschuiven als er veel tabbladen open zijn. */}
+        <div className="topbar-actions">
           <TimerChip />
+          <NotificationBell />
+        </div>
         </div>
         {(tabs.some(t => t.path === current) ? tabs : [...tabs, { path: current, title: '' }]).map(t => (
           <main key={t.path} className="content" hidden={t.path !== current}>

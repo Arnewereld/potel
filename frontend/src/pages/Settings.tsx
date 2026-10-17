@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Settings as SettingsIcon, Save, Building, Target, Palette, CreditCard, UserCog, Download, Trash2, Check, Mail, BellRing, RotateCcw, GitBranch, Banknote, PiggyBank, Smartphone, CalendarCheck } from 'lucide-react'
+import { Settings as SettingsIcon, Save, Building, Target, Palette, CreditCard, UserCog, Download, Trash2, Check, Mail, Bell, BellRing, RotateCcw, GitBranch, Banknote, PiggyBank, Smartphone, CalendarCheck } from 'lucide-react'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useToast } from '../lib/toast'
@@ -19,9 +19,10 @@ import { IdealSettingsTab } from '../components/IdealSettings'
 import { TaxReserveSettingsTab } from '../components/TaxReserveSettings'
 import { InstallAppTab } from '../components/InstallApp'
 import { CalendarFeedTab } from '../components/CalendarFeed'
+import { NotificationSettingsTab } from '../components/NotificationSettings'
 import { TwoFactorCard } from '../components/TwoFactor'
 
-type Tab = 'bedrijf' | 'huisstijl' | 'email' | 'belastingpot' | 'ideal' | 'github' | 'telefoon' | 'agenda' | 'abonnement' | 'account'
+type Tab = 'bedrijf' | 'huisstijl' | 'email' | 'meldingen' | 'belastingpot' | 'ideal' | 'github' | 'telefoon' | 'agenda' | 'abonnement' | 'account'
 
 export function SettingsPage() {
   const { data, error, loading, setData } = useApi<Settings>('/settings')
@@ -69,13 +70,14 @@ export function SettingsPage() {
       <PageHeader
         icon={<SettingsIcon size={20} />}
         title="Instellingen"
-        subtitle="Je gegevens, huisstijl, belastingpot, iDEAL, koppelingen, Potel op je telefoon, abonnement en account."
+        subtitle="Je gegevens, huisstijl, meldingen, belastingpot, iDEAL, koppelingen, Potel op je telefoon, abonnement en account."
         actions={admin && (tab === 'bedrijf' || tab === 'huisstijl') && <button className="btn btn-primary" disabled={busy || !dirty}><Save size={15} /> Opslaan</button>}
       />
       <SubTabs<Tab> value={tab} onChange={t => setParams({ tab: t }, { replace: true })} tabs={[
         { id: 'bedrijf', label: 'Bedrijf', icon: <Building size={14} /> },
         { id: 'huisstijl', label: 'Huisstijl', icon: <Palette size={14} /> },
         { id: 'email', label: 'E-mail en herinneringen', icon: <BellRing size={14} /> },
+        { id: 'meldingen', label: 'Meldingen', icon: <Bell size={14} /> },
         { id: 'belastingpot', label: 'Belastingpot', icon: <PiggyBank size={14} /> },
         { id: 'ideal', label: 'iDEAL', icon: <Banknote size={14} /> },
         { id: 'github', label: 'GitHub', icon: <GitBranch size={14} /> },
@@ -147,6 +149,7 @@ export function SettingsPage() {
       )}
 
       {tab === 'email' && <Reminders admin={admin} />}
+      {tab === 'meldingen' && <NotificationSettingsTab />}
       {tab === 'belastingpot' && <TaxReserveSettingsTab admin={admin} />}
       {tab === 'ideal' && <IdealSettingsTab admin={admin} />}
       {tab === 'github' && <GitHubSettingsTab admin={admin} />}

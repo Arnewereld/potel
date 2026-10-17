@@ -289,6 +289,8 @@ public static partial class WorkspaceEndpoints
             await Write("appointments", await db.Appointments.ToListAsync());
             // Wat iedereen in zijn agendalink wil zien en wanneer die werd opgehaald. De links zelf gaan niet mee.
             await Write("calendarFeeds", await db.CalendarFeeds.OrderBy(f => f.Id).ToListAsync());
+            // Welke meldingen iedereen wil krijgen, in de app en per e-mail. De meldingen zelf zijn tijdelijk en gaan niet mee.
+            await Write("notificationSettings", await db.NotificationSettings.OrderBy(s => s.Id).ToListAsync());
             await Write("modules", await db.CustomModules.ToListAsync());
             await Write("records", await db.CustomRecords.ToListAsync());
             await Write("workflows", await db.Workflows.ToListAsync());
@@ -359,6 +361,8 @@ public static partial class WorkspaceEndpoints
             await db.GitHubAuthors.ExecuteDeleteAsync();
             await db.GitHubSettings.ExecuteDeleteAsync();
             await db.CalendarFeeds.ExecuteDeleteAsync();
+            await db.Notifications.ExecuteDeleteAsync();
+            await db.NotificationSettings.ExecuteDeleteAsync();
             db.TimeEntries.RemoveRange(db.TimeEntries);
             db.Invoices.RemoveRange(db.Invoices);
             await db.SaveChangesAsync();

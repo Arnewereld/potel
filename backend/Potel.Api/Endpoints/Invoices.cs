@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Potel.Api.Data;
 using Potel.Api.Invoicing;
+using Potel.Api.Notifications;
 using Potel.Api.Workflows;
 
 namespace Potel.Api.Endpoints;
@@ -47,7 +48,7 @@ public static partial class InvoiceEndpoints
     // Verzonden facturen voorbij de vervaldatum gaan op verlopen. Een creditnota hoeft niemand te betalen en verloopt nooit,
     // en een factuur die met creditnota's en betalingen helemaal is afgedaan ook niet. Met een engine starten daarna de werkstromen met
     // de trigger "Factuur te laat", alleen voor echte facturen (geen voorbeelddata).
-    public static async Task MarkOverdue(AppDb db, BusinessClock clock, WorkflowEngine? engine = null)
+    public static async Task MarkOverdue(AppDb db, BusinessClock clock, WorkflowEngine? engine = null, Notifier? notifier = null)
     {
         var today = clock.Today;
         var overdue = (await db.Invoices.AsNoTracking().Include(i => i.Lines).Include(i => i.Customer).Include(i => i.Credits).ThenInclude(c => c.Lines)
@@ -65,6 +66,9 @@ public static partial class InvoiceEndpoints
             late.Add(i);
         }
         await db.SaveChangesAsync();
+        // Een melding voor de beheerders; ook hier alleen wie de status echt omzette, en de sleutel per factuur houdt het bij één.
+        if (notifier is not null)
+            foreach (var i in late) await notifier.OverdueAsync(i);
         if (engine is null) return;
         foreach (var i in late.Where(i => !i.IsDemo && i.Customer?.IsDemo != true))
         {
@@ -318,9 +322,9 @@ public static partial class InvoiceEndpoints
         var g = api.MapGroup("/invoices");
 
         // Concepten bovenaan, daarna de verstuurde facturen van nieuw naar oud.
-        g.MapGet("/", async (AppDb db, BusinessClock clock, WorkflowEngine engine) =>
+        g.MapGet("/", async (AppDb db, BusinessClock clock, WorkflowEngine engine, Notifier notifier) =>
         {
-            await MarkOverdue(db, clock, engine);
+            await MarkOverdue(db, clock, engine, notifier);
             return await Full(db).AsNoTracking()
                 .OrderBy(i => i.Status != InvoiceStatus.Draft).ThenBy(i => i.IsDemo).ThenByDescending(i => i.Number).ThenByDescending(i => i.Id).ToListAsync();
         });
@@ -424,7 +428,7 @@ public static partial class InvoiceEndpoints
         });
 
         // Alleen de status wijzigen: versturen, verlopen of betaald.
-        g.MapPost("/{id:int}/status", async (AppDb db, BusinessClock clock, WorkflowEngine engine, ClaimsPrincipal user, int id, StatusRequest req) =>
+        g.MapPost("/{id:int}/status", async (AppDb db, BusinessClock clock, WorkflowEngine engine, Notifier notifier, ClaimsPrincipal user, int id, StatusRequest req) =>
         {
             await using (var tx = await WriteLock.BeginAsync(db))
             {
@@ -434,15 +438,21 @@ public static partial class InvoiceEndpoints
                 if (problem is not null) return problem.ToResult();
                 await db.SaveChangesAsync();
                 await tx.CommitAsync();
-                if (becamePaid) await TriggerPaid(db, engine, inv);
+                if (becamePaid)
+                {
+                    await TriggerPaid(db, engine, inv);
+                    // Op betaald gezet: de betaling voor het restant, voor de andere beheerders.
+                    var last = await db.InvoicePayments.AsNoTracking().Where(p => p.InvoiceId == id).OrderByDescending(p => p.Id).FirstOrDefaultAsync();
+                    await notifier.PaymentAsync(id, last, user.UserId());
+                }
             }
-            await MarkOverdue(db, clock, engine);
+            await MarkOverdue(db, clock, engine, notifier);
             return Results.Ok(await Full(db).AsNoTracking().FirstAsync(i => i.Id == id));
         });
 
         // Een (deel)betaling vastleggen. Iedereen in de werkruimte mag dat, net als een factuur op betaald zetten. Meer dan er
         // openstaat kan niet; dekt de betaling het restant, dan is de factuur betaald.
-        g.MapPost("/{id:int}/payments", async (AppDb db, BusinessClock clock, WorkflowEngine engine, ClaimsPrincipal user, int id, PaymentRequest req) =>
+        g.MapPost("/{id:int}/payments", async (AppDb db, BusinessClock clock, WorkflowEngine engine, Notifier notifier, ClaimsPrincipal user, int id, PaymentRequest req) =>
         {
             Invoice? inv;
             PaymentResult result;
@@ -456,6 +466,7 @@ public static partial class InvoiceEndpoints
                 await tx.CommitAsync();
             }
             if (result.BecamePaid) await TriggerPaid(db, engine, inv);
+            await notifier.PaymentAsync(id, result.Payment, user.UserId());
             return Results.Ok(await Full(db).AsNoTracking().FirstAsync(i => i.Id == id));
         });
 

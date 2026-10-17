@@ -5,8 +5,10 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Potel.Api.Data;
 using Potel.Api.Invoicing;
+using Potel.Api.Notifications;
 using Potel.Api.Payments;
 
 namespace Potel.Api.Endpoints;
@@ -141,7 +143,8 @@ public static partial class CustomerPortalEndpoints
 
         // Het portaal zelf: zonder inloggen, alleen met het token uit de link. Alles wordt expliciet gefilterd op de werkruimte
         // en de klant van de link; de rest van de werkruimte komt er nooit in.
-        api.MapPost("/public/portal", async (AppDb db, BusinessClock clock, InvoiceIdeal ideal, HttpResponse response, PublicPortalRequest req) =>
+        api.MapPost("/public/portal", async (AppDb db, BusinessClock clock, InvoiceIdeal ideal, Notifier notifier, IOptions<NotificationOptions> notifications,
+            ClaimsPrincipal user, HttpResponse response, PublicPortalRequest req) =>
         {
             InvoiceMailEndpoints.NoIndex(response);
             var gone = Results.NotFound(new { error = LinkGone });
@@ -230,6 +233,17 @@ public static partial class CustomerPortalEndpoints
                     link = links.TryGetValue(i.Id, out var t) ? $"{InvoiceMailer.LinkPath}#token={t}" : null,
                     canPay = online && links.ContainsKey(i.Id) && InvoiceIdeal.Payable(i, customer.IsDemo),
                 }).ToList();
+            }
+
+            // Een melding als de klant zijn portaal voor het eerst opent, of na een stille periode weer. Niet als iemand van de
+            // werkruimte zelf even kijkt, en niet voor een voorbeeldklant.
+            var lastOpened = await db.PortalLinks.IgnoreQueryFilters().AsNoTracking()
+                .Where(l => l.WorkspaceId == ws && l.CustomerId == customer.Id).MaxAsync(l => l.LastOpenedAt);
+            var quiet = TimeSpan.FromDays(Math.Max(1, notifications.Value.PortalQuietDays));
+            if (!customer.IsDemo && user.WorkspaceId() != ws && (lastOpened is null || now - lastOpened.Value >= quiet))
+            {
+                db.Tenant.WorkspaceId = ws;
+                await notifier.PortalOpenedAsync(customer, first: lastOpened is null, clock.Today);
             }
 
             await db.PortalLinks.IgnoreQueryFilters().Where(l => l.Id == link.Id)

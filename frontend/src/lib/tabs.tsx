@@ -50,6 +50,7 @@ export function defaultTitle(fullPath: string) {
   if (path === '/modules') return 'Eigen modules'
   if (path.startsWith('/modules/')) return 'Module'
   if (path === '/gebruikers') return 'Gebruikers'
+  if (path === '/meldingen') return 'Meldingen'
   return 'Pagina'
 }
 

@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using Potel.Api.Banking;
 using Potel.Api.Data;
 using Potel.Api.Endpoints;
+using Potel.Api.Notifications;
 
 namespace Potel.Api.Invoicing;
 
@@ -19,7 +20,8 @@ public enum RecurringBooking { Planner, Manual, Bank }
 // terugkerende facturen bewaken drie dingen dat samen: een WriteLock, de controle dat de volgende periode nog dezelfde is als
 // waarvoor we begonnen, en de unieke index op vaste kost en begin van de periode. Stond de uitgave er al (met de hand ingevoerd of
 // vanuit je bank), dan koppelen we die in plaats van er een tweede naast te zetten.
-public class RecurringExpenseService(AppDb db, BusinessClock clock, IOptions<InvoicingLimits> options, ILogger<RecurringExpenseService> logger)
+public class RecurringExpenseService(AppDb db, BusinessClock clock, IOptions<InvoicingLimits> options, Notifier notifier, IHttpContextAccessor http,
+    ILogger<RecurringExpenseService> logger)
 {
     readonly InvoicingLimits limits = options.Value;
 
@@ -104,6 +106,7 @@ public class RecurringExpenseService(AppDb db, BusinessClock clock, IOptions<Inv
         db.Log("kosten", $"Herinnering: je vaste kost bij {t.Supplier} ({Label(p)}) is aan de beurt. Boek de uitgave bij Kosten, Vaste kosten, of sla deze periode over.");
         await db.SaveChangesAsync();
         await tx.CommitAsync();
+        await notifier.FixedCostAsync(t, p, drafted: false, except: http.HttpContext?.User.UserId());
     }
 
     // Lag de server lang stil, dan halen we hooguit MaxCatchUpPeriods perioden in en slaan we de oudere over, met een regel in het logboek.
@@ -232,6 +235,8 @@ public class RecurringExpenseService(AppDb db, BusinessClock clock, IOptions<Inv
             return new(RecurringExpenseOutcome.AlreadyMade);
         }
         await tx.CommitAsync();
+        // Een melding als de planner een concept klaarzette; met de knop Boeken of vanuit je bank deed je het zelf.
+        if (booking == RecurringBooking.Planner && outcome == RecurringExpenseOutcome.Created) await notifier.FixedCostAsync(t, period, drafted: true, except: http.HttpContext?.User.UserId());
         return new(outcome, e);
     }
 

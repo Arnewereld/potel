@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Potel.Api.Data;
+using Potel.Api.Notifications;
 using Potel.Api.Workflows;
 
 namespace Potel.Api.Endpoints;
@@ -9,9 +10,9 @@ public static class DashboardEndpoints
 {
     public static void MapDashboard(this RouteGroupBuilder api)
     {
-        api.MapGet("/dashboard", async (AppDb db, BusinessClock clock, WorkflowEngine engine, ClaimsPrincipal user) =>
+        api.MapGet("/dashboard", async (AppDb db, BusinessClock clock, WorkflowEngine engine, Notifier notifier, ClaimsPrincipal user) =>
         {
-            await InvoiceEndpoints.MarkOverdue(db, clock, engine);
+            await InvoiceEndpoints.MarkOverdue(db, clock, engine, notifier);
             // Week, maand, kwartaal en jaar zoals ze in Nederland lopen, niet in de tijdzone van de server.
             var today = clock.Today;
             var invoices = await db.Invoices.Include(i => i.Lines).Include(i => i.Credits).ThenInclude(c => c.Lines).Include(i => i.Payments).AsSplitQuery().AsNoTracking().ToListAsync();

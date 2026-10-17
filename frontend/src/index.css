@@ -134,6 +134,14 @@ kbd {
 }
 .tab:hover .tab-close, .tab.active .tab-close { opacity: 1; }
 .tab-close:hover { background: var(--panel-3); color: var(--text); }
+/* De balk bovenin: tabbladen links, de timer en de bel rechts. Alleen de tabbladen schuiven. */
+.topbar { display: flex; align-items: stretch; flex: none; min-width: 0; background: var(--panel); }
+.topbar .tabbar { flex: 1; min-width: 0; padding-right: 6px; }
+.topbar-actions {
+  display: flex; align-items: center; gap: 8px; flex: none; background: var(--panel); border-bottom: 1px solid var(--border);
+  padding: max(8px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) 0 4px;
+}
+.topbar-actions .timer-chip { margin-left: 0; }
 
 .content {
   flex: 1; overflow: auto; padding: 26px max(30px, env(safe-area-inset-right)) calc(40px + env(safe-area-inset-bottom)) 30px; min-height: 0;
@@ -327,6 +335,11 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 }
 .toast-ok svg { color: var(--green); }
 .toast-error svg { color: var(--red); }
+.toast-info svg { color: var(--primary); }
+.toast svg { flex: none; }
+/* Een melding die binnenkomt: klik erop en je gaat erheen. */
+.toast-link { cursor: pointer; text-align: left; color: var(--text); line-height: 1.4; max-width: min(420px, calc(100vw - 40px)); }
+.toast-link:hover { border-color: var(--border-strong); }
 
 .muted { color: var(--muted); }
 .row { display: flex; align-items: center; gap: 10px; }
@@ -1414,4 +1427,75 @@ tbody tr.cf-detail-row:hover { background: none; }
   .cf-table tr.cf-detail-row { display: block; padding: 0; }
   .cf-table tr.cf-detail-row > td { display: block; padding: 12px 16px; }
   .cf-item { padding-left: 0; }
+}
+
+/* ---------- Meldingen ---------- */
+.notif-wrap { position: relative; margin-bottom: 6px; }
+.notif-bell { position: relative; width: 34px; height: 34px; display: grid; place-items: center; }
+.notif-bell.open { background: var(--panel-3); color: var(--text); }
+.notif-count {
+  position: absolute; top: 0; right: -2px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: var(--primary); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
+  box-shadow: 0 0 0 2px var(--panel);
+}
+.notif-panel {
+  position: absolute; right: 0; top: calc(100% + 8px); z-index: 60; width: 380px; max-height: min(560px, calc(100dvh - 90px));
+  display: flex; flex-direction: column; overflow: hidden; animation: pop 0.14s ease-out;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow);
+}
+.notif-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.notif-list { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 6px 6px; }
+.notif-foot { display: flex; justify-content: space-between; gap: 10px; padding: 10px 14px; border-top: 1px solid var(--border); font-size: 13px; }
+.notif-empty { padding: 26px 16px; text-align: center; color: var(--muted); line-height: 1.5; }
+.notif-day { padding: 12px 8px 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.notif-row {
+  display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 9px 8px; border: 0; border-radius: 9px;
+  background: none; color: var(--text-2); cursor: pointer; text-align: left;
+}
+.notif-row:hover { background: var(--panel-2); }
+.notif-row.unread { color: var(--text); }
+.notif-row.unread .notif-text { font-weight: 500; }
+.notif-text { flex: 1; min-width: 0; line-height: 1.4; padding-top: 4px; overflow-wrap: anywhere; }
+.notif-time { flex: none; padding-top: 5px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.notif-dot { flex: none; width: 8px; height: 8px; margin-top: 10px; border-radius: 50%; background: var(--primary); }
+.notif-icon { flex: none; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; color: var(--tone); background: color-mix(in srgb, var(--tone) 14%, transparent); }
+.tone-green { --tone: var(--green); }
+.tone-red { --tone: var(--red); }
+.tone-blue { --tone: var(--blue); }
+.tone-purple { --tone: var(--purple); }
+.tone-yellow { --tone: var(--yellow); }
+.tone-orange { --tone: var(--primary); }
+.tone-gray { --tone: var(--muted); }
+.notif-filters { gap: 10px; margin-bottom: 16px; }
+.notif-filters .subtabs { margin-bottom: 0; }
+.notif-filters select { width: auto; min-width: 180px; max-width: 100%; }
+.notif-page { padding: 4px 10px 10px; }
+.notif-page .notif-row { padding: 11px 10px; }
+.notif-more { display: flex; justify-content: center; padding: 10px; }
+.notif-note { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); color: var(--text-2); font-size: 13px; }
+.notif-note svg { flex: none; margin-top: 1px; color: var(--primary); }
+.notif-settings { display: flex; flex-direction: column; margin-top: 12px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.notif-settings-head, .notif-settings-row { display: grid; grid-template-columns: minmax(0, 1fr) 96px 96px; gap: 10px; align-items: center; padding: 10px 14px; }
+.notif-settings-head { background: var(--panel-2); font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.notif-settings-head span + span { text-align: center; }
+.notif-settings-row { border-top: 1px solid var(--border); }
+.notif-settings-kind { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.notif-settings-kind .cell-sub { display: block; margin-top: 2px; }
+.notif-check { display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; }
+/* Op een groot scherm staat het boven de kolom; voor schermlezers staat het er toch bij. */
+.notif-check span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.notif-digest { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; }
+@media (max-width: 640px) {
+  /* Het paneel over de volle breedte naast het menu, onder de balk. */
+  .notif-panel {
+    position: fixed; left: 74px; right: max(10px, env(safe-area-inset-right)); top: calc(52px + env(safe-area-inset-top));
+    width: auto; max-height: calc(100dvh - 70px - env(safe-area-inset-top));
+  }
+  .notif-settings-head { display: none; }
+  .notif-settings-row { grid-template-columns: 1fr 1fr; }
+  .notif-settings-row:first-of-type { border-top: 0; }
+  .notif-settings-kind { grid-column: 1 / -1; }
+  .notif-check { justify-content: flex-start; min-height: 32px; }
+  .notif-check span { position: static; width: auto; height: auto; overflow: visible; clip-path: none; font-size: 13px; }
+  .notif-filters select { flex: 1 1 100%; }
 }

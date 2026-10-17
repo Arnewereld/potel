@@ -41,6 +41,8 @@ import { ProjectsPage } from './pages/Projects'
 import { ProjectDetailPage } from './pages/ProjectDetail'
 import { SettingsPage } from './pages/Settings'
 import { PlatformPage } from './pages/Platform'
+import { NotificationsPage } from './pages/Notifications'
+import { NotificationsProvider } from './components/Notifications'
 import { TwoFactorRequiredPage } from './components/TwoFactor'
 
 // Pagina's die los van inloggen werken, zoals de links uit een mail en de juridische teksten.
@@ -69,11 +71,13 @@ export default function App() {
       <ModulesProvider>
       <TimerProvider>
         <TabsProvider>
+        <NotificationsProvider>
           <Layout renderTab={(path, active) => (
             <ActiveTabContext.Provider value={active}>
               <AppRoutes location={path} />
             </ActiveTabContext.Provider>
           )} />
+        </NotificationsProvider>
         </TabsProvider>
       </TimerProvider>
       </ModulesProvider>
@@ -114,6 +118,7 @@ function AppRoutes({ location }: { location: string }) {
       <Route path="/modules" element={<ModulesPage />} />
       <Route path="/modules/:id" element={<ModuleRecordsPage />} />
       <Route path="/gebruikers" element={<UsersPage />} />
+      <Route path="/meldingen" element={<NotificationsPage />} />
       <Route path="*" element={<DashboardPage />} />
     </Routes>
   )

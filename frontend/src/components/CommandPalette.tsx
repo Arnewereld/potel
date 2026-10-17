@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Users, Target, Receipt, FileSignature, CornerDownLeft, Plus, LayoutDashboard, CalendarDays, Workflow, Timer, FolderKanban, Settings, Wallet, Landmark, CalendarRange, Car, Package } from 'lucide-react'
+import { Search, Users, Target, Receipt, FileSignature, CornerDownLeft, Plus, LayoutDashboard, CalendarDays, Workflow, Timer, FolderKanban, Settings, Wallet, Landmark, CalendarRange, Car, Package, Bell } from 'lucide-react'
 import { api } from '../lib/api'
 
 interface Hit { type: string; id: number; title: string; subtitle?: string | null }
@@ -23,6 +23,7 @@ const quick: Item[] = [
   { key: 'q-off-new', label: 'Nieuwe offerte', icon: <Plus size={16} />, to: '/offertes/nieuw' },
   { key: 'q-wf', label: 'Werkstromen', icon: <Workflow size={16} />, to: '/werkstromen' },
   { key: 'q-set', label: 'Instellingen', icon: <Settings size={16} />, to: '/instellingen' },
+  { key: 'q-meld', label: 'Meldingen', icon: <Bell size={16} />, to: '/meldingen' },
 ]
 
 const typeInfo: Record<string, { icon: React.ReactNode; path: (id: number) => string }> = {

@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Potel.Api.Data;
 using Potel.Api.Endpoints;
 using Potel.Api.Invoicing;
+using Potel.Api.Notifications;
 using Potel.Api.Workflows;
 
 namespace Potel.Api.Payments;
@@ -16,7 +17,7 @@ public record IdealStart(string? CheckoutUrl, InvoiceProblem? Problem);
 // iDEAL op facturen via de eigen Mollie van de freelancer: de klant betaalt en het geld komt op de rekening van de freelancer.
 // Niet te verwarren met MollieBilling, het abonnement op Potel zelf met de sleutel van het platform. Hier gebruiken we altijd
 // de sleutel van de werkruimte van de factuur, en het bedrag is altijd wat er volgens de server nog openstaat.
-public partial class InvoiceIdeal(MollieClient mollie, IDataProtectionProvider dp, AppUrls urls, BusinessClock clock, ILogger<InvoiceIdeal> logger)
+public partial class InvoiceIdeal(MollieClient mollie, IDataProtectionProvider dp, AppUrls urls, BusinessClock clock, Notifier notifier, ILogger<InvoiceIdeal> logger)
 {
     public const string ProtectorPurpose = "Potel.Mollie.InvoiceKey.v1";
     public const string WebhookPath = "/api/public/invoice/mollie-webhook";
@@ -205,6 +206,7 @@ public partial class InvoiceIdeal(MollieClient mollie, IDataProtectionProvider d
         }
 
         Invoice? inv = null;
+        InvoicePayment? recorded = null;
         var becamePaid = false;
         await using (var tx = await WriteLock.BeginAsync(db))
         {
@@ -236,6 +238,7 @@ public partial class InvoiceIdeal(MollieClient mollie, IDataProtectionProvider d
                             db.Log("factuur", $"Er kwam {InvoicePayments.Euro(amount.Value)} binnen met iDEAL voor {InvoiceEndpoints.Label(inv).ToLowerInvariant()}, maar dat kon niet op de factuur: {problem.Error}");
                         }
                         becamePaid = result.BecamePaid;
+                        recorded = result.Payment;
                     }
                 }
             }
@@ -243,6 +246,8 @@ public partial class InvoiceIdeal(MollieClient mollie, IDataProtectionProvider d
             await tx.CommitAsync();
         }
         if (becamePaid && inv is not null) await InvoiceEndpoints.TriggerPaid(db, engine, inv);
+        // Notifier werkt met dezelfde databasecontext van dit verzoek, dus in de werkruimte van deze betaling.
+        if (inv is not null) await notifier.PaymentAsync(inv.Id, recorded);
     }
 
     // Test de sleutel: werkt hij, en staat iDEAL aan?

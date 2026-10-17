@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Potel.Api.Data;
 using Potel.Api.Invoicing;
+using Potel.Api.Notifications;
 using Potel.Api.Workflows;
 
 namespace Potel.Api.Endpoints;
@@ -708,7 +709,7 @@ public static partial class QuoteEndpoints
             await tx.CommitAsync();
         }
 
-        await notices.DecidedAsync(q, http.Request);
+        await notices.DecidedAsync(q);
         if (accept)
         {
             var ctx = new Dictionary<string, string>();
@@ -738,42 +739,9 @@ public static partial class QuoteEndpoints
     }
 }
 
-// Een mail aan de beheerders als een klant over een offerte heeft besloten, als er een mailserver is. Alleen naar bevestigde
-// adressen. Gaat via de wachtrij, zodat je klant niet op de mailserver hoeft te wachten. Het dashboard toont het hoe dan ook.
-public class QuoteNotices(AppDb db, IEmailSender sender, SystemMailQueue queue, AppUrls urls, IConfiguration config, ILogger<QuoteNotices> logger)
+// Een melding aan de beheerders als een klant over een offerte heeft besloten, en een mail voor wie die per e-mail wil (standaard aan
+// voor offertes). Het dashboard toont het hoe dan ook. Een fout hier maakt het besluit van je klant niet ongedaan.
+public class QuoteNotices(Notifier notifier)
 {
-    static readonly CultureInfo Dutch = CultureInfo.GetCultureInfo("nl-NL");
-
-    string Product => config["Platform:Name"] is { Length: > 0 } name ? name : "Potel";
-
-    public async Task DecidedAsync(Quote q, HttpRequest request)
-    {
-        try
-        {
-            if (!sender.Configured) return;
-            var to = await db.Users.AsNoTracking().Where(u => u.Role == Roles.Admin && u.Active && u.EmailVerifiedAt != null).Select(u => u.Email).ToListAsync();
-            if (to.Count == 0) return;
-            var accepted = q.Status == QuoteStatus.Accepted;
-            var at = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(q.DecidedAt ?? DateTime.UtcNow, DateTimeKind.Utc), BusinessClock.Zone);
-            var who = q.Buyer?.Name ?? "Je klant";
-            var subject = string.IsNullOrWhiteSpace(q.Subject) ? "" : $" ({q.Subject.Trim()})";
-            var when = $"op {at.ToString("d MMMM yyyy", Dutch)} om {at:HH:mm}";
-            var body = accepted
-                ? $"Goed nieuws: {who} heeft offerte {q.Number}{subject} geaccepteerd {when}. Akkoord gegeven door: {q.DecidedName}."
-                : $"{who} heeft offerte {q.Number}{subject} afgewezen {when}."
-                    + (q.RejectReason is { } reason ? $"\n\nDe toelichting:\n{reason}" : " Er is geen toelichting gegeven.");
-            if (urls.Base(request) is { } baseUrl)
-                body += accepted
-                    ? $"\n\nBekijk de offerte in {Product}. Daar maak je er een project of factuur van:\n{baseUrl}/offertes/{q.Id}"
-                    : $"\n\nBekijk de offerte in {Product}:\n{baseUrl}/offertes/{q.Id}";
-            var title = accepted ? $"Offerte {q.Number} is geaccepteerd" : $"Offerte {q.Number} is afgewezen";
-            foreach (var address in to.Where(EmailRules.IsSingleAddress).Distinct(StringComparer.OrdinalIgnoreCase))
-                if (!queue.TryEnqueue(new OutgoingEmail(address, title, body, Product)))
-                    logger.LogWarning("Melding over offerte {Quote} niet in de wachtrij gezet", q.Id);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Melding over offerte {Quote} niet verstuurd", q.Id);
-        }
-    }
+    public Task DecidedAsync(Quote q) => notifier.QuoteDecidedAsync(q);
 }

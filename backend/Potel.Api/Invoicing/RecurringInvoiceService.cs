@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Potel.Api.Data;
 using Potel.Api.Endpoints;
+using Potel.Api.Notifications;
 using Potel.Api.Workflows;
 
 namespace Potel.Api.Invoicing;
@@ -16,7 +17,7 @@ public record RecurringResult(RecurringOutcome Outcome, Invoice? Invoice = null,
 // Dat bewaken drie dingen samen: een WriteLock (één schrijver tegelijk), de controle dat de volgende periode nog dezelfde is
 // als waarvoor we begonnen, en de unieke index op terugkerende factuur en begin van de periode.
 public class RecurringInvoiceService(AppDb db, BusinessClock clock, IOptions<InvoicingLimits> options, IOptions<WorkflowLimits> mailLimits,
-    InvoiceMailer mailer, AppUrls urls, IHttpContextAccessor http, ILogger<RecurringInvoiceService> logger)
+    InvoiceMailer mailer, AppUrls urls, IHttpContextAccessor http, Notifier notifier, ILogger<RecurringInvoiceService> logger)
 {
     readonly InvoicingLimits limits = options.Value;
 
@@ -143,8 +144,14 @@ public class RecurringInvoiceService(AppDb db, BusinessClock clock, IOptions<Inv
             await tx.CommitAsync();
         }
 
-        if (t.Action != RecurringActions.Send) return new(RecurringOutcome.Created, inv);
+        // Een melding alleen als de planner het deed; bij Nu aanmaken zie je het zelf.
+        if (t.Action != RecurringActions.Send)
+        {
+            if (!manual) await notifier.RecurringInvoiceAsync(t, inv.Id, send: false, fallback: null, except: http.HttpContext?.User.UserId());
+            return new(RecurringOutcome.Created, inv);
+        }
         var fallback = await SendAsync(inv.Id, t);
+        if (!manual) await notifier.RecurringInvoiceAsync(t, inv.Id, send: true, fallback, except: http.HttpContext?.User.UserId());
         return new(RecurringOutcome.Created, await db.Invoices.AsNoTracking().FirstAsync(i => i.Id == inv.Id), fallback);
     }
 

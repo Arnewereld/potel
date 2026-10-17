@@ -1494,4 +1494,55 @@ public class WorkflowRun : IWorkspaceOwned
     public int Steps { get; set; }
     public int Waits { get; set; }
     public int Calls { get; set; }
+    // Wie de run met de hand startte. Loopt hij later vast, dan krijgt die gebruiker een melding (zie Notifier).
+    [JsonIgnore] public int? StartedByUserId { get; set; }
+}
+
+// Een melding in Potel voor één gebruiker: iets wat buiten hem om gebeurde, zoals een betaalde factuur of een vastgelopen werkstroom.
+// Key maakt de gebeurtenis uniek per gebruiker (unieke index), zodat er hooguit één melding komt, ook als dezelfde code twee keer
+// loopt. Title is de onderwerpregel van een mail, Text de zin in de bel en Detail wat er verder in de mail staat.
+public class Notification : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int UserId { get; set; }
+    public string Kind { get; set; } = "";
+    public string Key { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string Text { get; set; } = "";
+    public string? Detail { get; set; }
+    // Waar de melding over gaat, als pad in de app, zoals /facturen/12.
+    public string? Link { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? ReadAt { get; set; }
+    // Uit als de gebruiker deze soort alleen per e-mail wil: dan staat hij niet in de bel en niet in de lijst.
+    public bool InApp { get; set; } = true;
+    // Of en hoe hij gemaild wordt (zie NotificationMail); leeg is geen mail.
+    public string? Mail { get; set; }
+    public DateTime? MailedAt { get; set; }
+}
+
+public static class NotificationMail
+{
+    // Wacht op een losse mail, of op het dagelijkse overzicht.
+    public const string Direct = "direct";
+    public const string Digest = "overzicht";
+    public const string Sent = "verstuurd";
+    public const string Skipped = "overgeslagen";
+}
+
+// Welke meldingen een gebruiker wil: soorten die niet in de app hoeven en soorten die ook per e-mail komen, gescheiden door komma's.
+// Zonder rij gelden de standaarden uit NotificationKinds. Met Digest komen de mails als één overzicht per dag. DigestSentOn, MailDay
+// en MailsSent houden bij dat er hooguit één overzicht per dag en een begrensd aantal losse mails per dag weggaan.
+public class NotificationSettings : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int UserId { get; set; }
+    public string InAppOff { get; set; } = "";
+    public string EmailOn { get; set; } = "";
+    public bool Digest { get; set; }
+    public DateTime? DigestSentOn { get; set; }
+    public DateTime? MailDay { get; set; }
+    public int MailsSent { get; set; }
 }

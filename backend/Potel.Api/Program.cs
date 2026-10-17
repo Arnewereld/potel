@@ -11,6 +11,7 @@ using Potel.Api.Data;
 using Potel.Api.Endpoints;
 using Potel.Api.Integrations;
 using Potel.Api.Invoicing;
+using Potel.Api.Notifications;
 using Potel.Api.Payments;
 using Potel.Api.Workflows;
 
@@ -167,6 +168,13 @@ builder.Services.AddScoped<IWorkspaceJob, RecurringInvoiceJob>();
 builder.Services.AddScoped<RecurringExpenseService>();
 builder.Services.AddScoped<IWorkspaceJob, RecurringExpenseJob>();
 builder.Services.AddScoped<IWorkspaceJob, ReminderJob>();
+// Meldingen in Potel (de bel), per gebruiker. De mailer stuurt ze per e-mail aan wie dat wil, los of als dagelijks overzicht, en
+// ruimt oude gelezen meldingen op. De btw-deadline komt via de planner.
+builder.Services.Configure<NotificationOptions>(builder.Configuration.GetSection("Notifications"));
+builder.Services.AddScoped<Notifier>();
+builder.Services.AddSingleton<NotificationMailer>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<NotificationMailer>());
+builder.Services.AddScoped<IWorkspaceJob, VatDeadlineJob>();
 if (builder.Configuration.GetValue("Workflows:Scheduler", true))
     builder.Services.AddHostedService<WorkflowScheduler>();
 
@@ -251,9 +259,10 @@ app.UseRateLimiter();
 // je e-mailadres bevestigen en inloggen in twee stappen regelen (alles onder /api/auth), betalen of opzeggen (/api/billing),
 // gebruikers uitschakelen of verwijderen of hun inloggen in twee stappen uitzetten, dat verplicht maken voor beheerders,
 // een link naar het klantportaal of je agendalink intrekken, het GitHub-token of de sleutel van Mollie weghalen, een offerte of de links ernaar intrekken,
-// de welkomstwizard sluiten, je eigen lopende timer weggooien (er wordt dan niets geboekt) en je werkruimte verwijderen. Openbare
-// pagina's (/api/public) werken gewoon, ook akkoord op een offerte. Al het andere is dicht, ook wat hier later bijkomt: een timer
-// starten, pauzeren of stoppen en boeken kan dus pas weer met een abonnement. Een lopende timer blijft tot dan gewoon staan.
+// de welkomstwizard sluiten, je eigen lopende timer weggooien (er wordt dan niets geboekt), je meldingen lezen en instellen welke je wilt,
+// en je werkruimte verwijderen. Openbare pagina's (/api/public) werken gewoon, ook akkoord op een offerte. Al het andere is dicht,
+// ook wat hier later bijkomt: een timer starten, pauzeren of stoppen en boeken kan dus pas weer met een abonnement. Een lopende
+// timer blijft tot dan gewoon staan.
 static bool WritableAfterTrial(HttpRequest r)
 {
     if (r.Path.StartsWithSegments("/api/auth") || r.Path.StartsWithSegments("/api/platform") || r.Path.StartsWithSegments("/api/billing")) return true;
@@ -266,6 +275,7 @@ static bool WritableAfterTrial(HttpRequest r)
     if (InvoiceIdealEndpoints.IsRemoveKey(r)) return true;
     if (QuoteEndpoints.IsSafetyAction(r)) return true;
     if (TimerEndpoints.IsDiscard(r)) return true;
+    if (NotificationEndpoints.IsPersonal(r)) return true;
     if (r.Path.StartsWithSegments("/api/workspace", out var rest))
         return (HttpMethods.IsDelete(r.Method) && (!rest.HasValue || rest == "/"))
                || (HttpMethods.IsPost(r.Method) && rest.Equals("/onboarded", StringComparison.OrdinalIgnoreCase))
@@ -323,6 +333,7 @@ api.MapTrips();
 api.MapInvestments();
 api.MapSettings();
 api.MapWorkspace();
+api.MapNotifications();
 api.MapPlatform();
 api.MapBilling();
 api.MapFallback(() => Results.NotFound());

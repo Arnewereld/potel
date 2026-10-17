@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Potel.Api.Banking;
 using Potel.Api.Data;
 using Potel.Api.Invoicing;
+using Potel.Api.Notifications;
 using Potel.Api.Workflows;
 
 namespace Potel.Api.Endpoints;
@@ -276,9 +277,10 @@ public static class BankEndpoints
         // Geld dat binnenkwam koppelen aan een factuur. Het bedrag en de datum komen uit de bank. Met paymentId hoort de regel bij
         // een betaling die je zelf al had ingevuld (met hetzelfde bedrag); anders komt er een betaling bij, en is het minder dan er
         // openstaat, dan is dat een deelbetaling.
-        g.MapPost("/transactions/{id:int}/invoice", async (AppDb db, BusinessClock clock, WorkflowEngine engine, ClaimsPrincipal user, int id, BankInvoiceLink req) =>
+        g.MapPost("/transactions/{id:int}/invoice", async (AppDb db, BusinessClock clock, WorkflowEngine engine, Notifier notifier, ClaimsPrincipal user, int id, BankInvoiceLink req) =>
         {
             Invoice inv;
+            InvoicePayment? created = null;
             var becamePaid = false;
             await using (var tx = await WriteLock.BeginAsync(db))
             {
@@ -314,6 +316,7 @@ public static class BankEndpoints
                         bankTransactionId: t.Id);
                     if (result.Problem is not null) return result.Problem.ToResult();
                     becamePaid = result.BecamePaid;
+                    created = result.Payment;
                     t.PaymentCreated = true;
                 }
 
@@ -327,6 +330,8 @@ public static class BankEndpoints
                 await tx.CommitAsync();
             }
             if (becamePaid) await InvoiceEndpoints.TriggerPaid(db, engine, inv);
+            // Een nieuwe betaling uit je bank: een melding voor de andere beheerders.
+            await notifier.PaymentAsync(inv.Id, created, user.UserId());
             return Results.Ok(new { becamePaid });
         });
 
