@@ -521,11 +521,20 @@ namespace Potel.Api.Data.Migrations
                     b.Property<bool>("IsDemo")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("NeedsReview")
+                        .HasColumnType("INTEGER");
+
                     b.Property<bool>("PassengerCar")
                         .HasColumnType("INTEGER");
 
                     b.Property<int?>("ProjectId")
                         .HasColumnType("INTEGER");
+
+                    b.Property<int?>("RecurringExpenseId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("RecurringPeriodStart")
+                        .HasColumnType("TEXT");
 
                     b.Property<decimal?>("ResidualValue")
                         .HasColumnType("TEXT");
@@ -559,6 +568,10 @@ namespace Potel.Api.Data.Migrations
                     b.HasIndex("ProjectId");
 
                     b.HasIndex("WorkspaceId");
+
+                    b.HasIndex("RecurringExpenseId", "RecurringPeriodStart")
+                        .IsUnique()
+                        .HasFilter("\"RecurringExpenseId\" IS NOT NULL");
 
                     b.HasIndex("WorkspaceId", "Date");
 
@@ -1555,6 +1568,89 @@ namespace Potel.Api.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("RecoveryCodes");
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.RecurringExpense", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("CustomerId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("EndDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Interval")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsDemo")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("NextPeriodStart")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("NextRunDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("ProjectId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("RemindedPeriodStart")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("ReverseCharge")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("SkippedInARow")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("StartDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Supplier")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SupplierRegion")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("VatRate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.HasIndex("WorkspaceId", "NextRunDate");
+
+                    b.ToTable("RecurringExpenses");
                 });
 
             modelBuilder.Entity("Potel.Api.Data.RecurringInvoice", b =>
@@ -2801,6 +2897,19 @@ namespace Potel.Api.Data.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.RecurringExpense", b =>
+                {
+                    b.HasOne("Potel.Api.Data.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Potel.Api.Data.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("Potel.Api.Data.RecurringInvoice", b =>

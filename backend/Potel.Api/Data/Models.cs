@@ -488,6 +488,18 @@ public static class RecurringIntervals
     public static int Months(string interval) => interval switch { Quarterly => 3, Yearly => 12, _ => 1 };
 }
 
+// Wat elke reeks perioden heeft: een terugkerende factuur en een vaste kost (abonnement) rekenen met dezelfde perioden.
+// NextPeriodStart is de eerste periode die nog niet is afgehandeld; NextRunDate de dag waarop die aan de beurt is.
+public interface IRecurringSchedule
+{
+    DateTime StartDate { get; }
+    DateTime? EndDate { get; }
+    string Interval { get; }
+    string PeriodRule { get; }
+    DateTime NextPeriodStart { get; set; }
+    DateTime? NextRunDate { get; set; }
+}
+
 public static class RecurringPeriodRules
 {
     // Vooraf: de factuur komt aan het begin van de periode die hij dekt (hosting, een abonnement).
@@ -507,7 +519,7 @@ public static class RecurringActions
 // Een factuur die elke maand, elk kwartaal of elk jaar terugkomt voor dezelfde klant, zoals onderhoud, hosting of een retainer.
 // De planner maakt per periode precies één factuur (zie RecurringInvoiceService). NextPeriodStart is de eerste periode die
 // nog geen factuur heeft; NextRunDate is de dag waarop die aan de beurt is, of leeg als de einddatum voorbij is.
-public class RecurringInvoice : IWorkspaceOwned, IDemoData
+public class RecurringInvoice : IWorkspaceOwned, IDemoData, IRecurringSchedule
 {
     public int Id { get; set; }
     [JsonIgnore] public int WorkspaceId { get; set; }
@@ -1167,6 +1179,15 @@ public class Expense : IWorkspaceOwned, IDemoData
     public DateTime? DisposedOn { get; set; }
     public decimal? DisposalPrice { get; set; }
 
+    // Gemaakt door een vaste kost (abonnement), voor de periode die op RecurringPeriodStart begint. Per vaste kost en periode
+    // hooguit één uitgave (unieke index). Bewust zonder databasekoppeling: die zou de hele tabel met kosten laten herbouwen.
+    // Gaat de vaste kost weg, dan zet RecurringExpenseEndpoints deze koppeling zelf op leeg.
+    public int? RecurringExpenseId { get; set; }
+    public DateTime? RecurringPeriodStart { get; set; }
+    // Klaargezet door een vaste kost en nog niet nagekeken ("concept, nog controleren"). Weg zodra je hem opslaat, op Klopt
+    // klikt of hem aan een regel uit je bank koppelt.
+    public bool NeedsReview { get; set; }
+
     // Het bedrag zonder btw. Bij btw verlegd betaalde je al geen btw.
     [NotMapped] public decimal AmountExclVat => ReverseCharge ? Amount : Amount - VatAmount;
     [NotMapped] public bool Demo => IsDemo;
@@ -1179,6 +1200,49 @@ public class Expense : IWorkspaceOwned, IDemoData
     public static decimal VatFor(decimal amount, decimal? rate, bool reverseCharge) => rate is not > 0
         ? 0
         : Money.Round(reverseCharge ? amount * rate.Value / 100 : amount * rate.Value / (100 + rate.Value));
+}
+
+// Wat er bij een vaste kost elke periode gebeurt: Potel zet de uitgave klaar als concept om na te kijken, of herinnert je alleen.
+public static class RecurringExpenseActions
+{
+    public const string Draft = "concept";
+    public const string Remind = "herinneren";
+    public static readonly string[] All = [Draft, Remind];
+}
+
+// Een vaste kost: een abonnement of andere uitgave die elke maand, elk kwartaal of elk jaar terugkomt, zoals software, hosting of
+// je telefoon. Bedrag, btw en categorie werken net als bij een uitgave; bij btw verlegd is Amount het bedrag zonder btw.
+// Elke periode wordt hooguit één uitgave (zie RecurringExpenseService). Een abonnement schrijft af op de eerste dag van de periode.
+public class RecurringExpense : IWorkspaceOwned, IDemoData, IRecurringSchedule
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
+    public string Supplier { get; set; } = "";
+    // Mag {maand}, {jaar}, {kwartaal} en {periode} bevatten, net als een terugkerende factuur.
+    public string? Description { get; set; }
+    public string Category { get; set; } = ExpenseCategories.Software;
+    public decimal Amount { get; set; }
+    public decimal? VatRate { get; set; } = 21;
+    public bool ReverseCharge { get; set; }
+    public string? SupplierRegion { get; set; }
+    public int? ProjectId { get; set; }
+    public int? CustomerId { get; set; }
+    public string Interval { get; set; } = RecurringIntervals.Monthly;
+    public string Action { get; set; } = RecurringExpenseActions.Draft;
+    public DateTime StartDate { get; set; }
+    public DateTime? EndDate { get; set; }
+    public DateTime NextPeriodStart { get; set; }
+    public DateTime? NextRunDate { get; set; }
+    // Hoeveel perioden je na elkaar oversloeg. Twee of meer is een teken dat het abonnement misschien niet meer loopt.
+    public int SkippedInARow { get; set; }
+    // De periode waarvoor de laatste herinnering in het logboek staat, zodat elke periode er één krijgt.
+    public DateTime? RemindedPeriodStart { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    // Een abonnement betaal je vooraf, aan het begin van de periode.
+    [NotMapped, JsonIgnore] public string PeriodRule => RecurringPeriodRules.InAdvance;
+    [NotMapped] public bool Demo => IsDemo;
 }
 
 // Wat je met een regel uit je bankafschrift doet als hij niet bij een factuur of uitgave hoort.

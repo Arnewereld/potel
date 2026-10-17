@@ -21,7 +21,8 @@ public record ExpenseDto(
     int Id, DateTime Date, string Supplier, string? Description, string Category, decimal Amount, decimal? VatRate, decimal VatAmount,
     decimal AmountExclVat, bool ReverseCharge, string? SupplierRegion, int? ProjectId, string? ProjectName, int? CustomerId, string? CustomerName,
     bool Demo, ReceiptInfo? Receipt, DateTime CreatedAt,
-    bool Investment, int? UsefulLifeYears, decimal? ResidualValue, bool PassengerCar, DateTime? DisposedOn, decimal? DisposalPrice);
+    bool Investment, int? UsefulLifeYears, decimal? ResidualValue, bool PassengerCar, DateTime? DisposedOn, decimal? DisposalPrice,
+    int? RecurringExpenseId = null, string? RecurringPeriod = null, bool NeedsReview = false);
 
 // Zakelijke kosten met hun btw en bonnetje. Iedereen in de werkruimte mag kosten toevoegen, bekijken en aanpassen, ook als
 // investering markeren; verwijderen, en een bonnetje vervangen of weghalen, mag alleen een beheerder. Bonnetjes moet je bewaren.
@@ -70,12 +71,19 @@ public static class ExpenseEndpoints
             .ToDictionaryAsync(r => r.ExpenseId, r => r.Info);
         var projects = await db.Projects.AsNoTracking().ToDictionaryAsync(p => p.Id, p => p.Name);
         var customers = await db.Customers.AsNoTracking().ToDictionaryAsync(c => c.Id, c => string.IsNullOrWhiteSpace(c.Company) ? c.Name : c.Company);
+        // De periode van een uitgave uit een vaste kost, zoals "oktober 2026".
+        var recurringIds = expenses.Where(e => e.RecurringExpenseId != null).Select(e => e.RecurringExpenseId!.Value).Distinct().ToList();
+        var recurring = await db.RecurringExpenses.AsNoTracking().Where(r => recurringIds.Contains(r.Id)).ToDictionaryAsync(r => r.Id);
+        string? Period(Expense e) => e.RecurringExpenseId is { } rid && e.RecurringPeriodStart is { } start && recurring.TryGetValue(rid, out var r)
+            ? Invoicing.RecurringExpenseService.Label(Invoicing.RecurringPeriods.Period(r, start))
+            : null;
         return expenses.Select(e => new ExpenseDto(
             e.Id, e.Date, e.Supplier, e.Description, e.Category, e.Amount, e.VatRate, e.VatAmount, e.AmountExclVat, e.ReverseCharge, e.SupplierRegion,
             e.ProjectId, e.ProjectId is { } p ? projects.GetValueOrDefault(p) : null,
             e.CustomerId, e.CustomerId is { } c ? customers.GetValueOrDefault(c) : null,
             e.IsDemo, receipts.GetValueOrDefault(e.Id), e.CreatedAt,
-            e.Investment, e.UsefulLifeYears, e.ResidualValue, e.PassengerCar, e.DisposedOn, e.DisposalPrice)).ToList();
+            e.Investment, e.UsefulLifeYears, e.ResidualValue, e.PassengerCar, e.DisposedOn, e.DisposalPrice,
+            e.RecurringExpenseId, Period(e), e.NeedsReview)).ToList();
     }
 
     static async Task<ExpenseDto> OneAsync(AppDb db, int id) => (await ListAsync(db, q => q.Where(e => e.Id == id))).Single();
@@ -179,7 +187,23 @@ public static class ExpenseEndpoints
             var e = await db.Expenses.FirstOrDefaultAsync(x => x.Id == id);
             if (e is null) return Results.NotFound();
             if (await ApplyAsync(db, e, input) is { } error) return Results.BadRequest(new { error });
+            // Opslaan vanuit het formulier is nakijken: een concept van een vaste kost is daarna gewoon een uitgave.
+            e.NeedsReview = false;
             await db.SaveChangesAsync();
+            return Results.Ok(await OneAsync(db, id));
+        });
+
+        // Een concept van een vaste kost klopt: het is daarna een gewone uitgave.
+        g.MapPost("/{id:int}/reviewed", async (AppDb db, int id) =>
+        {
+            var e = await db.Expenses.FirstOrDefaultAsync(x => x.Id == id);
+            if (e is null) return Results.NotFound();
+            if (e.NeedsReview)
+            {
+                e.NeedsReview = false;
+                db.Log("kosten", $"Uitgave bij {e.Supplier} van {e.Date:dd-MM-yyyy} nagekeken");
+                await db.SaveChangesAsync();
+            }
             return Results.Ok(await OneAsync(db, id));
         });
 

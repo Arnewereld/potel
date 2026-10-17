@@ -157,6 +157,9 @@ builder.Services.AddScoped<InvoiceMailer>();
 builder.Services.AddScoped<QuoteNotices>();
 builder.Services.AddScoped<ReminderService>();
 builder.Services.AddScoped<IWorkspaceJob, RecurringInvoiceJob>();
+// Vaste kosten (abonnementen): elke periode één uitgave als concept, of alleen een herinnering.
+builder.Services.AddScoped<RecurringExpenseService>();
+builder.Services.AddScoped<IWorkspaceJob, RecurringExpenseJob>();
 builder.Services.AddScoped<IWorkspaceJob, ReminderJob>();
 if (builder.Configuration.GetValue("Workflows:Scheduler", true))
     builder.Services.AddHostedService<WorkflowScheduler>();
@@ -297,6 +300,7 @@ api.MapInvoiceMail();
 api.MapInvoiceIdeal();
 api.MapQuotes();
 api.MapExpenses();
+api.MapRecurringExpenses();
 api.MapBank();
 api.MapTax();
 api.MapTaxReserve();

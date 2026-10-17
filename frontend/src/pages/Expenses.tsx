@@ -1,12 +1,19 @@
 import { useMemo, useState } from 'react'
-import { Wallet, Plus, Search, ChevronLeft, ChevronRight, Paperclip, Receipt, Percent, FileWarning } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
+import { Wallet, Plus, Search, ChevronLeft, ChevronRight, Paperclip, Receipt, Percent, FileWarning, Repeat, Check } from 'lucide-react'
+import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
-import type { Expense, ExpenseCategory, Settings } from '../lib/types'
+import { useToast } from '../lib/toast'
+import type { Expense, ExpenseCategory, RecurringExpense, RecurringExpenseOverview, Settings } from '../lib/types'
 import { date, euro, toDateInput } from '../lib/format'
 import { categoryLabel, costForProfit, expenseCategories } from '../lib/expenses'
-import { Badge, Empty, ErrorBox, Loading, PageHeader } from '../components/ui'
+import { Badge, Empty, ErrorBox, Loading, PageHeader, SubTabs } from '../components/ui'
 import { ExpenseForm } from '../components/ExpenseForm'
+import { RecurringExpenseForm, RecurringExpenseList } from '../components/RecurringExpenses'
 import { MiniStat } from './Time'
+
+// Twee tabbladen: je uitgaven per maand en je vaste kosten (abonnementen), te openen met /kosten?tab=vast.
+type Tab = 'uitgaven' | 'vast'
 
 const firstOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1)
 
@@ -17,6 +24,11 @@ export function ExpensesPage() {
   const to = toDateInput(new Date(month.getFullYear(), month.getMonth() + 1, 0))
   const { data, error, loading, reload } = useApi<Expense[]>(`/expenses?from=${from}&to=${to}`)
   const { data: settings } = useApi<Settings>('/settings')
+  const { data: recurring, reload: reloadRecurring } = useApi<RecurringExpenseOverview>('/recurring-expenses')
+  const [params, setParams] = useSearchParams()
+  const tab: Tab = params.get('tab') === 'vast' ? 'vast' : 'uitgaven'
+  const [editingRecurring, setEditingRecurring] = useState<{ recurring?: RecurringExpense } | null>(null)
+  const toast = useToast()
   const [q, setQ] = useState('')
   const [category, setCategory] = useState<'alle' | ExpenseCategory>('alle')
   const [missingOnly, setMissingOnly] = useState(false)
@@ -40,14 +52,31 @@ export function ExpensesPage() {
   const newDate = isThisMonth ? today : from
   // Een investering telt niet in één keer mee voor je winst, maar via de afschrijving.
   const investments = filtered.filter(e => e.investment).length
+  const running = (recurring?.items ?? []).filter(t => t.state !== 'afgelopen').length
+  const reloadAll = () => { reload(true); reloadRecurring(true) }
+
+  const reviewed = async (e: Expense) => {
+    try {
+      await api.post(`/expenses/${e.id}/reviewed`)
+      toast(`Uitgave bij ${e.supplier} nagekeken`)
+      reloadAll()
+    } catch (err) {
+      toast((err as Error).message, 'error')
+    }
+  }
 
   return (
     <>
       <PageHeader
         icon={<Wallet size={20} />}
         title="Kosten"
-        subtitle={`${label} · ${filtered.length} ${filtered.length === 1 ? 'uitgave' : 'uitgaven'} · ${euro(sum(e => e.amount))}`}
-        actions={<>
+        subtitle={tab === 'vast'
+          ? `${running} ${running === 1 ? 'vaste kost' : 'vaste kosten'} · ${euro(recurring?.perMonth ?? 0)} per maand`
+          : `${label} · ${filtered.length} ${filtered.length === 1 ? 'uitgave' : 'uitgaven'} · ${euro(sum(e => e.amount))}`}
+        actions={tab === 'vast' ? <>
+          <div className="search-input"><Search size={16} /><input placeholder="Zoek leverancier, omschrijving of project…" value={q} onChange={e => setQ(e.target.value)} /></div>
+          <button className="btn btn-primary" onClick={() => setEditingRecurring({})}><Plus size={16} /> Vaste kost toevoegen</button>
+        </> : <>
           <div className="search-input"><Search size={16} /><input placeholder="Zoek leverancier, omschrijving of project…" value={q} onChange={e => setQ(e.target.value)} /></div>
           <select value={category} onChange={e => setCategory(e.target.value as 'alle' | ExpenseCategory)} aria-label="Categorie">
             <option value="alle">Alle categorieën</option>
@@ -62,7 +91,17 @@ export function ExpensesPage() {
         </>}
       />
 
-      {data && (
+      <SubTabs<Tab> value={tab} onChange={t => setParams(t === 'vast' ? { tab: t } : {}, { replace: true })} tabs={[
+        { id: 'uitgaven', label: 'Uitgaven', icon: <Wallet size={14} /> },
+        { id: 'vast', label: 'Vaste kosten', count: recurring ? running : undefined, icon: <Repeat size={14} /> },
+      ]} />
+
+      {tab === 'vast' && recurring && (
+        <RecurringExpenseList data={recurring} query={q} reload={reloadAll}
+          onEdit={t => setEditingRecurring({ recurring: t })} onNew={() => setEditingRecurring({})} />
+      )}
+
+      {tab === 'uitgaven' && data && (
         <div className="grid grid-stats" style={{ marginBottom: 18 }}>
           <MiniStat icon={<Wallet size={18} />} accent="var(--primary)" label="Betaald" value={euro(sum(e => e.amount))}
             sub="Wat je overmaakte, met btw" />
@@ -79,7 +118,7 @@ export function ExpensesPage() {
       {error && <ErrorBox message={error} onRetry={() => reload()} />}
       {loading && !data && <Loading />}
 
-      {data && (
+      {tab === 'uitgaven' && data && (
         <div className="card">
           {filtered.length === 0 ? (
             <Empty icon={<Wallet size={22} />} title={`Geen kosten in ${label}`}
@@ -97,7 +136,11 @@ export function ExpensesPage() {
                         <strong>{e.supplier}</strong>
                         {e.demo && <span className="badge badge-gray" style={{ marginLeft: 8 }}>voorbeeld</span>}
                         {e.investment && <span className="badge badge-blue" style={{ marginLeft: 8 }}>{e.disposedOn ? (e.disposalPrice ? 'investering, verkocht' : 'investering, weggedaan') : 'investering'}</span>}
+                        {e.needsReview && <span className="badge badge-yellow badge-plain" style={{ marginLeft: 8 }} title="Klaargezet door een vaste kost. Kijk hem na.">concept, nog controleren</span>}
                         {e.description && <div className="cell-sub">{e.description}</div>}
+                        {e.recurringPeriod && (
+                          <div className="cell-sub"><Repeat size={11} /> {e.description?.includes(e.recurringPeriod) ? 'Vaste kost' : `Vaste kost, ${e.recurringPeriod}`}</div>
+                        )}
                       </td>
                       <td className="muted">{categoryLabel(e.category)}</td>
                       <td>
@@ -112,6 +155,7 @@ export function ExpensesPage() {
                       </td>
                       <td className="num"><strong>{euro(e.amount)}</strong>{e.vatRate ? <div className="cell-sub">{euro(e.amountExclVat)} zonder btw</div> : null}</td>
                       <td className="row-actions" onClick={ev => ev.stopPropagation()}>
+                        {e.needsReview && <button className="btn btn-sm" title="Het bedrag klopt" onClick={() => reviewed(e)}><Check size={14} /> Klopt</button>}
                         {e.receipt
                           ? <a className="icon-btn" title={`Bonnetje downloaden (${e.receipt.fileName})`} href={`/api/expenses/${e.id}/receipt`}><Paperclip size={16} /></a>
                           : <span className="icon-btn muted" title="Nog geen bonnetje" style={{ opacity: 0.35 }}><Paperclip size={16} /></span>}
@@ -135,7 +179,11 @@ export function ExpensesPage() {
 
       {editing && (
         <ExpenseForm expense={editing.expense} date={newDate}
-          onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(true) }} />
+          onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reloadAll() }} />
+      )}
+      {editingRecurring && (
+        <RecurringExpenseForm recurring={editingRecurring.recurring}
+          onClose={() => setEditingRecurring(null)} onSaved={() => { setEditingRecurring(null); reloadAll() }} />
       )}
     </>
   )

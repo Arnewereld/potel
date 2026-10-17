@@ -648,6 +648,61 @@ export interface Expense {
   passengerCar: boolean
   disposedOn?: string | null
   disposalPrice?: number | null
+  // Gemaakt door een vaste kost, voor deze periode. needsReview: een concept van de planner dat je nog moet nakijken.
+  recurringExpenseId?: number | null
+  recurringPeriod?: string | null
+  needsReview: boolean
+}
+
+// Vaste kosten: abonnementen en andere kosten die elke maand, elk kwartaal of elk jaar terugkomen.
+export type RecurringExpenseAction = 'concept' | 'herinneren'
+
+export interface RecurringExpense {
+  id: number
+  supplier: string
+  description?: string | null
+  category: ExpenseCategory
+  amount: number
+  vatRate: number | null
+  vatAmount: number
+  reverseCharge: boolean
+  supplierRegion?: 'eu' | 'buiten-eu' | null
+  projectId?: number | null
+  projectName?: string | null
+  customerId?: number | null
+  customerName?: string | null
+  interval: RecurringInterval
+  action: RecurringExpenseAction
+  startDate: string
+  endDate?: string | null
+  nextPeriodStart: string
+  nextRunDate?: string | null
+  nextPeriod?: string | null
+  // afgelopen: de einddatum is voorbij. wacht: een periode is aan de beurt en nog niet geboekt.
+  state: 'actief' | 'wacht' | 'afgelopen'
+  perMonth: number
+  expenseCount: number
+  // Na de eerste uitgave liggen startdatum en interval vast.
+  locked: boolean
+  due?: { periodStart: string; period: string; count: number } | null
+  // Alleen bij een duidelijk teken dat je het abonnement niet meer gebruikt.
+  hint?: string | null
+  demo: boolean
+  createdAt: string
+}
+
+export interface RecurringExpenseOverview {
+  items: RecurringExpense[]
+  perMonth: number
+  perYear: number
+  toReview: { id: number; date: string; supplier: string; description?: string | null; amount: number; recurringExpenseId?: number | null }[]
+}
+
+export interface RecurringExpensePreview {
+  periods: { from: string; to: string; runDate: string; label: string }[]
+  dueNow: number
+  description?: string | null
+  error?: string | null
 }
 
 export interface DepreciationYear {
@@ -760,6 +815,8 @@ export interface VatReturn {
   // Wanneer en door wie de aangifte over dit kwartaal als gedaan is gemarkeerd.
   filedAt?: string | null
   filedBy?: string | null
+  // Uitgaven in dit kwartaal die een vaste kost als concept klaarzette en die nog nagekeken moeten worden.
+  toReview: number
 }
 
 export interface TaxIndication {
@@ -1005,7 +1062,7 @@ export type BankFilter = 'open' | 'gekoppeld' | 'prive' | 'negeren' | 'alle'
 export type BankMark = 'prive' | 'negeren'
 
 export interface BankProposal {
-  kind: 'invoice' | 'payment' | 'expense'
+  kind: 'invoice' | 'payment' | 'expense' | 'subscription'
   reason: string
   invoiceId?: number | null
   number?: string | null
@@ -1018,6 +1075,11 @@ export interface BankProposal {
   supplier?: string | null
   expenseDate?: string | null
   rememberIban?: string | null
+  // Bij een vaste kost: welke, de periode en wat die periode verwacht.
+  recurringExpenseId?: number | null
+  period?: string | null
+  periodStart?: string | null
+  expenseAmount?: number | null
 }
 
 export interface BankNewExpense {
@@ -1032,7 +1094,7 @@ export interface BankNewExpense {
 
 export type BankLink =
   | { kind: 'invoice'; invoiceId: number; number?: string | null; customer?: string | null; paymentId: number; created: boolean }
-  | { kind: 'expense'; expenseId: number; supplier: string; date: string; amount: number; category: string }
+  | { kind: 'expense'; expenseId: number; supplier: string; date: string; amount: number; category: string; recurring?: boolean }
 
 export interface BankTransaction {
   id: number
@@ -1205,4 +1267,7 @@ export interface Cashflow {
   nextYearEstimate: boolean
   demoData: boolean
   includesDemo: boolean
+  // Lopende vaste kosten onder Kosten en wat ze samen per maand kosten.
+  subscriptions: number
+  subscriptionsPerMonth: number
 }

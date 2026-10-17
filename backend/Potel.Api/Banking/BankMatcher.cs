@@ -12,13 +12,19 @@ public record InvoiceCandidate(int Id, string Number, string Customer, string? C
 // Een betaling die je zelf al had ingevuld en die nog niet aan een regel uit je bank hangt.
 public record PaymentCandidate(int Id, decimal Amount, DateTime Date);
 
-public record ExpenseCandidate(int Id, DateTime Date, string Supplier, decimal Amount, string Category, decimal? VatRate);
+// Een uitgave die nog niet aan een regel uit je bank hangt. Period is de periode als hij door een vaste kost (abonnement) gemaakt is.
+public record ExpenseCandidate(int Id, DateTime Date, string Supplier, decimal Amount, string Category, decimal? VatRate,
+    int? RecurringExpenseId = null, string? Period = null, bool NeedsReview = false);
+
+// De eerstvolgende periode van een vaste kost die nog niet geboekt is, met wat die periode verwacht.
+public record SubscriptionCandidate(int Id, string Supplier, decimal Amount, DateTime PeriodStart, string Period);
 
 // Een voorstel om een regel te koppelen. Kind is "invoice" (nieuwe betaling op de factuur), "payment" (een betaling die er al
-// stond) of "expense" (een uitgave die er al stond). Potel koppelt nooit vanzelf: je bevestigt elk voorstel zelf.
+// stond), "expense" (een uitgave die er al stond) of "subscription" (de periode van een vaste kost boeken met deze regel).
+// Potel koppelt nooit vanzelf: je bevestigt elk voorstel zelf.
 public record Proposal(string Kind, string Reason, int? InvoiceId = null, string? Number = null, string? Customer = null, decimal? Open = null,
     bool Partial = false, int? PaymentId = null, DateTime? PaymentDate = null, int? ExpenseId = null, string? Supplier = null, DateTime? ExpenseDate = null,
-    string? RememberIban = null);
+    string? RememberIban = null, int? RecurringExpenseId = null, string? Period = null, DateTime? PeriodStart = null, decimal? ExpenseAmount = null);
 
 // Wat we alvast invullen als je van een afschrijving een nieuwe uitgave maakt. Bedrag en datum komen altijd uit de bank.
 public record NewExpense(string? Supplier, DateTime Date, decimal Amount, string? Description, string? Category, decimal? VatRate, bool FromHistory);
@@ -27,7 +33,9 @@ public record NewExpense(string? Supplier, DateTime Date, decimal Amount, string
 //  - Geld dat binnenkomt: eerst op factuurnummer in de omschrijving, dan op precies het openstaande bedrag met de naam of het
 //    rekeningnummer van de klant. Is het minder dan er openstaat, dan stellen we een deelbetaling voor. Had je de betaling zelf
 //    al ingevuld, dan koppelen we aan die betaling in plaats van een tweede te maken.
-//  - Geld dat eraf gaat: een uitgave met hetzelfde bedrag in de weken eromheen, het liefst bij dezelfde leverancier.
+//  - Geld dat eraf gaat: eerst de verwachte uitgave van een vaste kost (abonnement) in die periode, ook als het bedrag iets afwijkt
+//    (een wisselkoers), dan de periode van een vaste kost die nog niet geboekt is, en dan een uitgave met hetzelfde bedrag in de
+//    weken eromheen, het liefst bij dezelfde leverancier.
 public partial class BankMatcher
 {
     public const int MaxProposals = 3;
@@ -38,11 +46,13 @@ public partial class BankMatcher
 
     readonly List<(InvoiceCandidate Invoice, Regex? Number)> invoices;
     readonly IReadOnlyList<ExpenseCandidate> expenses;
+    readonly IReadOnlyList<SubscriptionCandidate> subscriptions;
 
-    public BankMatcher(IEnumerable<InvoiceCandidate> invoices, IEnumerable<ExpenseCandidate> expenses)
+    public BankMatcher(IEnumerable<InvoiceCandidate> invoices, IEnumerable<ExpenseCandidate> expenses, IEnumerable<SubscriptionCandidate>? subscriptions = null)
     {
         this.invoices = invoices.Select(i => (i, NumberPattern(i.Number))).ToList();
         this.expenses = expenses.ToList();
+        this.subscriptions = subscriptions?.ToList() ?? [];
     }
 
     // Een factuurnummer is nooit zo lang; een langer nummer zoeken we niet.
@@ -78,7 +88,7 @@ public partial class BankMatcher
     public List<Proposal> Propose(BankTransaction t)
     {
         var list = t.Amount > 0 ? Incoming(t) : Outgoing(t);
-        return list.DistinctBy(p => (p.Kind, p.InvoiceId, p.PaymentId, p.ExpenseId)).Take(MaxProposals).ToList();
+        return list.DistinctBy(p => (p.Kind, p.InvoiceId, p.PaymentId, p.ExpenseId, p.RecurringExpenseId)).Take(MaxProposals).ToList();
     }
 
     List<Proposal> Incoming(BankTransaction t)
@@ -132,14 +142,37 @@ public partial class BankMatcher
     List<Proposal> Outgoing(BankTransaction t)
     {
         var amount = -t.Amount;
-        return expenses
-            .Where(e => e.Amount == amount && e.Date >= t.Date.AddDays(-ExpenseDaysBefore) && e.Date <= t.Date.AddDays(ExpenseDaysAfter))
-            .Select(e => (Expense: e, Same: t.CounterpartyName is { } n && SameName(e.Supplier, n)))
+        bool InWindow(DateTime d) => d >= t.Date.AddDays(-ExpenseDaysBefore) && d <= t.Date.AddDays(ExpenseDaysAfter);
+        bool Same(string supplier) => t.CounterpartyName is { } n && SameName(supplier, n);
+        var list = new List<Proposal>();
+
+        // 1. De verwachte uitgave van een vaste kost: hetzelfde bedrag, of dezelfde leverancier met ongeveer hetzelfde bedrag.
+        list.AddRange(expenses
+            .Where(e => e.RecurringExpenseId is not null && InWindow(e.Date) && (e.Amount == amount || (Same(e.Supplier) && CloseTo(amount, e.Amount))))
+            .OrderByDescending(e => Same(e.Supplier)).ThenBy(e => e.Amount != amount).ThenBy(e => Math.Abs((e.Date - t.Date).TotalDays))
+            .Select(e => new Proposal("expense", Same(e.Supplier) ? "vaste kost en leverancier" : "vaste kost en bedrag", ExpenseId: e.Id, Supplier: e.Supplier,
+                ExpenseDate: e.Date, RecurringExpenseId: e.RecurringExpenseId, Period: e.Period, ExpenseAmount: e.Amount)));
+
+        // 2. De periode van een vaste kost die nog niet geboekt is: dezelfde leverancier met ongeveer hetzelfde bedrag, of precies het bedrag.
+        list.AddRange(subscriptions
+            .Where(s => InWindow(s.PeriodStart) && ((Same(s.Supplier) && CloseTo(amount, s.Amount)) || s.Amount == amount))
+            .OrderByDescending(s => Same(s.Supplier)).ThenBy(s => Math.Abs((s.PeriodStart - t.Date).TotalDays))
+            .Select(s => new Proposal("subscription", Same(s.Supplier) ? "vaste kost en leverancier" : "vaste kost en bedrag", Supplier: s.Supplier,
+                RecurringExpenseId: s.Id, Period: s.Period, PeriodStart: s.PeriodStart, ExpenseAmount: s.Amount)));
+
+        // 3. Een gewone uitgave met hetzelfde bedrag in de weken eromheen.
+        list.AddRange(expenses
+            .Where(e => e.RecurringExpenseId is null && e.Amount == amount && InWindow(e.Date))
+            .Select(e => (Expense: e, Same: Same(e.Supplier)))
             .OrderByDescending(x => x.Same).ThenBy(x => Math.Abs((x.Expense.Date - t.Date).TotalDays))
             .Select(x => new Proposal("expense", x.Same ? "bedrag en leverancier" : "bedrag en datum", ExpenseId: x.Expense.Id, Supplier: x.Expense.Supplier,
-                ExpenseDate: x.Expense.Date))
-            .ToList();
+                ExpenseDate: x.Expense.Date)));
+        return list;
     }
+
+    // Een afschrijving of uitgave mag tot een kwart afwijken van wat een vaste kost verwacht (een wisselkoers, een prijsverhoging),
+    // met minstens een euro speling.
+    public static bool CloseTo(decimal amount, decimal expected) => amount > 0 && Math.Abs(amount - expected) <= Math.Max(1m, Math.Abs(expected) / 4);
 
     // Een nieuwe uitgave van een afschrijving: leverancier, datum, bedrag en omschrijving uit de bank. Categorie en btw-tarief
     // nemen we over van je laatste uitgave bij dezelfde leverancier; je kiest ze altijd zelf voor je opslaat.

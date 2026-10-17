@@ -4,10 +4,10 @@ using Potel.Api.Data;
 
 namespace Potel.Api.Invoicing;
 
-// Eén periode van een terugkerende factuur: van From tot en met To, met de dag waarop de factuur gemaakt wordt.
+// Eén periode van een terugkerende factuur of vaste kost: van From tot en met To, met de dag waarop hij aan de beurt is.
 public record RecurringPeriod(int Index, DateTime From, DateTime To, DateTime RunDate);
 
-// Het rekenwerk achter terugkerende facturen: perioden, de dag waarop ze aan de beurt zijn en de teksten {maand}, {jaar},
+// Het rekenwerk achter terugkerende facturen en vaste kosten: perioden, de dag waarop ze aan de beurt zijn en de teksten {maand}, {jaar},
 // {kwartaal} en {periode} in de regels. Alles zonder database, zodat het los te testen is.
 public static partial class RecurringPeriods
 {
@@ -29,21 +29,21 @@ public static partial class RecurringPeriods
         return new RecurringPeriod(index, from, next.AddDays(-1), rule == RecurringPeriodRules.InArrears ? next : from);
     }
 
-    public static RecurringPeriod Period(RecurringInvoice t, DateTime periodStart) =>
+    public static RecurringPeriod Period(IRecurringSchedule t, DateTime periodStart) =>
         Period(t.StartDate, t.Interval, t.PeriodRule, IndexOf(t.StartDate, t.Interval, periodStart));
 
     // Valt deze periode nog binnen de einddatum? Een periode die na de einddatum begint, komt er niet meer.
-    public static bool WithinEnd(RecurringInvoice t, DateTime periodStart) => t.EndDate is not { } end || periodStart <= end.Date;
+    public static bool WithinEnd(IRecurringSchedule t, DateTime periodStart) => t.EndDate is not { } end || periodStart <= end.Date;
 
     // Zet de volgende periode en de dag waarop die aan de beurt is. Na de einddatum is er geen volgende dag meer.
-    public static void Schedule(RecurringInvoice t, DateTime nextPeriodStart)
+    public static void Schedule(IRecurringSchedule t, DateTime nextPeriodStart)
     {
         t.NextPeriodStart = nextPeriodStart.Date;
         t.NextRunDate = WithinEnd(t, t.NextPeriodStart) ? Period(t, t.NextPeriodStart).RunDate : null;
     }
 
     // De perioden vanaf de volgende, zolang ze binnen de einddatum vallen.
-    public static IEnumerable<RecurringPeriod> Upcoming(RecurringInvoice t)
+    public static IEnumerable<RecurringPeriod> Upcoming(IRecurringSchedule t)
     {
         for (var i = IndexOf(t.StartDate, t.Interval, t.NextPeriodStart); ; i++)
         {
@@ -54,7 +54,7 @@ public static partial class RecurringPeriods
     }
 
     // Hoeveel perioden op deze dag al aan de beurt zijn (vandaag telt mee). Stopt bij max + 1, want meer hoeven we niet te weten.
-    public static int DueCount(RecurringInvoice t, DateTime today, int max) =>
+    public static int DueCount(IRecurringSchedule t, DateTime today, int max) =>
         Upcoming(t).TakeWhile(p => p.RunDate <= today.Date).Take(max + 1).Count();
 
     // De periode in gewone woorden: "oktober 2026", "Q4 2026", "2026", "februari t/m april 2026" of "15 oktober t/m 14 november 2026".

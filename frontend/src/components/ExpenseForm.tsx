@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Download, Lock, Paperclip, Trash2, Upload } from 'lucide-react'
+import { Download, Lock, Paperclip, Repeat, Trash2, Upload } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
@@ -12,6 +12,7 @@ import {
   MaxReceiptBytes, MaxUsefulLife, receiptTypes,
 } from '../lib/expenses'
 import { Field, Modal } from './ui'
+import { RecurringExpenseForm } from './RecurringExpenses'
 
 // Leest een bestand als data-URL; de server haalt de base64 eruit en kijkt zelf wat het is.
 const readFile = (file: File) => new Promise<string>((resolve, reject) => {
@@ -58,6 +59,7 @@ export function ExpenseForm({ expense, date, asInvestment, onClose, onSaved }: {
   const [file, setFile] = useState<File | null>(null)
   const [receipt, setReceipt] = useState(expense?.receipt ?? null)
   const [busy, setBusy] = useState(false)
+  const [makeRecurring, setMakeRecurring] = useState(false)
   const input = useRef<HTMLInputElement>(null)
   const toast = useToast()
 
@@ -149,6 +151,10 @@ export function ExpenseForm({ expense, date, asInvestment, onClose, onSaved }: {
     }
   }
 
+  // Van een gewone uitgave kun je een vaste kost maken; die uitgave wordt dan de eerste periode.
+  const canMakeRecurring = !!expense && !expense.demo && !expense.investment && expense.recurringExpenseId == null && expense.amount > 0
+  if (makeRecurring && expense) return <RecurringExpenseForm fromExpense={expense} onClose={() => setMakeRecurring(false)} onSaved={onSaved} />
+
   return (
     <Modal
       wide
@@ -156,11 +162,23 @@ export function ExpenseForm({ expense, date, asInvestment, onClose, onSaved }: {
       onClose={onClose}
       footer={<>
         {expense && admin && <button className="btn btn-danger" type="button" onClick={remove}>Verwijderen</button>}
+        {canMakeRecurring && <button className="btn" type="button" onClick={() => setMakeRecurring(true)}><Repeat size={15} /> Maak vaste kost</button>}
         <span className="spacer" />
         <button className="btn" type="button" onClick={onClose}>Annuleren</button>
         <button className="btn btn-primary" form="expense-form" disabled={busy}>Opslaan</button>
       </>}
     >
+      {expense?.needsReview && (
+        <p className="notice" style={{ marginTop: 0 }}>
+          Deze uitgave is klaargezet door je vaste kost{expense.recurringPeriod ? ` voor ${expense.recurringPeriod}` : ''}. Kijk bedrag, datum en btw na en sla op;
+          dan is hij nagekeken. Het bonnetje kun je hier ook toevoegen.
+        </p>
+      )}
+      {expense && !expense.needsReview && expense.recurringExpenseId != null && (
+        <p className="muted" style={{ marginTop: 0 }}>
+          <Repeat size={13} /> Hoort bij je <Link to="/kosten?tab=vast" onClick={onClose}>vaste kost</Link>{expense.recurringPeriod ? `, voor ${expense.recurringPeriod}` : ''}.
+        </p>
+      )}
       <form id="expense-form" className="form-grid" onSubmit={save}>
         <Field label="Datum op de bon"><input type="date" required value={form.date} onChange={e => set('date', e.target.value)} /></Field>
         <Field label="Leverancier *">

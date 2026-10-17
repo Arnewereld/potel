@@ -115,6 +115,15 @@ export function VatReturnPage() {
           </div>
         )}
 
+        {data.toReview > 0 && !data.kor && (
+          <div className="notice row between wrap">
+            <span>
+              {data.toReview === 1 ? 'Eén uitgave in dit kwartaal is' : `${data.toReview} uitgaven in dit kwartaal zijn`} klaargezet door een vaste kost en nog niet
+              nagekeken. {data.toReview === 1 ? 'Die telt' : 'Die tellen'} al mee. Kijk bedrag en btw na voordat je de aangifte doet.
+            </span>
+            <button className="btn btn-sm" onClick={() => navigate('/kosten?tab=vast')}>Nakijken</button>
+          </div>
+        )}
         {ended && !data.kor && (
           <div className={`notice row between wrap ${data.filedAt ? 'notice-ok' : ''}`}>
             {data.filedAt

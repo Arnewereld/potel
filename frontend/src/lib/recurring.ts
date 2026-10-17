@@ -1,4 +1,4 @@
-import type { RecurringAction, RecurringInterval, RecurringInvoice, RecurringPeriodRule } from './types'
+import type { RecurringAction, RecurringExpenseAction, RecurringInterval, RecurringInvoice, RecurringPeriodRule } from './types'
 
 export const recurringIntervals: { id: RecurringInterval; label: string; short: string }[] = [
   { id: 'maand', label: 'Elke maand', short: 'maandelijks' },
@@ -14,6 +14,12 @@ export const recurringRules: { id: RecurringPeriodRule; label: string; help: str
 export const recurringActions: { id: RecurringAction; label: string; help: string }[] = [
   { id: 'concept', label: 'Concept klaarzetten', help: 'Je krijgt een conceptfactuur die je nog even nakijkt en zelf verstuurt.' },
   { id: 'versturen', label: 'Direct versturen', help: 'De factuur krijgt meteen een nummer en gaat per e-mail naar je klant.' },
+]
+
+// Wat Potel elke periode doet met een vaste kost (abonnement).
+export const recurringExpenseActions: { id: RecurringExpenseAction; label: string; help: string }[] = [
+  { id: 'concept', label: 'Concept klaarzetten', help: 'Potel zet de uitgave elke periode klaar als concept. Jij kijkt hem na en voegt het bonnetje toe.' },
+  { id: 'herinneren', label: 'Alleen herinneren', help: 'Potel zet niets klaar, maar laat hier en in het logboek zien dat hij aan de beurt is. Je boekt hem zelf met één klik.' },
 ]
 
 export const recurringStates: Record<RecurringInvoice['state'], { label: string; tone: string }> = {

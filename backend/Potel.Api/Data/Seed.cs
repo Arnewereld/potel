@@ -435,6 +435,41 @@ public static class Seed
         Spend(new DateTime(today.Year, 4, 16), "Frontend Masters", "Jaarabonnement cursussen", ExpenseCategories.Training, 390m, 21, SupplierRegions.OutsideEu);
         Spend(new DateTime(today.Year, 6, 9), "NS", "Treinkaartjes sprint review in Rotterdam", ExpenseCategories.Travel, 31.60m, 9, project: projects[1]);
         Spend(new DateTime(today.Year, 9, 24), "Techorama NL", "Conferentieticket", ExpenseCategories.Training, 605m, 21);
+
+        // De abonnementen hierboven staan ook als vaste kost, met de uitgaven die er al bij horen. Odido herinnert alleen, de rest
+        // zet zelf een concept klaar. Als voorbeeld boeken ze nooit echt iets.
+        RecurringExpense Fixed(string supplier, string description, string category, decimal amount, string interval, DateTime start,
+            string? reverseFrom = null, Project? project = null, string action = RecurringExpenseActions.Draft)
+        {
+            var t = new RecurringExpense
+            {
+                IsDemo = true, Supplier = supplier, Description = description, Category = category, Amount = amount, VatRate = 21,
+                ReverseCharge = reverseFrom is not null, SupplierRegion = reverseFrom, ProjectId = project?.Id, CustomerId = project?.CustomerId,
+                Interval = interval, Action = action, StartDate = start,
+            };
+            var next = start;
+            for (var i = 1; next <= today; i++) next = Invoicing.RecurringPeriods.Start(start, interval, i);
+            Invoicing.RecurringPeriods.Schedule(t, next);
+            return t;
+        }
+        var fixedCosts = new List<RecurringExpense>
+        {
+            Fixed("Spaces Utrecht", "Flexplek coworking", ExpenseCategories.Office, 249m, RecurringIntervals.Monthly, new DateTime(today.Year, 1, 1)),
+            Fixed("GitHub, Inc.", "GitHub Team en Copilot", ExpenseCategories.Software, 23m, RecurringIntervals.Monthly, new DateTime(today.Year, 1, 3), SupplierRegions.OutsideEu),
+            Fixed("Hetzner Online GmbH", "VPS voor de Exact-koppeling", ExpenseCategories.Hosting, 18.10m, RecurringIntervals.Monthly, new DateTime(today.Year, 1, 5),
+                SupplierRegions.Eu, projects[0]),
+            Fixed("Odido Zakelijk", "Mobiel abonnement", ExpenseCategories.Phone, 30.25m, RecurringIntervals.Monthly, new DateTime(today.Year, 1, 20),
+                action: RecurringExpenseActions.Remind),
+            Fixed("JetBrains s.r.o.", "All Products Pack, jaarlicentie", ExpenseCategories.Software, 289m, RecurringIntervals.Yearly, new DateTime(today.Year, 1, 8), SupplierRegions.Eu),
+        };
+        db.RecurringExpenses.AddRange(fixedCosts);
+        db.SaveChanges();
+        foreach (var e in expenses)
+            if (fixedCosts.FirstOrDefault(t => t.Supplier == e.Supplier && Invoicing.RecurringPeriods.Period(t, e.Date).From == e.Date) is { } t)
+            {
+                e.RecurringExpenseId = t.Id;
+                e.RecurringPeriodStart = e.Date;
+            }
         db.Expenses.AddRange(expenses);
 
         var lisa = new Lead { IsDemo = true, Name = "Lisa Visser", Company = "Visser Media", Email = "lisa@vissermedia.nl", Value = 6500, Status = "nieuw", Source = "Website", Notes = "Nieuwe website met headless CMS" };

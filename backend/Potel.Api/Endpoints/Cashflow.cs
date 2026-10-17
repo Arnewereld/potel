@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
+using Potel.Api.Banking;
 using Potel.Api.Data;
 using Potel.Api.Invoicing;
 
@@ -30,15 +31,18 @@ public record CashflowSource(string Id, string Label, bool Incoming);
 
 public record CashflowSupplier(string Supplier, decimal Average);
 
-// Een voorstel voor je vaste kosten: leveranciers die in elk van de laatste drie hele maanden terugkomen, met hun gemiddelde per
-// maand, en wat je in die maanden gemiddeld aan alle kosten uitgaf. Investeringen tellen niet mee.
+// Een voorstel voor je overige vaste kosten: leveranciers die in elk van de laatste drie hele maanden terugkomen, met hun gemiddelde
+// per maand, en wat je in die maanden gemiddeld aan alle kosten uitgaf. Investeringen en wat al als vaste kost onder Kosten staat,
+// tellen niet mee.
 public record CashflowHint(DateTime From, DateTime To, List<CashflowSupplier> Suppliers, decimal SuppliersTotal, decimal AverageExpenses);
 
 // De prognose voor de lopende maand en de vijf maanden erna. ProvisionalOnce: je voorlopige aanslag betaal je in één keer, en
 // wanneer weten we niet. NextYearEstimate: voor maanden in volgend jaar schatten we wat je opzij zet met de cijfers van dit jaar.
+// Subscriptions en SubscriptionsPerMonth: hoeveel lopende vaste kosten er onder Kosten staan en wat ze samen per maand kosten.
 public record CashflowDto(
     DateTime Today, List<string> Months, int PaymentTermDays, List<CashflowSource> Sources, List<CashflowItem> Items, List<CashflowVat> Vat,
-    CashflowSettingsDto Settings, CashflowHint Hint, bool Kor, bool ProvisionalOnce, bool NextYearEstimate, bool DemoData, bool IncludesDemo);
+    CashflowSettingsDto Settings, CashflowHint Hint, bool Kor, bool ProvisionalOnce, bool NextYearEstimate, bool DemoData, bool IncludesDemo,
+    int Subscriptions = 0, decimal SubscriptionsPerMonth = 0);
 
 // Waar een post vandaan komt. Elke bron kun je op de pagina aan- en uitzetten.
 public static class CashflowSources
@@ -281,12 +285,35 @@ public static class Cashflow
         return (once, nextYear);
     }
 
-    static async Task<CashflowHint> HintAsync(AppDb db, Run run, bool includeDemo)
+    // Vaste kosten uit Kosten: elke periode die vandaag of later begint, op de eerste dag van die periode. Wat al geboekt is, staat
+    // niet meer in de toekomst. De btw die je erop terugkrijgt, telt mee in het kwartaal van die periode; bij btw verlegd betaal je
+    // die zelf en trek je hem weer af, dus dan scheelt het niets.
+    static async Task<List<RecurringExpense>> SubscriptionsAsync(AppDb db, Run run, Settings settings, bool includeDemo)
+    {
+        var deduction = settings.VatRegime is not (VatRegimes.Kor or VatRegimes.Exempt);
+        var list = await db.RecurringExpenses.AsNoTracking().Where(t => t.NextRunDate != null && (includeDemo || !t.IsDemo)).ToListAsync();
+        foreach (var t in list.OrderBy(t => t.Supplier).ThenBy(t => t.Id))
+        {
+            foreach (var p in RecurringPeriods.Upcoming(t).Take(120))
+            {
+                if (p.From > run.End) break;
+                if (p.From < run.Today) continue;
+                var vat = deduction && !t.ReverseCharge ? Expense.VatFor(t.Amount, t.VatRate, false) : 0;
+                run.Add(CashflowSources.FixedCosts, p.From, t.Supplier, RecurringExpenseService.Label(p), -t.Amount, "/kosten?tab=vast",
+                    vat: -vat, invoiceDate: p.From);
+            }
+        }
+        return list;
+    }
+
+    static async Task<CashflowHint> HintAsync(AppDb db, Run run, bool includeDemo, List<RecurringExpense> subscriptions)
     {
         var from = run.First.AddMonths(-3);
         var to = run.First.AddDays(-1);
-        var expenses = await db.Expenses.AsNoTracking().Where(e => !e.Investment && e.Date >= from && e.Date <= to && (includeDemo || !e.IsDemo))
-            .Select(e => new { e.Supplier, e.Date, e.Amount }).ToListAsync();
+        var expenses = (await db.Expenses.AsNoTracking()
+                .Where(e => !e.Investment && e.RecurringExpenseId == null && e.Date >= from && e.Date <= to && (includeDemo || !e.IsDemo))
+                .Select(e => new { e.Supplier, e.Date, e.Amount }).ToListAsync())
+            .Where(e => !subscriptions.Any(t => BankMatcher.SameName(e.Supplier, t.Supplier))).ToList();
         var suppliers = expenses.Where(e => !string.IsNullOrWhiteSpace(e.Supplier)).GroupBy(e => e.Supplier.Trim().ToUpperInvariant())
             .Where(g => g.Select(e => e.Date.Month).Distinct().Count() == 3)
             .Select(g => new CashflowSupplier(g.OrderByDescending(e => e.Date).First().Supplier.Trim(), Money.Round(g.Sum(e => e.Amount) / 3)))
@@ -300,20 +327,26 @@ public static class Cashflow
         var settings = await SettingsEndpoints.GetAsync(db);
         var saved = await db.CashflowSettings.AsNoTracking().FirstOrDefaultAsync();
         await IncomingAsync(db, run, settings, saved, includeDemo);
+        // Vóór de btw, want de btw op vaste kosten die nog komen gaat eraf.
+        var subscriptions = await SubscriptionsAsync(db, run, settings, includeDemo);
         var kor = settings.VatRegime == VatRegimes.Kor;
         List<CashflowVat> vat = kor ? [] : await VatAsync(db, clock, run, includeDemo);
         var (once, nextYear) = await TaxAsync(db, clock, run);
+        // Wat je hier zelf invult, blijft een eigen regel voor alles wat niet als vaste kost onder Kosten staat.
         if (saved is { FixedCostsPerMonth: > 0 })
             for (var m = run.First; m <= run.End; m = m.AddMonths(1))
-                run.Add(CashflowSources.FixedCosts, m, "Vaste kosten", null, -saved.FixedCostsPerMonth, null);
-        var hint = await HintAsync(db, run, includeDemo);
+                run.Add(CashflowSources.FixedCosts, m, subscriptions.Count > 0 ? "Overige vaste kosten" : "Vaste kosten", "Wat je zelf invulde bij de instellingen",
+                    -saved.FixedCostsPerMonth, null);
+        var hint = await HintAsync(db, run, includeDemo, subscriptions);
         var demoData = await db.Invoices.AnyAsync(i => i.IsDemo) || await db.Quotes.AnyAsync(q => q.IsDemo) || await db.RecurringInvoices.AnyAsync(t => t.IsDemo)
-                       || await db.TimeEntries.AnyAsync(t => t.IsDemo) || await db.Trips.AnyAsync(t => t.IsDemo) || await db.Expenses.AnyAsync(e => e.IsDemo);
+                       || await db.TimeEntries.AnyAsync(t => t.IsDemo) || await db.Trips.AnyAsync(t => t.IsDemo) || await db.Expenses.AnyAsync(e => e.IsDemo)
+                       || await db.RecurringExpenses.AnyAsync(t => t.IsDemo);
         var months = Enumerable.Range(0, Months).Select(i => MonthKey(run.First.AddMonths(i))).ToList();
         var order = CashflowSources.All.Select(s => s.Id).ToList();
         var items = run.Items.OrderBy(i => i.Month).ThenBy(i => order.IndexOf(i.Source)).ThenBy(i => i.Date).ToList();
+        var running = subscriptions.Where(t => !t.IsDemo || includeDemo).ToList();
         return new CashflowDto(run.Today, months, settings.PaymentTermDays, CashflowSources.All, items, vat, CashflowSettingsDto.From(saved), hint,
-            kor, once, nextYear, demoData, includeDemo && demoData);
+            kor, once, nextYear, demoData, includeDemo && demoData, running.Count, Money.Round(running.Sum(RecurringExpenseEndpoints.PerMonth)));
     }
 
     // Wat er deze maand naar verwachting binnenkomt, voor de tegel op het dashboard: alle bronnen die geld opleveren, zonder

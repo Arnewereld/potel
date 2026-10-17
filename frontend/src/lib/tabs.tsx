@@ -39,7 +39,7 @@ export function defaultTitle(fullPath: string) {
   if (path === '/facturen/terugkerend/nieuw') return 'Nieuwe terugkerende factuur'
   if (path.startsWith('/facturen/terugkerend/')) return 'Terugkerende factuur'
   if (path.startsWith('/facturen/')) return 'Factuur'
-  if (path === '/kosten') return 'Kosten'
+  if (path === '/kosten') return fullPath.includes('tab=vast') ? 'Vaste kosten' : 'Kosten'
   if (path === '/ritten') return 'Ritten'
   if (path === '/bank') return 'Bank'
   if (path === '/btw-aangifte') return 'Btw-aangifte'

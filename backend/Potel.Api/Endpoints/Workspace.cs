@@ -192,19 +192,26 @@ public static partial class WorkspaceEndpoints
             var workflows = await db.Workflows.Where(w => w.IsDemo).Select(w => w.Id).ToListAsync();
             db.WorkflowRuns.RemoveRange(db.WorkflowRuns.Where(r => workflows.Contains(r.WorkflowId)));
             db.Workflows.RemoveRange(db.Workflows.Where(w => w.IsDemo));
+            // Voorbeeldvaste kosten gaan weg; een uitgave die blijft, hangt daarna nergens meer aan.
+            var demoSubscriptions = await db.RecurringExpenses.Where(r => r.IsDemo).Select(r => r.Id).ToListAsync();
+            await db.Expenses.Where(e => e.RecurringExpenseId != null && demoSubscriptions.Contains(e.RecurringExpenseId.Value))
+                .ExecuteUpdateAsync(x => x.SetProperty(e => e.RecurringExpenseId, (int?)null).SetProperty(e => e.RecurringPeriodStart, (DateTime?)null));
+            db.RecurringExpenses.RemoveRange(db.RecurringExpenses.Where(r => r.IsDemo));
             // Voorbeeldkosten gaan weg, behalve als je er zelf een bonnetje bij zette: die uitgave is dan van jou en telt voortaan mee.
             await db.Expenses.Where(e => e.IsDemo && db.ExpenseReceipts.Any(r => r.ExpenseId == e.Id)).ExecuteUpdateAsync(x => x.SetProperty(e => e.IsDemo, false));
             db.Expenses.RemoveRange(db.Expenses.Where(e => e.IsDemo));
             await db.SaveChangesAsync();
             // Een voorbeeldproject met een lopende timer blijft ook staan: die tijd is van jou.
             db.Projects.RemoveRange(db.Projects.Where(p => p.IsDemo && !db.TimeEntries.Any(t => t.ProjectId == p.Id) && !db.Expenses.Any(e => e.ProjectId == p.Id)
-                && !db.Trips.Any(t => t.ProjectId == p.Id) && !db.TripRoutes.Any(r => r.ProjectId == p.Id) && !db.RunningTimers.Any(t => t.ProjectId == p.Id)));
+                && !db.Trips.Any(t => t.ProjectId == p.Id) && !db.TripRoutes.Any(r => r.ProjectId == p.Id) && !db.RunningTimers.Any(t => t.ProjectId == p.Id)
+                && !db.RecurringExpenses.Any(r => r.ProjectId == p.Id)));
             db.CustomModules.RemoveRange(db.CustomModules.Where(m => m.IsDemo && !db.CustomRecords.Any(r => r.ModuleId == m.Id)));
             await db.SaveChangesAsync();
             var customers = await db.Customers
                 .Where(c => c.IsDemo && !db.Invoices.Any(i => i.CustomerId == c.Id) && !db.Projects.Any(p => p.CustomerId == c.Id) && !db.Expenses.Any(e => e.CustomerId == c.Id)
                             && !db.RecurringInvoices.Any(r => r.CustomerId == c.Id) && !db.Quotes.Any(q => q.CustomerId == c.Id && !q.IsDemo)
-                            && !db.Trips.Any(t => t.CustomerId == c.Id) && !db.TripRoutes.Any(r => r.CustomerId == c.Id))
+                            && !db.Trips.Any(t => t.CustomerId == c.Id) && !db.TripRoutes.Any(r => r.CustomerId == c.Id)
+                            && !db.RecurringExpenses.Any(r => r.CustomerId == c.Id))
                 .Select(c => c.Id).ToListAsync();
             await db.Appointments.Where(a => a.CustomerId != null && customers.Contains(a.CustomerId.Value)).ExecuteUpdateAsync(x => x.SetProperty(a => a.CustomerId, (int?)null));
             await db.Leads.Where(l => l.CustomerId != null && customers.Contains(l.CustomerId.Value)).ExecuteUpdateAsync(x => x.SetProperty(l => l.CustomerId, (int?)null));
@@ -264,6 +271,8 @@ public static partial class WorkspaceEndpoints
             await Write("githubAuthors", await db.GitHubAuthors.OrderBy(a => a.Id).ToListAsync());
             await Write("githubCommits", await db.GitHubCommits.OrderBy(c => c.Id).ToListAsync());
             await Write("expenses", await db.Expenses.OrderBy(e => e.Id).ToListAsync());
+            // Vaste kosten: abonnementen en andere kosten die elke maand, elk kwartaal of elk jaar terugkomen.
+            await Write("recurringExpenses", await db.RecurringExpenses.OrderBy(r => r.Id).ToListAsync());
             // De kilometerregistratie en de vaste routes.
             await Write("trips", await db.Trips.OrderBy(t => t.Id).ToListAsync());
             await Write("tripRoutes", await db.TripRoutes.OrderBy(r => r.Id).ToListAsync());
@@ -333,6 +342,7 @@ public static partial class WorkspaceEndpoints
             await db.BankImports.ExecuteDeleteAsync();
             await db.BankCsvMappings.ExecuteDeleteAsync();
             await db.Expenses.ExecuteDeleteAsync();
+            await db.RecurringExpenses.ExecuteDeleteAsync();
             await db.InvoiceMails.ExecuteDeleteAsync();
             await db.InvoicePayments.ExecuteDeleteAsync();
             await db.OnlinePayments.ExecuteDeleteAsync();

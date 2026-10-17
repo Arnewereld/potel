@@ -18,12 +18,14 @@ public record VatQuarterRef(int Year, int Quarter, string Label, DateTime DueDat
 
 public record VatFiledRequest(int Year, int Quarter, bool Filed);
 
+// ToReview: uitgaven in dit kwartaal die een vaste kost als concept klaarzette en die je nog niet nakeek. Ze tellen al mee.
 public record VatReturnDto(
     int Year, int Quarter, string Label, DateTime From, DateTime To, DateTime DueDate,
     string Regime, bool Kor, bool Deduction,
     List<VatRubric> Rubrics, decimal Due, decimal Deductible, decimal Total,
     decimal Revenue, decimal OutsideEu, decimal Exempt, decimal KorRevenue,
-    List<IcpLine> Icp, List<VatSource> Sources, bool DemoData, bool IncludesDemo, VatQuarterRef? Pending, DateTime? FiledAt = null, string? FiledBy = null);
+    List<IcpLine> Icp, List<VatSource> Sources, bool DemoData, bool IncludesDemo, VatQuarterRef? Pending, DateTime? FiledAt = null, string? FiledBy = null,
+    int ToReview = 0);
 
 // Rekent de btw-aangifte per kwartaal uit. Dezelfde som voor de pagina Btw-aangifte en de tegel op het dashboard.
 // Bronnen per rubriek staan bij de rubrieken hieronder en op de pagina; dit is hulp bij het invullen, geen belastingadvies.
@@ -161,7 +163,7 @@ public static class VatReturn
             year, quarter, Label(year, quarter), from, to, DueDate(year, quarter), settings.VatRegime, kor, deduction,
             rubrics, due, deductible, due - deductible, revenue, outsideEu, exempt, korRevenue,
             icp.OrderBy(x => x.Value.Country).ThenBy(x => x.Key).Select(x => new IcpLine(x.Key, x.Value.Customer, x.Value.Country, x.Value.Amount)).ToList(),
-            sources, demoData, includeDemo && demoData, pending, filed?.FiledAt, filed?.FiledBy);
+            sources, demoData, includeDemo && demoData, pending, filed?.FiledAt, filed?.FiledBy, expenses.Count(e => e.NeedsReview));
     }
 
     // Het vorige kwartaal, zolang de aangifte daarvan nog op tijd kan.

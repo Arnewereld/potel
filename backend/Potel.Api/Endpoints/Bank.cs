@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Potel.Api.Banking;
 using Potel.Api.Data;
 using Potel.Api.Invoicing;
@@ -14,6 +15,9 @@ public record BankImportRequest(string? FileName, string? Data, BankMappingInput
 public record BankInvoiceLink(int InvoiceId, int? PaymentId, bool RememberIban);
 public record BankExpenseLink(int ExpenseId);
 public record BankNewExpense(string? Supplier, string? Description, string? Category, decimal? VatRate, bool ReverseCharge, string? SupplierRegion);
+public record BankSubscriptionLink(int RecurringExpenseId, DateTime PeriodStart);
+public record BankNewSubscription(string? Supplier, string? Description, string? Category, decimal? VatRate, bool ReverseCharge, string? SupplierRegion,
+    string? Interval, string? Action, DateTime? EndDate);
 public record BankMarkRequest(string? Mark);
 
 // De pagina Bank: een afschrift inlezen en elke regel koppelen aan een factuur of uitgave, of op privé of negeren zetten.
@@ -43,9 +47,10 @@ public static class BankEndpoints
     static string StateOf(BankTransaction t, IReadOnlyDictionary<int, InvoicePayment> payments) =>
         payments.ContainsKey(t.Id) ? States.Invoice : t.ExpenseId is not null ? States.Expense : t.Mark ?? States.Open;
 
-    // De werkruimte zelf, voor de matcher: open facturen (en betaalde met een betaling die je zelf invulde) en uitgaven
-    // die nog niet aan een regel uit je bank hangen.
-    static async Task<(List<InvoiceCandidate> Invoices, List<ExpenseCandidate> Expenses, List<ExpenseCandidate> History)> CandidatesAsync(AppDb db, DateTime from)
+    // De werkruimte zelf, voor de matcher: open facturen (en betaalde met een betaling die je zelf invulde), uitgaven die nog niet
+    // aan een regel uit je bank hangen en de eerstvolgende periode van elke vaste kost die nog loopt.
+    static async Task<(List<InvoiceCandidate> Invoices, List<ExpenseCandidate> Expenses, List<ExpenseCandidate> History, List<SubscriptionCandidate> Subscriptions)>
+        CandidatesAsync(AppDb db, DateTime from)
     {
         var invoices = await db.Invoices.AsNoTracking().Include(i => i.Lines).Include(i => i.Customer).Include(i => i.Credits).ThenInclude(c => c.Lines)
             .Include(i => i.Payments).AsSplitQuery()
@@ -59,10 +64,18 @@ public static class BankEndpoints
             i.Payments.Where(p => p.BankTransactionId == null && p.Method != PaymentMethods.Ideal).Select(p => new PaymentCandidate(p.Id, p.Amount, p.Date)).ToList()))
             .ToList();
         var linked = await db.BankTransactions.AsNoTracking().Where(t => t.ExpenseId != null).Select(t => t.ExpenseId!.Value).ToListAsync();
-        var history = await db.Expenses.AsNoTracking().Where(e => !e.IsDemo && e.Date >= from.AddDays(-400))
-            .Select(e => new ExpenseCandidate(e.Id, e.Date, e.Supplier, e.Amount, e.Category, e.VatRate)).ToListAsync();
+        var recurring = await db.RecurringExpenses.AsNoTracking().Where(r => !r.IsDemo).ToDictionaryAsync(r => r.Id);
+        string? PeriodOf(int? id, DateTime? start) => id is { } rid && start is { } s && recurring.TryGetValue(rid, out var r)
+            ? RecurringExpenseService.Label(RecurringPeriods.Period(r, s)) : null;
+        var history = (await db.Expenses.AsNoTracking().Where(e => !e.IsDemo && e.Date >= from.AddDays(-400))
+            .Select(e => new { e.Id, e.Date, e.Supplier, e.Amount, e.Category, e.VatRate, e.RecurringExpenseId, e.RecurringPeriodStart, e.NeedsReview }).ToListAsync())
+            .Select(e => new ExpenseCandidate(e.Id, e.Date, e.Supplier, e.Amount, e.Category, e.VatRate, e.RecurringExpenseId,
+                PeriodOf(e.RecurringExpenseId, e.RecurringPeriodStart), e.NeedsReview)).ToList();
         var linkedSet = linked.ToHashSet();
-        return (candidates, history.Where(e => !linkedSet.Contains(e.Id) && e.Date >= from).ToList(), history);
+        var subscriptions = recurring.Values.Where(r => r.NextRunDate != null).OrderBy(r => r.Id)
+            .Select(r => new SubscriptionCandidate(r.Id, r.Supplier, r.Amount, r.NextPeriodStart, RecurringExpenseService.Label(RecurringPeriods.Period(r, r.NextPeriodStart))))
+            .ToList();
+        return (candidates, history.Where(e => !linkedSet.Contains(e.Id) && e.Date >= from).ToList(), history, subscriptions);
     }
 
     static string CustomerName(Customer? c) => c is null ? "" : string.IsNullOrWhiteSpace(c.Company) ? c.Name : c.Company;
@@ -117,14 +130,14 @@ public static class BankEndpoints
             var page = filtered.Take(MaxRows).ToList();
 
             var from = (all.Count == 0 ? clock.Today : all.Min(t => t.Date)).AddDays(-BankMatcher.ExpenseDaysBefore - 30);
-            var (invoices, expenses, history) = await CandidatesAsync(db, from);
-            var matcher = new BankMatcher(invoices, expenses);
+            var (invoices, expenses, history, subscriptions) = await CandidatesAsync(db, from);
+            var matcher = new BankMatcher(invoices, expenses, subscriptions);
             var invoiceIds = page.Where(t => payments.ContainsKey(t.Id)).Select(t => payments[t.Id].InvoiceId).Distinct().ToList();
             var linkedInvoices = await db.Invoices.AsNoTracking().Include(i => i.Customer).Where(i => invoiceIds.Contains(i.Id))
                 .ToDictionaryAsync(i => i.Id, i => new { i.Number, Customer = CustomerName(i.Customer), i.IsDemo });
             var expenseIds = page.Where(t => t.ExpenseId is not null).Select(t => t.ExpenseId!.Value).ToList();
             var linkedExpenses = await db.Expenses.AsNoTracking().Where(e => expenseIds.Contains(e.Id))
-                .ToDictionaryAsync(e => e.Id, e => new { e.Supplier, e.Date, e.Amount, e.Category });
+                .ToDictionaryAsync(e => e.Id, e => new { e.Supplier, e.Date, e.Amount, e.Category, Recurring = e.RecurringExpenseId != null });
 
             var transactions = page.Select(t =>
             {
@@ -136,7 +149,7 @@ public static class BankEndpoints
                     link = new { kind = "invoice", invoiceId = p.InvoiceId, number = inv?.Number, customer = inv?.Customer, paymentId = p.Id, created = t.PaymentCreated };
                 }
                 else if (t.ExpenseId is { } eid && linkedExpenses.GetValueOrDefault(eid) is { } e)
-                    link = new { kind = "expense", expenseId = eid, supplier = e.Supplier, date = e.Date, amount = e.Amount, category = e.Category };
+                    link = new { kind = "expense", expenseId = eid, supplier = e.Supplier, date = e.Date, amount = e.Amount, category = e.Category, recurring = e.Recurring };
                 var open = state == States.Open;
                 return new
                 {
@@ -325,16 +338,92 @@ public static class BankEndpoints
             if (t is null) return Problem(NotFound, StatusCodes.Status404NotFound);
             if (t.Amount >= 0) return Problem("Alleen geld dat eraf ging kun je aan een uitgave koppelen.");
             if (await IsBusyAsync(db, t)) return Problem(Busy, StatusCodes.Status409Conflict);
-            var e = await db.Expenses.AsNoTracking().FirstOrDefaultAsync(x => x.Id == req.ExpenseId);
+            var e = await db.Expenses.FirstOrDefaultAsync(x => x.Id == req.ExpenseId);
             if (e is null) return Problem("Kies een uitgave uit je eigen werkruimte.", StatusCodes.Status404NotFound);
             if (e.IsDemo) return Problem("Een voorbeelduitgave kun je niet aan je bankafschrift koppelen.");
             if (await db.BankTransactions.AnyAsync(x => x.ExpenseId == e.Id))
                 return Problem("Deze uitgave hangt al aan een andere regel uit je bank.", StatusCodes.Status409Conflict);
             t.ExpenseId = e.Id;
             db.Log("bank", $"Bankregel van {InvoicePayments.Euro(-t.Amount)} gekoppeld aan de uitgave bij {e.Supplier}");
+            // Een concept van een vaste kost krijgt het bedrag uit je bank (een wisselkoers of een prijsverhoging) en is daarmee nagekeken.
+            // Wijkt het bedrag veel af, dan blijft hij staan als nog te controleren.
+            string? message = null;
+            if (e.RecurringExpenseId is not null && e.NeedsReview && (e.Amount == -t.Amount || BankMatcher.CloseTo(-t.Amount, e.Amount)))
+            {
+                if (e.Amount != -t.Amount)
+                {
+                    message = $"Gekoppeld. Het bedrag van de uitgave is nu {InvoicePayments.Euro(-t.Amount)}, zoals in je bank, in plaats van {InvoicePayments.Euro(e.Amount)}.";
+                    db.Log("kosten", $"Bedrag van de uitgave bij {e.Supplier} van {e.Date:dd-MM-yyyy} aangepast naar {InvoicePayments.Euro(-t.Amount)}, zoals in je bankafschrift");
+                    e.Amount = -t.Amount;
+                    e.VatAmount = Expense.VatFor(e.Amount, e.VatRate, e.ReverseCharge);
+                }
+                e.NeedsReview = false;
+            }
             await db.SaveChangesAsync();
             await tx.CommitAsync();
-            return Results.Ok(new { expenseId = e.Id });
+            return Results.Ok(new { expenseId = e.Id, message });
+        });
+
+        // Geld dat eraf ging hoort bij de periode van een vaste kost die nog niet geboekt is: de uitgave voor die periode komt erbij,
+        // met bedrag en datum uit de bank, of een uitgave die je al had ingevoerd wordt eraan gekoppeld. Per periode één uitgave.
+        g.MapPost("/transactions/{id:int}/subscription", async (AppDb db, RecurringExpenseService service, int id, BankSubscriptionLink req) =>
+        {
+            var t = await db.BankTransactions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
+            if (t is null) return Problem(NotFound, StatusCodes.Status404NotFound);
+            if (t.Amount >= 0) return Problem("Alleen geld dat eraf ging kun je aan een vaste kost koppelen.");
+            var result = await service.BookAsync(req.RecurringExpenseId, req.PeriodStart, RecurringBooking.Bank, id);
+            return result.Outcome switch
+            {
+                RecurringExpenseOutcome.Created => Results.Ok(new { expenseId = result.Expense!.Id, message = "De uitgave voor deze periode is gemaakt en gekoppeld." }),
+                RecurringExpenseOutcome.Adopted => Results.Ok(new { expenseId = result.Expense!.Id, message = "Je had de uitgave voor deze periode al ingevoerd; die is nu gekoppeld." }),
+                RecurringExpenseOutcome.Busy => Problem(Busy, StatusCodes.Status409Conflict),
+                RecurringExpenseOutcome.OutsidePeriod => Problem("Deze betaling valt niet in de periode van de vaste kost. Koppel hem aan een uitgave of maak er een kost van."),
+                RecurringExpenseOutcome.NotFound => Problem("Deze vaste kost bestaat niet (meer).", StatusCodes.Status404NotFound),
+                RecurringExpenseOutcome.Demo => Problem(RecurringExpenseEndpoints.DemoError),
+                RecurringExpenseOutcome.Finished => Problem(RecurringExpenseEndpoints.FinishedError, StatusCodes.Status409Conflict),
+                RecurringExpenseOutcome.Invalid => Problem(result.Error!),
+                _ => Problem(RecurringExpenseEndpoints.RaceError, StatusCodes.Status409Conflict),
+            };
+        });
+
+        // Van een afschrijving een vaste kost maken: de uitgave voor de eerste periode komt uit de bank (bedrag en datum), en vanaf
+        // dan komt hij elke maand, elk kwartaal of elk jaar terug. Leverancier, categorie en btw kies je zelf.
+        g.MapPost("/transactions/{id:int}/create-subscription", async (AppDb db, BusinessClock clock, IOptions<InvoicingLimits> limits, RecurringExpenseService service,
+            int id, BankNewSubscription req) =>
+        {
+            int recurringId, expenseId;
+            await using (var tx = await WriteLock.BeginAsync(db))
+            {
+                var t = await db.BankTransactions.FirstOrDefaultAsync(x => x.Id == id);
+                if (t is null) return Problem(NotFound, StatusCodes.Status404NotFound);
+                if (t.Amount >= 0) return Problem("Alleen van geld dat eraf ging kun je een vaste kost maken.");
+                if (await IsBusyAsync(db, t)) return Problem(Busy, StatusCodes.Status409Conflict);
+                var r = new RecurringExpense();
+                var input = new RecurringExpenseInput(req.Supplier ?? t.CounterpartyName, req.Description, req.Category, -t.Amount, req.VatRate, req.ReverseCharge,
+                    req.SupplierRegion, null, null, req.Interval, req.Action, t.Date, req.EndDate);
+                if (await RecurringExpenseEndpoints.ApplyAsync(db, r, input, locked: false) is { } error) return Problem(error);
+                RecurringPeriods.Schedule(r, RecurringPeriods.Start(r.StartDate, r.Interval, 1));
+                if (RecurringExpenseEndpoints.BacklogError(r, clock.Today, Math.Max(1, limits.Value.MaxCatchUpPeriods)) is { } backlog) return Problem(backlog);
+                db.RecurringExpenses.Add(r);
+                await db.SaveChangesAsync();
+                var first = RecurringPeriods.Period(r.StartDate, r.Interval, RecurringPeriodRules.InAdvance, 0);
+                var e = new Expense();
+                if (await ExpenseEndpoints.ApplyAsync(db, e, new ExpenseInput(t.Date, r.Supplier, RecurringExpenseService.DescriptionFor(r, first), r.Category, -t.Amount,
+                        r.VatRate, null, r.ReverseCharge, r.SupplierRegion, null, null)) is { } expenseError)
+                    return Problem(expenseError);
+                e.RecurringExpenseId = r.Id;
+                e.RecurringPeriodStart = first.From;
+                db.Expenses.Add(e);
+                await db.SaveChangesAsync();
+                t.ExpenseId = e.Id;
+                db.Log("kosten", $"Vaste kost bij {r.Supplier} gemaakt vanuit je bankafschrift, met de uitgave van {t.Date:dd-MM-yyyy} als eerste periode");
+                await db.SaveChangesAsync();
+                await tx.CommitAsync();
+                (recurringId, expenseId) = (r.Id, e.Id);
+            }
+            // Lag de afschrijving al een tijd terug, dan staan de perioden daarna meteen klaar.
+            await service.RunOneAsync(recurringId);
+            return Results.Ok(new { recurringExpenseId = recurringId, expenseId, message = "Vaste kost gemaakt. De uitgave uit je bank is de eerste periode." });
         });
 
         // Van een afschrijving een nieuwe uitgave maken. Bedrag (inclusief btw) en datum komen uit de bank; leverancier,

@@ -33,6 +33,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
     public DbSet<MolliePayment> MolliePayments => Set<MolliePayment>();
     public DbSet<Expense> Expenses => Set<Expense>();
     public DbSet<ExpenseReceipt> ExpenseReceipts => Set<ExpenseReceipt>();
+    public DbSet<RecurringExpense> RecurringExpenses => Set<RecurringExpense>();
     public DbSet<RecurringInvoice> RecurringInvoices => Set<RecurringInvoice>();
     public DbSet<RecurringInvoiceLine> RecurringInvoiceLines => Set<RecurringInvoiceLine>();
     public DbSet<InvoiceMail> InvoiceMails => Set<InvoiceMail>();
@@ -112,6 +113,12 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         b.Entity<Expense>().HasOne<Project>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.SetNull);
         b.Entity<Expense>().HasOne<Customer>().WithMany().HasForeignKey(e => e.CustomerId).OnDelete(DeleteBehavior.SetNull);
         b.Entity<Expense>().HasIndex(e => new { e.WorkspaceId, e.Date });
+        // Vaste kosten: per vaste kost en periode hooguit één uitgave, ook als de planner twee keer tegelijk draait. De uitgave wijst
+        // zonder databasekoppeling naar de vaste kost (zie Expense). Een vaste kost mag aan een project of klant hangen, net als een uitgave.
+        b.Entity<Expense>().HasIndex(e => new { e.RecurringExpenseId, e.RecurringPeriodStart }).IsUnique().HasFilter("\"RecurringExpenseId\" IS NOT NULL");
+        b.Entity<RecurringExpense>().HasOne<Project>().WithMany().HasForeignKey(r => r.ProjectId).OnDelete(DeleteBehavior.SetNull);
+        b.Entity<RecurringExpense>().HasOne<Customer>().WithMany().HasForeignKey(r => r.CustomerId).OnDelete(DeleteBehavior.SetNull);
+        b.Entity<RecurringExpense>().HasIndex(r => new { r.WorkspaceId, r.NextRunDate });
         // Hooguit één bonnetje per uitgave, en het gaat mee als de uitgave weggaat.
         b.Entity<ExpenseReceipt>().HasOne<Expense>().WithMany().HasForeignKey(r => r.ExpenseId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<ExpenseReceipt>().HasIndex(r => r.ExpenseId).IsUnique();
@@ -191,7 +198,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         Filter<Customer>(b); Filter<Lead>(b); Filter<Invoice>(b); Filter<Appointment>(b); Filter<Project>(b); Filter<TimeEntry>(b); Filter<RunningTimer>(b);
         Filter<Settings>(b); Filter<CustomModule>(b); Filter<CustomRecord>(b); Filter<Workflow>(b); Filter<Activity>(b);
         Filter<User>(b); Filter<WorkflowRun>(b); Filter<AccountToken>(b); Filter<RecoveryCode>(b); Filter<MolliePayment>(b);
-        Filter<Expense>(b); Filter<ExpenseReceipt>(b); Filter<RecurringInvoice>(b);
+        Filter<Expense>(b); Filter<ExpenseReceipt>(b); Filter<RecurringExpense>(b); Filter<RecurringInvoice>(b);
         Filter<InvoiceMail>(b); Filter<InvoiceLink>(b); Filter<ReminderSettings>(b); Filter<CustomerPortal>(b); Filter<PortalLink>(b);
         Filter<GitHubSettings>(b); Filter<GitHubAuthor>(b); Filter<GitHubCommit>(b);
         Filter<Quote>(b); Filter<QuoteLink>(b);

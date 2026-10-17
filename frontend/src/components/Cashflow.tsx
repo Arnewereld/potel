@@ -35,14 +35,16 @@ function saveOff(list: CashflowSourceId[]) {
   try { localStorage.setItem(OFF_KEY, JSON.stringify(list)) } catch { /* opslag niet beschikbaar */ }
 }
 
-type VatPayment = { vat: CashflowVat; amount: number; parts: number }
+type VatPayment = { vat: CashflowVat; amount: number; parts: number; costs: number }
 type MonthRow = { month: string; items: CashflowItem[]; vat: VatPayment[]; inflow: number; outflow: number; net: number; balance: number }
 
-// De btw van een kwartaal: wat er nu in de aangifte staat plus de btw op verwachte facturen van de bronnen die aan staan.
-// Krijg je geld terug, dan telt het als nul.
+// De btw van een kwartaal: wat er nu in de aangifte staat plus de btw op verwachte facturen van de bronnen die aan staan, min de
+// btw die je terugkrijgt op vaste kosten die nog komen. Krijg je geld terug, dan telt het als nul.
 function vatPayment(vat: CashflowVat, off: Set<CashflowSourceId>): VatPayment {
-  const parts = cents(Object.entries(vat.parts).filter(([s]) => !off.has(s as CashflowSourceId)).reduce((a, [, x]) => a + (x ?? 0), 0))
-  return { vat, parts, amount: Math.max(0, cents(vat.base + parts)) }
+  const on = Object.entries(vat.parts).filter(([s]) => !off.has(s as CashflowSourceId))
+  const parts = cents(on.filter(([s]) => s !== 'vaste-kosten').reduce((a, [, x]) => a + (x ?? 0), 0))
+  const costs = cents(on.filter(([s]) => s === 'vaste-kosten').reduce((a, [, x]) => a + (x ?? 0), 0))
+  return { vat, parts, costs, amount: Math.max(0, cents(vat.base + parts + costs)) }
 }
 
 // Per maand wat er binnenkomt en eruit gaat, en het saldo: vanaf je banksaldo, of vanaf nul als je dat niet invulde.
@@ -267,6 +269,7 @@ function MonthDetail({ row, data }: { row: MonthRow; data: Cashflow }) {
                 <Link to="/btw-aangifte">Btw {v.vat.label}</Link>
                 <div className="cell-sub">
                   Uiterlijk {date(v.vat.dueDate)}. Nu in de aangifte {euro(v.vat.base)}{v.parts !== 0 ? `, plus ${euro(v.parts)} op verwachte facturen` : ''}
+                  {v.costs !== 0 ? `, min ${euro(-v.costs)} op vaste kosten die nog komen` : ''}
                   {v.vat.running ? '. Het kwartaal loopt nog.' : '.'}
                 </div>
               </div>
@@ -314,7 +317,7 @@ function SettingsCard({ data, onSaved }: { data: Cashflow; onSaved: () => void }
         <Field label="Banksaldo nu">
           <input type="number" step="0.01" value={balance} placeholder="Niet ingevuld" onChange={e => setBalance(e.target.value)} />
         </Field>
-        <Field label="Vaste kosten per maand">
+        <Field label={data.subscriptions > 0 ? 'Overige vaste kosten per maand' : 'Vaste kosten per maand'}>
           <input type="number" min={0} step="0.01" value={fixed} placeholder="0" onChange={e => setFixed(e.target.value)} />
         </Field>
         <p className="muted field-full cf-note">
@@ -322,13 +325,16 @@ function SettingsCard({ data, onSaved }: { data: Cashflow; onSaved: () => void }
             ? `Je saldo is ingevuld op ${date(s.bankBalanceDate)}. Potel leest het niet uit je bankafschrift, dus werk het bij als je de prognose bekijkt.`
             : 'Vul in wat er nu op je zakelijke rekening staat. Dan zie je per maand je verwachte saldo.'}
           {' '}Vaste kosten zijn met btw, zoals je ze betaalt: huur, abonnementen, verzekeringen.
+          {data.subscriptions > 0
+            ? <> Je {data.subscriptions === 1 ? 'vaste kost' : `${data.subscriptions} vaste kosten`} onder <Link to="/kosten?tab=vast">Kosten</Link> ({euro(data.subscriptionsPerMonth)} per maand) tellen al mee. Vul hier alleen in wat daar niet staat.</>
+            : <> Zet je abonnementen liever als <Link to="/kosten?tab=vast">vaste kost</Link> onder Kosten: dan telt elke afschrijving mee op de dag dat hij komt.</>}
         </p>
         {suggestion > 0 && (
           <div className="field-full cf-hint">
             {hint.suppliers.length > 0
               ? <>Van {period} kwam elke maand terug: {hint.suppliers.slice(0, 5).map(x => `${x.supplier} (${euro(x.average)})`).join(', ')}
                 {hint.suppliers.length > 5 ? ` en ${hint.suppliers.length - 5} meer` : ''}. Samen gemiddeld {euro(hint.suppliersTotal)} per maand.</>
-              : <>Van {period} gaf je gemiddeld {euro(hint.averageExpenses)} per maand uit aan kosten. Welk deel daarvan vast is, weet jij het best.</>}
+              : <>Van {period} gaf je gemiddeld {euro(hint.averageExpenses)} per maand uit aan kosten{data.subscriptions > 0 ? ', naast je vaste kosten' : ''}. Welk deel daarvan vast is, weet jij het best.</>}
             <button type="button" className="btn btn-sm" onClick={() => setFixed(String(suggestion))}>Gebruik {euro(suggestion)}</button>
           </div>
         )}
@@ -358,7 +364,7 @@ function HowCashflowWorks({ data }: { data: Cashflow }) {
           <li>Nog te factureren zijn open uren op projecten per uur, open ritten met een kilometertarief en conceptfacturen, alsof je ze vandaag factureert. Uren op een project met een vaste prijs tellen niet mee.</li>
           {data.kor
             ? <li>Je doet mee met de kleineondernemersregeling (KOR), dus er staat geen btw-aangifte in.</li>
-            : <li>Btw betaal je uiterlijk op de laatste dag van de maand na het kwartaal. We nemen wat er nu in de aangifte staat, plus de btw op de verwachte facturen in dat kwartaal. Btw op kosten die nog komen zit er niet in, een kwartaal waarin je btw terugkrijgt telt als nul, en een aangifte die je als gedaan markeerde telt niet mee.</li>}
+            : <li>Btw betaal je uiterlijk op de laatste dag van de maand na het kwartaal. We nemen wat er nu in de aangifte staat, plus de btw op de verwachte facturen in dat kwartaal. De btw op vaste kosten die nog komen gaat eraf. Btw op andere kosten die nog komen zit er niet in, een kwartaal waarin je btw terugkrijgt telt als nul, en een aangifte die je als gedaan markeerde telt niet mee.</li>}
           <li>
             Inkomstenbelasting: wat de belastingpot per maand aangeeft om opzij te zetten, en de termijnen van je voorlopige aanslag per maand. We nemen aan
             dat die termijnen in de laatste maanden van het jaar vallen.
@@ -366,7 +372,10 @@ function HowCashflowWorks({ data }: { data: Cashflow }) {
             {data.provisionalOnce && ' Een voorlopige aanslag die je in één keer betaalt, staat er niet in, want wanneer je die betaalt weten we niet.'}
             {' '}De belasting rekent altijd zonder voorbeelddata. Je stelt dit in bij <Link to="/instellingen">Instellingen</Link>.
           </li>
-          <li>Vaste kosten: het bedrag dat je hiernaast invult, elke maand, ook in de lopende maand helemaal.</li>
+          <li>
+            Vaste kosten: elke afschrijving van je <Link to="/kosten?tab=vast">vaste kosten</Link> onder Kosten op de dag dat hij komt, vanaf vandaag. Wat al
+            geboekt is, staat al in je kosten. Wat je hiernaast zelf invult, komt er elke maand bij als aparte regel, ook in de lopende maand helemaal.
+          </li>
           <li>Zet een bron uit om te zien wat er overblijft zonder die bron. Potel onthoudt dat in deze browser.</li>
         </ul>
       </div>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeftRight, Ban, House, Lightbulb, Link2, Plus, Search, Undo2, Upload, Wallet } from 'lucide-react'
+import { ArrowLeftRight, Ban, House, Lightbulb, Link2, Plus, Repeat, Search, Undo2, Upload, Wallet } from 'lucide-react'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useAuth } from '../lib/auth'
@@ -9,6 +9,7 @@ import { date, euro, utcDateTime } from '../lib/format'
 import { categoryLabel, expenseCategories, expenseVat, expenseVatRates } from '../lib/expenses'
 import type { BankCsvMapping, BankFilter, BankImportResult, BankMark, BankOverview, BankProposal, BankTransaction, ExpenseCategory } from '../lib/types'
 import { Badge, Empty, ErrorBox, Field, Loading, Modal, PageHeader, SubTabs } from '../components/ui'
+import { RecurringExpenseForm } from '../components/RecurringExpenses'
 
 const MaxBytes = 10 * 1024 * 1024
 
@@ -33,6 +34,7 @@ export function BankPage() {
   const [busy, setBusy] = useState(false)
   const [mapping, setMapping] = useState<{ file: string; fileName: string; result: Extract<BankImportResult, { needsMapping: true }> } | null>(null)
   const [making, setMaking] = useState<BankTransaction | null>(null)
+  const [makingRecurring, setMakingRecurring] = useState<BankTransaction | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const toast = useToast()
 
@@ -165,7 +167,7 @@ export function BankPage() {
           ) : (
             <div className="bank-list">
               {data.transactions.map(t => (
-                <BankRow key={t.id} t={t} data={data} busy={busy} act={act} onMakeExpense={() => setMaking(t)} />
+                <BankRow key={t.id} t={t} data={data} busy={busy} act={act} onMakeExpense={() => setMaking(t)} onMakeRecurring={() => setMakingRecurring(t)} />
               ))}
             </div>
           )}
@@ -209,18 +211,24 @@ export function BankPage() {
         <NewExpenseDialog t={making} busy={busy} onClose={() => setMaking(null)}
           onSubmit={async body => { if (await act(`/bank/transactions/${making.id}/create-expense`, body, 'Uitgave gemaakt en gekoppeld')) setMaking(null) }} />
       )}
+      {makingRecurring && makingRecurring.newExpense && (
+        <RecurringExpenseForm onClose={() => setMakingRecurring(null)} onSaved={() => setMakingRecurring(null)}
+          fromBank={{ ...makingRecurring.newExpense, amount: -makingRecurring.amount, date: makingRecurring.date }}
+          submit={body => act(`/bank/transactions/${makingRecurring.id}/create-subscription`, body, 'Vaste kost gemaakt en gekoppeld')} />
+      )}
     </>
   )
 }
 
 const reasonText = (p: BankProposal) => `Gevonden op ${p.reason}`
 
-function BankRow({ t, data, busy, act, onMakeExpense }: {
+function BankRow({ t, data, busy, act, onMakeExpense, onMakeRecurring }: {
   t: BankTransaction
   data: BankOverview
   busy: boolean
   act: (url: string, body: unknown, done: string) => Promise<boolean>
   onMakeExpense: () => void
+  onMakeRecurring: () => void
 }) {
   const incoming = t.amount > 0
   const [remember, setRemember] = useState(true)
@@ -231,6 +239,8 @@ function BankRow({ t, data, busy, act, onMakeExpense }: {
   const linkInvoice = (invoiceId: number, paymentId?: number | null, rememberIban?: boolean) =>
     act(`${base}/invoice`, { invoiceId, paymentId: paymentId ?? null, rememberIban: !!rememberIban }, 'Gekoppeld aan de factuur')
   const linkExpense = (expenseId: number) => act(`${base}/expense`, { expenseId }, 'Gekoppeld aan de uitgave')
+  const bookSubscription = (p: BankProposal) =>
+    act(`${base}/subscription`, { recurringExpenseId: p.recurringExpenseId, periodStart: p.periodStart }, 'Geboekt als vaste kost en gekoppeld')
   const mark = (m: BankMark) => act(`${base}/mark`, { mark: m }, m === 'prive' ? 'Op privé gezet' : 'Genegeerd')
   const unlink = () => act(`${base}/unlink`, null, 'Ongedaan gemaakt')
 
@@ -279,6 +289,7 @@ function BankRow({ t, data, busy, act, onMakeExpense }: {
           {t.link?.kind === 'expense' && (
             <span className="cell-sub">
               Uitgave bij <Link to="/kosten">{t.link.supplier}</Link> van {date(t.link.date)}: {categoryLabel(t.link.category)}, {euro(t.link.amount)}
+              {t.link.recurring && <>, van een <Link to="/kosten?tab=vast">vaste kost</Link></>}
             </span>
           )}
           <button className="btn btn-sm btn-ghost" disabled={busy} onClick={unlink}><Undo2 size={14} /> Ongedaan maken</button>
@@ -288,10 +299,15 @@ function BankRow({ t, data, busy, act, onMakeExpense }: {
       {open && (<>
         {t.hint && <div className="notice bank-hint"><Lightbulb size={14} /> {t.hint}</div>}
         {t.proposals.map(p => (
-          <div key={`${p.kind}-${p.invoiceId}-${p.paymentId}-${p.expenseId}`} className="bank-proposal">
+          <div key={`${p.kind}-${p.invoiceId}-${p.paymentId}-${p.expenseId}-${p.recurringExpenseId}`} className="bank-proposal">
             <div className="grow">
-              {p.kind === 'expense' ? (
-                <div><strong>Uitgave bij {p.supplier}</strong> van {date(p.expenseDate)}</div>
+              {p.kind === 'subscription' ? (
+                <div><strong><Repeat size={13} /> Vaste kost bij {p.supplier}</strong>, {p.period}</div>
+              ) : p.kind === 'expense' ? (
+                <div>
+                  <strong>Uitgave bij {p.supplier}</strong> van {date(p.expenseDate)}
+                  {p.period && <>, je vaste kost voor {p.period}</>}
+                </div>
               ) : (
                 <div>
                   <strong>Factuur {p.number}</strong>, {p.customer}
@@ -300,6 +316,8 @@ function BankRow({ t, data, busy, act, onMakeExpense }: {
               )}
               <div className="cell-sub">
                 {reasonText(p)}.
+                {p.kind === 'subscription' && <> Er staat nog geen uitgave voor deze periode; die komt erbij met bedrag en datum uit je bank.</>}
+                {p.expenseAmount != null && p.expenseAmount !== -t.amount && <> Verwacht was {euro(p.expenseAmount)}, je bank zegt {euro(-t.amount)}.</>}
                 {p.kind === 'invoice' && p.partial && p.open != null && <> Deelbetaling: daarna staat er nog {euro(p.open - t.amount)} open.</>}
                 {p.kind === 'invoice' && !p.partial && <> Daarmee is de factuur betaald.</>}
               </div>
@@ -311,13 +329,14 @@ function BankRow({ t, data, busy, act, onMakeExpense }: {
               )}
             </div>
             <button className="btn btn-sm btn-primary" disabled={busy}
-              onClick={() => p.kind === 'expense' ? linkExpense(p.expenseId!) : linkInvoice(p.invoiceId!, p.paymentId, p.rememberIban ? remember : false)}>
-              <Link2 size={14} /> Koppel
+              onClick={() => p.kind === 'subscription' ? bookSubscription(p) : p.kind === 'expense' ? linkExpense(p.expenseId!) : linkInvoice(p.invoiceId!, p.paymentId, p.rememberIban ? remember : false)}>
+              <Link2 size={14} /> {p.kind === 'subscription' ? 'Boek en koppel' : 'Koppel'}
             </button>
           </div>
         ))}
         <div className="bank-actions">
           {!incoming && t.newExpense && <button className="btn btn-sm" disabled={busy} onClick={onMakeExpense}><Plus size={14} /> Maak kost</button>}
+          {!incoming && t.newExpense && <button className="btn btn-sm" disabled={busy} onClick={onMakeRecurring} title="Komt deze afschrijving elke maand, elk kwartaal of elk jaar terug?"><Repeat size={14} /> Maak vaste kost</button>}
           {choices.length > 0 && (
             <span className="row wrap" style={{ gap: 6 }}>
               <select value={choice} onChange={e => setChoice(e.target.value)} aria-label={incoming ? 'Kies een factuur' : 'Kies een uitgave'} className="bank-choice">
