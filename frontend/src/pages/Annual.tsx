@@ -96,7 +96,8 @@ export function AnnualPage() {
 
       {data && ind && (<>
         <div className="grid grid-stats" style={{ marginBottom: 18 }}>
-          <MiniStat icon={<Euro size={18} />} accent="var(--green)" label="Omzet" value={euro(data.revenue)} sub="Zonder btw, op factuurdatum" />
+          <MiniStat icon={<Euro size={18} />} accent="var(--green)" label="Omzet" value={euro(data.revenue)}
+            sub={data.importedInvoices ? `Zonder btw, op factuurdatum, met ${data.importedInvoices} ${data.importedInvoices === 1 ? 'geïmporteerde factuur' : 'geïmporteerde facturen'}` : 'Zonder btw, op factuurdatum'} />
           <MiniStat icon={<Wallet size={18} />} accent="var(--primary)" label="Kosten" value={euro(data.costs)}
             sub={data.deduction ? 'Zonder btw' : 'Met btw, want die trek je niet af'} />
           <MiniStat icon={<TrendingUp size={18} />} accent="var(--blue)" label="Resultaat voor belasting" value={euro(data.result)}

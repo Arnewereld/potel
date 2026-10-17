@@ -29,6 +29,7 @@ import { RecurringEditorPage } from './pages/RecurringInvoices'
 import { ExpensesPage } from './pages/Expenses'
 import { TripsPage } from './pages/Trips'
 import { BankPage } from './pages/Bank'
+import { ImportPage } from './pages/Import'
 import { VatReturnPage } from './pages/VatReturn'
 import { AnnualPage } from './pages/Annual'
 import { InsightsPage } from './pages/Insights'
@@ -124,6 +125,7 @@ function AppRoutes({ location }: { location: string }) {
       <Route path="/modules" element={<ModulesPage />} />
       <Route path="/modules/:id" element={<ModuleRecordsPage />} />
       <Route path="/gebruikers" element={<UsersPage />} />
+      <Route path="/importeren" element={<ImportPage />} />
       <Route path="/meldingen" element={<NotificationsPage />} />
       <Route path="*" element={<HomePage />} />
     </Routes>

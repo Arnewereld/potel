@@ -8,6 +8,22 @@ namespace Potel.Api.Endpoints;
 public static class CustomerEndpoints
 {
     public const string IbanError = "Dit rekeningnummer klopt niet. Vul een IBAN in, zoals NL91 ABNA 0417 1643 00, of laat het veld leeg.";
+    public const string KvkError = "Dit KvK-nummer klopt niet. Een Nederlands KvK-nummer is 8 cijfers; laat het veld anders leeg.";
+
+    // Het KvK-nummer van een klant: in Nederland 8 cijfers, elders zoals het is (hooguit 20 letters en cijfers). Leeg mag.
+    public static bool TryKvk(string? input, string country, out string? kvk)
+    {
+        kvk = null;
+        if (string.IsNullOrWhiteSpace(input)) return true;
+        if (Countries.IsNetherlands(country))
+        {
+            kvk = WorkspaceEndpoints.NormalizeKvk(input);
+            return kvk is not null;
+        }
+        kvk = new string(input.Where(char.IsLetterOrDigit).Take(20).ToArray());
+        if (kvk == "") kvk = null;
+        return true;
+    }
 
     // Het rekeningnummer zonder spaties en in hoofdletters; leeg mag, een IBAN dat niet klopt niet.
     static bool TryIban(string? input, out string? iban)
@@ -34,6 +50,9 @@ public static class CustomerEndpoints
             if (!Languages.IsKnown(input.Language)) return Results.BadRequest(new { error = Languages.Error });
             input.Country = Countries.Normalize(input.Country);
             if (VatNumbers.Problem(input.VatNumber, input.Country) is { } vatProblem) return Results.BadRequest(new { error = vatProblem });
+            if (!TryKvk(input.Kvk, input.Country, out var kvk)) return Results.BadRequest(new { error = KvkError });
+            input.Kvk = kvk;
+            input.ImportBatchId = null;
             input.VatNumber = VatNumbers.Clean(input.VatNumber, input.Country);
             input.Language = Languages.Of(input.Language);
             input.Iban = iban;
@@ -60,6 +79,8 @@ public static class CustomerEndpoints
             var country = Countries.Normalize(input.Country);
             // Alleen de vorm, zonder VIES. Facturen die al verstuurd zijn houden het nummer dat erop staat.
             if (VatNumbers.Problem(input.VatNumber, country) is { } vatProblem) return Results.BadRequest(new { error = vatProblem });
+            if (!TryKvk(input.Kvk, country, out var kvk)) return Results.BadRequest(new { error = KvkError });
+            c.Kvk = kvk;
             c.Iban = iban;
             c.KilometreRate = TripEndpoints.CleanRate(input.KilometreRate);
             c.Name = input.Name; c.Company = input.Company; c.Email = input.Email; c.Phone = input.Phone;
@@ -78,6 +99,8 @@ public static class CustomerEndpoints
             if (c is null) return Results.NotFound();
             if (await db.Invoices.AnyAsync(i => i.CustomerId == id))
                 return Results.Conflict(new { error = "Deze klant heeft facturen en kan niet verwijderd worden" });
+            if (await db.ImportedInvoices.AnyAsync(i => i.CustomerId == id))
+                return Results.Conflict(new { error = "Deze klant heeft geïmporteerde facturen uit je vorige pakket en kan daarom niet verwijderd worden." });
             if (await db.Projects.AnyAsync(p => p.CustomerId == id))
                 return Results.Conflict(new { error = "Deze klant heeft projecten. Verwijder die eerst." });
             if (await db.RecurringInvoices.AnyAsync(r => r.CustomerId == id))

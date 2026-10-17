@@ -468,10 +468,16 @@ namespace Potel.Api.Data.Migrations
                     b.Property<string>("Iban")
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("ImportBatchId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<bool>("IsDemo")
                         .HasColumnType("INTEGER");
 
                     b.Property<decimal?>("KilometreRate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Kvk")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Language")
@@ -500,6 +506,9 @@ namespace Potel.Api.Data.Migrations
                         .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ImportBatchId")
+                        .HasFilter("\"ImportBatchId\" IS NOT NULL");
 
                     b.HasIndex("WorkspaceId");
 
@@ -777,6 +786,114 @@ namespace Potel.Api.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("GitHubSettings");
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.ImportBatch", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Created")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("CustomersCreated")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("ImportedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ImportedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Kept")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ProjectsCreated")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Skipped")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Source")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("UndoneAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UndoneBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Updated")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.ToTable("ImportBatches");
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.ImportedInvoice", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("CustomerId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ImportBatchId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("IssueDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Number")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("PaidAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Source")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("Subtotal")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("Vat")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("ImportBatchId");
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.HasIndex("WorkspaceId", "Number")
+                        .IsUnique();
+
+                    b.ToTable("ImportedInvoices");
                 });
 
             modelBuilder.Entity("Potel.Api.Data.Invoice", b =>
@@ -1478,6 +1595,9 @@ namespace Potel.Api.Data.Migrations
                     b.Property<decimal>("HourlyRate")
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("ImportBatchId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<bool>("IsDemo")
                         .HasColumnType("INTEGER");
 
@@ -1501,6 +1621,9 @@ namespace Potel.Api.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CustomerId");
+
+                    b.HasIndex("ImportBatchId")
+                        .HasFilter("\"ImportBatchId\" IS NOT NULL");
 
                     b.HasIndex("WorkspaceId");
 
@@ -2204,6 +2327,9 @@ namespace Potel.Api.Data.Migrations
                     b.Property<int>("FocusBlocks")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("ImportBatchId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int?>("InvoiceId")
                         .HasColumnType("INTEGER");
 
@@ -2228,6 +2354,9 @@ namespace Potel.Api.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Date");
+
+                    b.HasIndex("ImportBatchId")
+                        .HasFilter("\"ImportBatchId\" IS NOT NULL");
 
                     b.HasIndex("InvoiceId");
 
@@ -2753,6 +2882,17 @@ namespace Potel.Api.Data.Migrations
                         .WithMany()
                         .HasForeignKey("TimeEntryId")
                         .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.ImportedInvoice", b =>
+                {
+                    b.HasOne("Potel.Api.Data.Customer", "Customer")
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Customer");
                 });
 
             modelBuilder.Entity("Potel.Api.Data.Invoice", b =>

@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, CalendarDays, Users, Target, Receipt, Workflow, Blocks, X, Search, FileSignature,
   ChevronsLeft, ChevronsRight, Moon, Sun, Plus, ShieldCheck, LogOut, KeyRound, Timer, FolderKanban, Settings, Square, Pause, Crown, Wallet, Landmark, CalendarRange,
-  ArrowLeftRight, Car, Package, Coffee, ChartNoAxesCombined, Bell, Repeat, Building2, BookOpenCheck,
+  ArrowLeftRight, Car, Package, Coffee, ChartNoAxesCombined, Bell, Repeat, Building2, BookOpenCheck, Upload,
 } from 'lucide-react'
 import { clock, useTimer } from '../lib/timer'
 import { mmss } from '../lib/focus'
@@ -47,6 +47,8 @@ const nav: NavItem[] = [
   { to: '/jaaroverzicht', label: 'Jaaroverzicht', icon: CalendarRange, group: 'Belasting', accountant: true },
   { to: '/investeringen', label: 'Investeringen', icon: Package, group: 'Belasting', accountant: true },
   { to: '/werkstromen', label: 'Werkstromen', icon: Workflow, group: 'Systeem' },
+  // Alleen voor beheerders: gegevens uit een ander pakket halen.
+  { to: '/importeren', label: 'Importeren', icon: Upload, group: 'Systeem', admin: true },
   { to: '/instellingen', label: 'Instellingen', icon: Settings, group: 'Systeem', accountant: true },
 ]
 const navGroups = [...new Set(nav.map(n => n.group))]

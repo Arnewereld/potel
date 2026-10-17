@@ -89,6 +89,10 @@ public static class Insights
             .Where(i => i.Status != InvoiceStatus.Draft && (includeDemo || !i.IsDemo) && i.IssueDate >= loadFrom && i.IssueDate < loadTo.AddDays(1))
             .AsSplitQuery().ToListAsync();
         var inPeriod = invoices.Where(i => i.IssueDate.Date >= from && i.IssueDate.Date <= to).ToList();
+        // Facturen uit je vorige pakket: omzet per klant, zonder project. Geen voorbeelddata, dus altijd mee.
+        var imported = await db.ImportedInvoices.AsNoTracking().Where(i => i.IssueDate >= loadFrom && i.IssueDate < loadTo.AddDays(1))
+            .Select(i => new { i.CustomerId, i.IssueDate, i.Subtotal }).ToListAsync();
+        var importedInPeriod = imported.Where(i => i.IssueDate.Date >= from && i.IssueDate.Date <= to).ToList();
 
         var entries = await db.TimeEntries.AsNoTracking().Where(t => (includeDemo || !t.IsDemo) && t.Date >= from && t.Date <= to)
             .Select(t => new { t.ProjectId, t.Minutes, t.Billable, t.InvoiceId }).ToListAsync();
@@ -99,7 +103,7 @@ public static class Insights
         var customers = await db.Customers.AsNoTracking().ToDictionaryAsync(c => c.Id);
 
         var split = await RevenueSplit.ByProjectAsync(db, inPeriod);
-        var revenue = inPeriod.Sum(i => i.Totals.Subtotal);
+        var revenue = inPeriod.Sum(i => i.Totals.Subtotal) + importedInPeriod.Sum(i => i.Subtotal);
         var minutes = entries.Sum(e => e.Minutes);
         var billable = entries.Where(e => e.Billable).Sum(e => e.Minutes);
         bool Open(int projectId, bool isBillable, int? invoiceId) =>
@@ -128,7 +132,8 @@ public static class Insights
         }).OrderByDescending(p => p.Revenue).ThenByDescending(p => p.Minutes).ThenBy(p => p.Name).ToList();
 
         // Per klant: de omzet van zijn facturen en de uren van zijn projecten.
-        var customerRevenue = inPeriod.GroupBy(i => i.CustomerId).ToDictionary(g => g.Key, g => g.Sum(i => i.Totals.Subtotal));
+        var customerRevenue = inPeriod.Select(i => (i.CustomerId, Amount: i.Totals.Subtotal)).Concat(importedInPeriod.Select(i => (i.CustomerId, Amount: i.Subtotal)))
+            .GroupBy(i => i.CustomerId).ToDictionary(g => g.Key, g => g.Sum(i => i.Amount));
         var customerIds = customerRevenue.Keys.Concat(projectRows.Select(p => p.CustomerId)).Where(customers.ContainsKey).Distinct();
         var customerRows = customerIds.Select(id =>
         {
@@ -151,15 +156,17 @@ public static class Insights
         decimal? share = minutes > 0 ? Math.Round((decimal)billable / minutes, 4, MidpointRounding.AwayFromZero) : null;
 
         // Omzet per maand: de laatste 12 maanden, met dezelfde maand een jaar eerder.
-        decimal MonthRevenue(DateTime m) => invoices.Where(i => i.IssueDate.Year == m.Year && i.IssueDate.Month == m.Month).Sum(i => i.Totals.Subtotal);
+        decimal MonthRevenue(DateTime m) => invoices.Where(i => i.IssueDate.Year == m.Year && i.IssueDate.Month == m.Month).Sum(i => i.Totals.Subtotal)
+            + imported.Where(i => i.IssueDate.Year == m.Year && i.IssueDate.Month == m.Month).Sum(i => i.Subtotal);
         var months = Enumerable.Range(0, 12).Select(i => month.AddMonths(i - 11))
             .Select(m => new InsightMonth(m.ToString("yyyy-MM"), MonthRevenue(m), MonthRevenue(m.AddMonths(-12)))).ToList();
 
         // Hoe afhankelijk je bent van één klant: de omzet van de laatste 12 maanden per klant. Een klant die per saldo niets
         // opleverde (bijvoorbeeld door een creditnota) telt niet mee.
         var yearFrom = month.AddMonths(-11);
-        var byCustomer = invoices.Where(i => i.IssueDate.Date >= yearFrom && i.IssueDate.Date <= chartTo).GroupBy(i => i.CustomerId)
-            .Select(g => (Id: g.Key, Revenue: g.Sum(i => i.Totals.Subtotal))).Where(x => x.Revenue > 0).ToList();
+        var byCustomer = invoices.Where(i => i.IssueDate.Date >= yearFrom && i.IssueDate.Date <= chartTo).Select(i => (i.CustomerId, Amount: i.Totals.Subtotal))
+            .Concat(imported.Where(i => i.IssueDate.Date >= yearFrom && i.IssueDate.Date <= chartTo).Select(i => (i.CustomerId, Amount: i.Subtotal)))
+            .GroupBy(i => i.CustomerId).Select(g => (Id: g.Key, Revenue: g.Sum(i => i.Amount))).Where(x => x.Revenue > 0).ToList();
         var yearRevenue = byCustomer.Sum(x => x.Revenue);
         var shares = byCustomer.OrderByDescending(x => x.Revenue)
             .Select(x => new InsightShare(x.Id, customers.TryGetValue(x.Id, out var c) ? Name(c) : "Onbekende klant", x.Revenue, Math.Round(x.Revenue / yearRevenue, 4, MidpointRounding.AwayFromZero)))
@@ -171,7 +178,7 @@ public static class Insights
         var openMinutes = projectRows.Sum(p => p.OpenMinutes);
         return new InsightsDto(period, from, to, RecurringPeriods.Label(from, to), today, demoData, includeDemo && demoData,
             revenue, minutes, billable, Rate(revenue, minutes), billableRate, share, occupancy, goal, settings.WeeklyHoursTarget, settings.DefaultHourlyRate,
-            openMinutes, projectRows.Sum(p => p.OpenValue), split.Values.Sum(s => s.GetValueOrDefault(RevenueSplit.NoProject)),
+            openMinutes, projectRows.Sum(p => p.OpenValue), split.Values.Sum(s => s.GetValueOrDefault(RevenueSplit.NoProject)) + importedInPeriod.Sum(i => i.Subtotal),
             customerRows, projectRows, months, concentration);
     }
 }

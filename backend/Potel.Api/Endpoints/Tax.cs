@@ -192,14 +192,14 @@ public record MileageSummary(int Trips, decimal BusinessKm, decimal CompanyCarKm
 public record AnnualDto(
     int Year, decimal Revenue, decimal Costs, decimal Result, bool Deduction, List<CategoryCost> CostsByCategory, List<MonthTotals> Months,
     HoursSummary Hours, TaxIndication Indication, int Invoices, int Expenses, int PossibleInvestments, bool DemoData,
-    string HoursSource, string DepreciationSource, MileageSummary Mileage, InvestmentSummary Investments);
+    string HoursSource, string DepreciationSource, MileageSummary Mileage, InvestmentSummary Investments, int ImportedInvoices = 0);
 
 // Het jaaroverzicht voor de aangifte inkomstenbelasting: omzet, kosten, resultaat, uren en een indicatie van de aftrekposten.
 // Zonder concepten en voorbeelddata. Een indicatie, geen belastingadvies.
 public static class AnnualOverview
 {
     public record Data(AnnualDto Summary, List<Invoice> Invoices, List<Expense> Expenses, HashSet<int> ReceiptIds, List<TripRow> Trips,
-        List<InvestmentDto> Investments);
+        List<InvestmentDto> Investments, List<ImportedInvoice> Imported);
 
     public record TripRow(Trip Trip, string? Customer, string? Project, string? InvoiceNumber);
 
@@ -231,6 +231,9 @@ public static class AnnualOverview
         var invoices = await db.Invoices.AsNoTracking().Include(i => i.Lines).Include(i => i.Customer).Include(i => i.CreditFor)
             .Where(i => i.Status != InvoiceStatus.Draft && !i.IsDemo && i.IssueDate >= from && i.IssueDate <= to)
             .OrderBy(i => i.IssueDate).ThenBy(i => i.Id).AsSplitQuery().ToListAsync();
+        // Facturen uit je vorige pakket tellen mee in de omzet, net als je eigen facturen.
+        var imported = await db.ImportedInvoices.AsNoTracking().Include(i => i.Customer).Where(i => i.IssueDate >= from && i.IssueDate <= to)
+            .OrderBy(i => i.IssueDate).ThenBy(i => i.Id).ToListAsync();
         var expenses = await db.Expenses.AsNoTracking().Where(e => !e.IsDemo && e.Date >= from && e.Date <= to)
             .OrderBy(e => e.Date).ThenBy(e => e.Id).ToListAsync();
         // Alle uren tellen voor het urencriterium, ook die je niet factureert.
@@ -248,14 +251,14 @@ public static class AnnualOverview
         var plain = expenses.Where(e => !e.Investment).ToList();
         var (assets, investments, assetsByMonth) = await InvestmentEndpoints.YearAsync(db, year, deduction);
 
-        var revenue = invoices.Sum(i => i.Totals.Subtotal);
+        var revenue = invoices.Sum(i => i.Totals.Subtotal) + imported.Sum(i => i.Subtotal);
         var costs = plain.Sum(e => e.CostForProfit(deduction)) + mileage.Deduction + investments.Depreciation + investments.DisposalLoss;
         var result = revenue - costs + investments.DisposalGain;
         var byCategory = ExpenseCategories.All
             .Select(c => new CategoryCost(c, ExpenseCategories.Label(c), plain.Where(e => e.Category == c).Sum(e => e.CostForProfit(deduction)), plain.Count(e => e.Category == c)))
             .Where(c => c.Count > 0).ToList();
         var months = Enumerable.Range(1, 12).Select(m => new MonthTotals($"{year}-{m:00}",
-            invoices.Where(i => i.IssueDate.Month == m).Sum(i => i.Totals.Subtotal),
+            invoices.Where(i => i.IssueDate.Month == m).Sum(i => i.Totals.Subtotal) + imported.Where(i => i.IssueDate.Month == m).Sum(i => i.Subtotal),
             plain.Where(e => e.Date.Month == m).Sum(e => e.CostForProfit(deduction)) + mileageByMonth[m - 1] + assetsByMonth[m - 1])).ToList();
         var minutes = hours.Sum(h => h.Minutes);
         var billable = hours.Where(h => h.Billable).Sum(h => h.Minutes);
@@ -270,7 +273,7 @@ public static class AnnualOverview
         if (indication.Available) indication.Notes.AddRange(investments.Warnings);
         var summary = new AnnualDto(year, revenue, costs, result, deduction, byCategory, months, hoursSummary,
             indication, invoices.Count, expenses.Count, possibleInvestments, demoData,
-            TaxYears.HoursSource, TaxYears.DepreciationSource, mileage, investments);
+            TaxYears.HoursSource, TaxYears.DepreciationSource, mileage, investments, imported.Count);
         var ids = expenses.Select(e => e.Id).ToList();
         var receiptIds = (await db.ExpenseReceipts.Where(r => ids.Contains(r.ExpenseId)).Select(r => r.ExpenseId).ToListAsync()).ToHashSet();
         var projects = await db.Projects.AsNoTracking().ToDictionaryAsync(p => p.Id, p => p.Name);
@@ -279,7 +282,7 @@ public static class AnnualOverview
         var numbers = await db.Invoices.Where(i => invoiceIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id, i => i.Number);
         var tripRows = trips.Select(t => new TripRow(t, t.CustomerId is { } c ? customers.GetValueOrDefault(c) : null,
             t.ProjectId is { } p ? projects.GetValueOrDefault(p) : null, t.InvoiceId is { } i ? numbers.GetValueOrDefault(i) ?? "concept" : null)).ToList();
-        return new Data(summary, invoices, expenses, receiptIds, tripRows, assets.Where(a => !a.Demo).ToList());
+        return new Data(summary, invoices, expenses, receiptIds, tripRows, assets.Where(a => !a.Demo).ToList(), imported);
     }
 
     // Eerst de kleinschaligheidsinvesteringsaftrek (die verlaagt je winst), dan de zelfstandigenaftrek (met het urencriterium,
@@ -360,6 +363,15 @@ public static class AnnualOverview
             Line(CsvText(i.Number), CsvDate(i.IssueDate), CsvText(customer), CsvText(i.Buyer?.VatNumber ?? i.Customer?.VatNumber),
                 CsvText(Countries.Normalize(i.Buyer?.Country ?? i.Customer?.Country)), CsvText(i.VatRegime),
                 CsvNumber(t.Subtotal), CsvNumber(t.Vat), CsvNumber(t.Total), CsvText(i.Status), CsvText(i.CreditFor?.Number));
+        }
+        if (data.Imported.Count > 0)
+        {
+            Line();
+            Line(CsvText("Geïmporteerde facturen (uit je vorige pakket, tellen mee in de omzet)"));
+            Line("Nummer", "Datum", "Klant", "Bedrag zonder btw", "Btw", "Totaal", "Betaald op");
+            foreach (var i in data.Imported)
+                Line(CsvText(i.Number), CsvDate(i.IssueDate), CsvText(string.IsNullOrWhiteSpace(i.Customer?.Company) ? i.Customer?.Name : i.Customer.Company),
+                    CsvNumber(i.Subtotal), CsvNumber(i.Vat), CsvNumber(i.Total), i.PaidAt is { } paid ? CsvDate(paid) : "");
         }
         Line();
         Line("Kosten");

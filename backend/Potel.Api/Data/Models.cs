@@ -153,6 +153,8 @@ public class Customer : IWorkspaceOwned, IDemoData
     // Bepaalt welke btw-regeling mag: btw verlegd alleen voor een ander EU-land, "buiten de EU" alleen daarbuiten.
     public string Country { get; set; } = Countries.Netherlands;
     public string? VatNumber { get; set; }
+    // Het KvK-nummer van de klant (8 cijfers in Nederland), voor je eigen administratie.
+    public string? Kvk { get; set; }
     // Het rekeningnummer waarvan de klant betaalt. Daarmee herkent Potel zijn betalingen in je bankafschrift.
     public string? Iban { get; set; }
     public string? Notes { get; set; }
@@ -163,6 +165,8 @@ public class Customer : IWorkspaceOwned, IDemoData
     // De taal van alles wat de klant van je ziet: facturen, offertes, mails, de openbare pagina's en het klantportaal.
     public string Language { get; set; } = Languages.Dutch;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    // De import die deze klant aanmaakte, zodat die import ongedaan kan worden gemaakt. Bewust zonder databasekoppeling.
+    [JsonIgnore] public int? ImportBatchId { get; set; }
 }
 
 // De talen waarin je klant zijn facturen, offertes en mails krijgt. Je eigen schermen blijven Nederlands.
@@ -890,6 +894,8 @@ public class Project : IWorkspaceOwned, IDemoData
     // Kilometertarief voor doorbelaste ritten op dit project. Leeg is: het tarief van de klant.
     public decimal? KilometreRate { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    // De import die dit project aanmaakte. Bewust zonder databasekoppeling.
+    [JsonIgnore] public int? ImportBatchId { get; set; }
 }
 
 public class TimeEntry : IWorkspaceOwned, IDemoData
@@ -914,6 +920,8 @@ public class TimeEntry : IWorkspaceOwned, IDemoData
     // Afgemaakte focusblokken van de timer die deze boeking maakte, voor het aantal per dag op de urenpagina.
     public int FocusBlocks { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    // De import die deze boeking aanmaakte. Bewust zonder databasekoppeling: die zou de hele tabel met uren laten herbouwen.
+    [JsonIgnore] public int? ImportBatchId { get; set; }
 }
 
 // De timer die nu loopt. Hij staat op de server, per gebruiker, zodat je hem op je laptop start en op je telefoon stopt.
@@ -1560,4 +1568,59 @@ public class NotificationSettings : IWorkspaceOwned
     public DateTime? DigestSentOn { get; set; }
     public DateTime? MailDay { get; set; }
     public int MailsSent { get; set; }
+}
+
+// Wat je uit een ander pakket kunt importeren, met een CSV-bestand per soort.
+public static class ImportKinds
+{
+    public const string Customers = "klanten";
+    public const string Projects = "projecten";
+    public const string TimeEntries = "uren";
+    public const string Invoices = "facturen";
+    public static readonly string[] All = [Customers, Projects, TimeEntries, Invoices];
+}
+
+// Een import uit een ander pakket: welk bestand, wat het opleverde en of hij ongedaan is gemaakt. Wat de import aanmaakte, wijst
+// hiernaar met ImportBatchId; ongedaan maken haalt precies die rijen weg, behalve wat sindsdien gebruikt is.
+public class ImportBatch : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public string Kind { get; set; } = "";
+    public string FileName { get; set; } = "";
+    // Het pakket dat we herkenden aan de kolommen (zoals Toggl Track), of leeg.
+    public string? Source { get; set; }
+    public int Created { get; set; }
+    public int Updated { get; set; }
+    public int Skipped { get; set; }
+    public int CustomersCreated { get; set; }
+    public int ProjectsCreated { get; set; }
+    public string? ImportedBy { get; set; }
+    public DateTime ImportedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? UndoneAt { get; set; }
+    public string? UndoneBy { get; set; }
+    // Wat bij het ongedaan maken bleef staan omdat het inmiddels gebruikt werd.
+    public int Kept { get; set; }
+}
+
+// Een factuur uit je vorige pakket. Alleen ter informatie: hij telt mee in je omzet, het jaaroverzicht en de inzichten, maar
+// Potel verstuurt, nummert of wijzigt hem nooit, en hij gebruikt geen nummer uit je eigen nummerreeks. Niet in de btw-aangifte:
+// die heb je voor deze facturen al in je vorige pakket gedaan.
+public class ImportedInvoice : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public int ImportBatchId { get; set; }
+    public string Number { get; set; } = "";
+    public DateTime IssueDate { get; set; }
+    public int CustomerId { get; set; }
+    public Customer? Customer { get; set; }
+    // Bedrag zonder btw en de btw. Negatief bij een creditnota.
+    public decimal Subtotal { get; set; }
+    public decimal Vat { get; set; }
+    public DateTime? PaidAt { get; set; }
+    public string? Source { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    [NotMapped] public decimal Total => Subtotal + Vat;
 }

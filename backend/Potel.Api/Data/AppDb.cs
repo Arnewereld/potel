@@ -58,6 +58,8 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
     public DbSet<CashflowSettings> CashflowSettings => Set<CashflowSettings>();
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<NotificationSettings> NotificationSettings => Set<NotificationSettings>();
+    public DbSet<ImportBatch> ImportBatches => Set<ImportBatch>();
+    public DbSet<ImportedInvoice> ImportedInvoices => Set<ImportedInvoice>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -205,6 +207,14 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         b.Entity<Notification>().HasIndex(n => n.Mail).HasFilter($"\"Mail\" IN ('{NotificationMail.Direct}', '{NotificationMail.Digest}')");
         b.Entity<NotificationSettings>().HasOne<User>().WithMany().HasForeignKey(s => s.UserId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<NotificationSettings>().HasIndex(s => s.UserId).IsUnique();
+        // Importeren uit een ander pakket. Een geïmporteerde factuur hoort bij een klant die daarom niet weg kan, en elk nummer
+        // staat er per werkruimte één keer. Wat een import aanmaakte, vinden we terug aan ImportBatchId.
+        b.Entity<ImportedInvoice>().HasOne(i => i.Customer).WithMany().HasForeignKey(i => i.CustomerId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<ImportedInvoice>().HasIndex(i => new { i.WorkspaceId, i.Number }).IsUnique();
+        b.Entity<ImportedInvoice>().HasIndex(i => i.ImportBatchId);
+        b.Entity<Customer>().HasIndex(c => c.ImportBatchId).HasFilter("\"ImportBatchId\" IS NOT NULL");
+        b.Entity<Project>().HasIndex(p => p.ImportBatchId).HasFilter("\"ImportBatchId\" IS NOT NULL");
+        b.Entity<TimeEntry>().HasIndex(t => t.ImportBatchId).HasFilter("\"ImportBatchId\" IS NOT NULL");
         FilterByWorkspace(b);
     }
 
@@ -223,6 +233,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         Filter<Trip>(b); Filter<TripRoute>(b);
         Filter<TaxReserveYear>(b); Filter<VatFiling>(b); Filter<CashflowSettings>(b);
         Filter<Notification>(b); Filter<NotificationSettings>(b);
+        Filter<ImportBatch>(b); Filter<ImportedInvoice>(b);
     }
 
     void Filter<T>(ModelBuilder b) where T : class, IWorkspaceOwned

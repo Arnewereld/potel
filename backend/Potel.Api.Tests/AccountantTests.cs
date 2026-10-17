@@ -95,7 +95,7 @@ public class AccountantTests(TwoFactorFactory f) : IClassFixture<TwoFactorFactor
         "GET /api/recurring-expenses", "GET /api/recurring-expenses/{id:int}",
         "GET /api/bank", "GET /api/trips", "GET /api/trips/{id:int}", "GET /api/investments",
         "GET /api/tax/vat-return", "GET /api/tax/annual", "GET /api/tax/annual.csv", "GET /api/tax/reserve", "GET /api/tax/reserve/settings",
-        "GET /api/customers", "GET /api/customers/{id:int}",
+        "GET /api/customers", "GET /api/customers/{id:int}", "GET /api/imported-invoices",
         "GET /api/notifications", "GET /api/notifications/summary", "GET /api/notifications/settings",
     ];
 

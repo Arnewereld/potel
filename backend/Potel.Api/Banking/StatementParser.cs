@@ -55,7 +55,7 @@ public static class StatementParser
     }
 
     // UTF-8 als dat klopt, anders Windows-1252 (oudere exports uit Windows). Binaire bestanden (pdf, xlsx, zip) weigeren we.
-    static string? Decode(byte[] bytes)
+    public static string? Decode(byte[] bytes)
     {
         string text;
         try { text = new UTF8Encoding(false, true).GetString(bytes); }

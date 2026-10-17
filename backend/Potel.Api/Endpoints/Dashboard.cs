@@ -40,6 +40,10 @@ public static class DashboardEndpoints
             // (omdat hij helemaal gecrediteerd is) telt niet mee; die factuur telde ook niet mee.
             var paidIds = invoices.Where(i => i.Status == InvoiceStatus.Paid).Select(i => i.Id).ToHashSet();
             var received = invoices.Where(i => i.Status == InvoiceStatus.Paid && (i.CreditForInvoiceId is not { } original || paidIds.Contains(original))).ToList();
+            // Betaalde facturen uit je vorige pakket tellen mee, op hun factuurdatum, net als je eigen facturen.
+            var importedFrom = months[0] < yearStart ? months[0] : yearStart;
+            var importedPaid = await db.ImportedInvoices.AsNoTracking().Where(i => i.PaidAt != null && i.IssueDate >= importedFrom)
+                .Select(i => new { i.IssueDate, i.Subtotal, i.Vat }).ToListAsync();
 
             // Offertes: wat er openstaat en hoeveel van de offertes van de afgelopen 12 maanden geaccepteerd zijn. Ingetrokken
             // offertes tellen niet mee in dat percentage; daar heeft je klant niet over besloten.
@@ -58,7 +62,8 @@ public static class DashboardEndpoints
                 customers = await db.Customers.CountAsync(),
                 openLeads = leads.Count(l => l.Status is not ("gewonnen" or "verloren")),
                 pipelineValue = leads.Where(l => l.Status is not ("gewonnen" or "verloren")).Sum(l => l.Value),
-                revenueYear = received.Where(i => i.IssueDate.Year == today.Year).Sum(InvoiceEndpoints.Total),
+                revenueYear = received.Where(i => i.IssueDate.Year == today.Year).Sum(InvoiceEndpoints.Total)
+                    + importedPaid.Where(i => i.IssueDate.Year == today.Year).Sum(i => i.Subtotal + i.Vat),
                 // Wat klanten nog moeten betalen: per factuur het totaal min wat er al gecrediteerd is.
                 outstanding = invoices.Sum(i => i.OpenAmount),
                 overdue = invoices.Count(i => i.Status == "verlopen" && i.OpenAmount > 0),
@@ -66,6 +71,7 @@ public static class DashboardEndpoints
                 {
                     month = m.ToString("yyyy-MM"),
                     total = received.Where(i => i.IssueDate.Year == m.Year && i.IssueDate.Month == m.Month).Sum(InvoiceEndpoints.Total)
+                        + importedPaid.Where(i => i.IssueDate.Year == m.Year && i.IssueDate.Month == m.Month).Sum(i => i.Subtotal + i.Vat)
                 }),
                 leadsByStatus = LeadStatus.All.Select(s => new { status = s, count = leads.Count(l => l.Status == s), value = leads.Where(l => l.Status == s).Sum(l => l.Value) }),
                 hours = new

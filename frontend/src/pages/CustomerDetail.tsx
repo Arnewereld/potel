@@ -122,6 +122,7 @@ export function CustomerDetailPage() {
                 <dt>Telefoon</dt><dd>{customer.phone || '—'}</dd>
                 <dt>Adres</dt><dd>{[customer.address, customer.city, !isNetherlands(customer.country) && customer.country].filter(Boolean).join(', ') || '—'}</dd>
                 <dt>Btw-nummer</dt><dd>{customer.vatNumber || '—'}</dd>
+                <dt>KvK-nummer</dt><dd>{customer.kvk || '—'}</dd>
                 <dt>Taal</dt><dd>{languages.find(l => l.id === (customer.language ?? 'nl'))?.label}</dd>
                 <dt>Klant sinds</dt><dd>{date(customer.createdAt)}</dd>
                 {!accountant && <><dt>Klantportaal</dt><dd><a href="#portaal" onClick={e => { e.preventDefault(); setTab('portaal') }}>{portalOpened(portal)}</a></dd></>}

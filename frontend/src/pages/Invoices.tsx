@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Receipt, Plus, Search, CheckCircle2, Copy, BellRing, AlertTriangle, FileClock, Send, Euro, Repeat } from 'lucide-react'
+import { Receipt, Plus, Search, CheckCircle2, Copy, BellRing, AlertTriangle, FileClock, Send, Euro, Repeat, History } from 'lucide-react'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useToast } from '../lib/toast'
 import { useAuth } from '../lib/auth'
 import { isAccountant } from '../lib/accountant'
-import type { Invoice, InvoiceStatus, MailServerStatus, RecurringInvoice, Settings } from '../lib/types'
+import type { ImportedInvoice, Invoice, InvoiceStatus, MailServerStatus, RecurringInvoice, Settings } from '../lib/types'
 import { date, euro, invoiceTotals, toDateInput } from '../lib/format'
 import { invoiceStatuses } from '../lib/status'
 import { daysUntil, invoiceTitle, isCredit, openAmount, reminderMail } from '../lib/invoice'
@@ -15,7 +15,8 @@ import { MiniStat } from './Time'
 import { RecurringList } from './RecurringInvoices'
 
 // Terugkerend is geen status maar de lijst met terugkerende facturen; te openen met /facturen?tab=terugkerend.
-type Filter = 'alle' | InvoiceStatus | 'terugkerend'
+// Geïmporteerd zijn de facturen uit je vorige pakket: alleen om te bekijken.
+type Filter = 'alle' | InvoiceStatus | 'terugkerend' | 'geimporteerd'
 
 export function InvoicesPage() {
   const { user } = useAuth()
@@ -26,8 +27,10 @@ export function InvoicesPage() {
   const { data: mailStatus } = useApi<MailServerStatus>(accountant ? null : '/invoices/mail-status')
   const { data: recurring, reload: reloadRecurring } = useApi<RecurringInvoice[]>(accountant ? null : '/recurring-invoices')
   const [params] = useSearchParams()
-  const [filter, setFilter] = useState<Filter>(params.get('tab') === 'terugkerend' && !accountant ? 'terugkerend' : 'alle')
+  const { data: imported } = useApi<ImportedInvoice[]>('/imported-invoices')
+  const [filter, setFilter] = useState<Filter>(params.get('tab') === 'terugkerend' && !accountant ? 'terugkerend' : params.get('tab') === 'geimporteerd' ? 'geimporteerd' : 'alle')
   const showRecurring = filter === 'terugkerend'
+  const showImported = filter === 'geimporteerd'
   const [q, setQ] = useState('')
   const navigate = useNavigate()
   const toast = useToast()
@@ -76,10 +79,11 @@ export function InvoicesPage() {
       <PageHeader
         icon={<Receipt size={20} />}
         title="Facturen"
-        subtitle={showRecurring ? `${recurring?.length ?? 0} terugkerende facturen` : `${filtered.length} facturen · ${euro(total(filtered))}`}
+        subtitle={showRecurring ? `${recurring?.length ?? 0} terugkerende facturen` : showImported ? `${imported?.length ?? 0} facturen uit je vorige pakket`
+          : `${filtered.length} facturen · ${euro(total(filtered))}`}
         actions={<>
           <div className="search-input"><Search size={16} /><input placeholder={showRecurring ? 'Zoek naam, klant of referentie…' : 'Zoek nummer, klant of referentie…'} value={q} onChange={e => setQ(e.target.value)} /></div>
-          {accountant ? null : showRecurring
+          {accountant || showImported ? null : showRecurring
             ? user.role === 'beheerder' && <button className="btn btn-primary" onClick={() => navigate('/facturen/terugkerend/nieuw')}><Plus size={16} /> Nieuwe terugkerende factuur</button>
             : <button className="btn btn-primary" onClick={() => navigate('/facturen/nieuw')}><Plus size={16} /> Nieuwe factuur</button>}
         </>}
@@ -102,14 +106,16 @@ export function InvoicesPage() {
         { id: 'alle', label: 'Alle', count: invoices.length },
         ...invoiceStatuses.map(s => ({ id: s.id, label: s.label, count: by(s.id).length })),
         ...(accountant ? [] : [{ id: 'terugkerend' as const, label: 'Terugkerend', count: recurring?.length, icon: <Repeat size={14} /> }]),
+        ...(imported?.length ? [{ id: 'geimporteerd' as const, label: 'Geïmporteerd', count: imported.length, icon: <History size={14} /> }] : []),
       ]} />
 
       {showRecurring && recurring && <RecurringList list={recurring} query={q} reload={() => reloadRecurring(true)} />}
+      {showImported && imported && <ImportedList list={imported} query={q} />}
 
       {error && <ErrorBox message={error} onRetry={() => reload()} />}
       {loading && !data && <Loading />}
 
-      {data && !showRecurring && (
+      {data && !showRecurring && !showImported && (
         <div className="card">
           {filtered.length === 0 ? (
             <Empty icon={<Receipt size={22} />} title="Geen facturen" text={q ? 'Probeer een andere zoekterm.' : 'Hier staan nog geen facturen.'}
@@ -170,5 +176,43 @@ export function InvoicesPage() {
         </div>
       )}
     </>
+  )
+}
+
+// Facturen uit je vorige pakket. Ze tellen mee in je omzet, het jaaroverzicht en de inzichten, maar Potel verstuurt of wijzigt ze niet.
+function ImportedList({ list, query }: { list: ImportedInvoice[]; query: string }) {
+  const s = query.toLowerCase()
+  const rows = list.filter(i => [i.number, i.customer].some(v => v?.toLowerCase().includes(s)))
+  return (
+    <div className="card">
+      <div className="card-body">
+        <p className="muted" style={{ margin: 0 }}>
+          Deze facturen komen uit je vorige pakket. Ze tellen mee in je omzet, het jaaroverzicht en de inzichten. Potel verstuurt, nummert of
+          wijzigt ze niet, en ze tellen niet mee in de btw-aangifte: die heb je voor deze facturen al gedaan.
+        </p>
+      </div>
+      {rows.length === 0 ? (
+        <Empty icon={<History size={22} />} title="Geen facturen gevonden" text="Probeer een andere zoekterm." />
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Nummer</th><th>Klant</th><th>Datum</th><th>Betaald op</th><th className="num">Zonder btw</th><th className="num">Btw</th><th className="num">Totaal</th></tr></thead>
+            <tbody>
+              {rows.map(i => (
+                <tr key={i.id}>
+                  <td><strong>{i.number}</strong>{i.total < 0 && <span className="badge badge-purple" style={{ marginLeft: 8 }}>credit</span>}</td>
+                  <td>{i.customer}</td>
+                  <td className="muted">{date(i.issueDate)}</td>
+                  <td className="muted">{i.paidAt ? date(i.paidAt) : 'Niet betaald'}</td>
+                  <td className="num">{euro(i.subtotal)}</td>
+                  <td className="num">{euro(i.vat)}</td>
+                  <td className="num"><strong>{euro(i.total)}</strong></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   )
 }

@@ -333,6 +333,7 @@ api.MapQuotes();
 api.MapExpenses();
 api.MapRecurringExpenses();
 api.MapBank();
+api.MapImports();
 api.MapTax();
 api.MapTaxReserve();
 api.MapInsights();

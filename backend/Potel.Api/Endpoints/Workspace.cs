@@ -293,6 +293,9 @@ public static partial class WorkspaceEndpoints
             await Write("bankImports", await db.BankImports.OrderBy(i => i.Id).ToListAsync());
             await Write("bankTransactions", await db.BankTransactions.OrderBy(t => t.Id).ToListAsync());
             await Write("bankCsvMapping", await db.BankCsvMappings.FirstOrDefaultAsync());
+            // Imports uit een ander pakket en de facturen die daaruit kwamen.
+            await Write("importBatches", await db.ImportBatches.OrderBy(b => b.Id).ToListAsync());
+            await Write("importedInvoices", await db.ImportedInvoices.OrderBy(i => i.Id).ToListAsync());
             // De belastingpot per jaar (loon, voorlopige aanslag, hoe je reserveert) en welke btw-aangiftes je als gedaan markeerde.
             await Write("taxReserveYears", await db.TaxReserveYears.OrderBy(r => r.Year).ToListAsync());
             await Write("vatFilings", await db.VatFilings.OrderBy(f => f.Year).ThenBy(f => f.Quarter).ToListAsync());
@@ -358,6 +361,8 @@ public static partial class WorkspaceEndpoints
             await db.BankTransactions.ExecuteDeleteAsync();
             await db.BankImports.ExecuteDeleteAsync();
             await db.BankCsvMappings.ExecuteDeleteAsync();
+            await db.ImportedInvoices.ExecuteDeleteAsync();
+            await db.ImportBatches.ExecuteDeleteAsync();
             await db.Expenses.ExecuteDeleteAsync();
             await db.RecurringExpenses.ExecuteDeleteAsync();
             await db.InvoiceMails.ExecuteDeleteAsync();

@@ -91,6 +91,10 @@ export function CustomerForm({ customer, onClose, onSaved }: {
             placeholder={isNetherlands(country) ? 'Bijv. NL001234567B01' : inEu(country) ? `Nodig voor btw verlegd, bijv. ${vatFormats[country]?.[2] ?? 'DE123456789'}` : 'Optioneel'} />
         </Field>
         {vatProblem && <p className="text-red field-full" style={{ fontSize: 13, margin: 0 }}>{vatProblem}</p>}
+        <Field label="KvK-nummer">
+          <input value={form.kvk ?? ''} onChange={set('kvk')} inputMode={isNetherlands(country) ? 'numeric' : undefined}
+            placeholder={isNetherlands(country) ? 'Optioneel, 8 cijfers' : 'Optioneel'} />
+        </Field>
         <Field label="Rekeningnummer (IBAN)">
           <input value={form.iban ?? ''} onChange={set('iban')} placeholder="Optioneel, bijv. NL91 ABNA 0417 1643 00" autoComplete="off" spellCheck={false} />
         </Field>

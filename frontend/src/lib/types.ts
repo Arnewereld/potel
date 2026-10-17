@@ -12,6 +12,8 @@ export interface Customer {
   // Land van vestiging; leeg of Nederland is een Nederlandse klant.
   country?: string | null
   vatNumber?: string | null
+  // KvK-nummer: in Nederland 8 cijfers.
+  kvk?: string | null
   // Rekeningnummer waarvan de klant betaalt; daarmee herkent de pagina Bank zijn betalingen.
   iban?: string | null
   notes?: string | null
@@ -885,6 +887,8 @@ export interface AnnualOverview {
   mileage: { trips: number; businessKm: number; companyCarKm: number; privateKm: number; rate: number | null; deduction: number; source: string; note?: string | null }
   // Afschrijving, verkopen en de kleinschaligheidsinvesteringsaftrek van dit jaar.
   investments: InvestmentSummary
+  // Facturen uit je vorige pakket in dit jaar; die tellen mee in de omzet.
+  importedInvoices?: number
 }
 
 // De belastingpot: wat je opzij zet voor de btw, de inkomstenbelasting en de bijdrage Zvw. Een indicatie, geen belastingadvies.
@@ -1296,4 +1300,85 @@ export interface Cashflow {
   // Lopende vaste kosten onder Kosten en wat ze samen per maand kosten.
   subscriptions: number
   subscriptionsPerMonth: number
+}
+
+// Importeren uit een ander pakket.
+export type ImportKind = 'klanten' | 'projecten' | 'uren' | 'facturen'
+export type DuplicateMode = 'overslaan' | 'bijwerken'
+
+export interface ImportField { key: string; label: string; required: boolean }
+
+export interface ImportPreview {
+  kind: ImportKind
+  fileName: string
+  // Het pakket dat we herkennen aan de kolommen, zoals Toggl Track.
+  source: string | null
+  rows: number
+  headerLine: number
+  headers: string[]
+  sample: string[][]
+  fields: ImportField[]
+  mapping: Record<string, string | null>
+}
+
+export interface ImportMessage { line: number; text: string }
+export interface ImportOption { id: number; name: string; customerId?: number | null }
+// Een naam uit het bestand: match is wat Potel vond, choice wat je koos (0 is: maak een nieuwe aan).
+export interface ImportCustomerChoice { key: string; name: string; rows: number; match: number | null; choice: number | null; canCreate: boolean }
+export interface ImportProjectChoice { key: string; customer: string; name: string; rows: number; match: number | null; choice: number | null; canCreate: boolean }
+
+export interface ImportCheck {
+  kind: ImportKind
+  fileName: string
+  source: string | null
+  rows: number
+  ok: boolean
+  errorCount: number
+  errors: ImportMessage[]
+  duplicateCount: number
+  duplicates: ImportMessage[]
+  create: number
+  update: number
+  skip: number
+  newCustomers: number
+  newProjects: number
+  needsChoice: boolean
+  customers: ImportCustomerChoice[]
+  projects: ImportProjectChoice[]
+  previewFields: string[]
+  preview: string[][]
+  customerOptions: ImportOption[]
+  projectOptions: ImportOption[]
+}
+
+export interface ImportBatch {
+  id: number
+  kind: ImportKind
+  fileName: string
+  source: string | null
+  created: number
+  updated: number
+  skipped: number
+  customersCreated: number
+  projectsCreated: number
+  importedBy: string | null
+  importedAt: string
+  undoneAt: string | null
+  undoneBy: string | null
+  kept: number
+  canUndo: boolean
+  undoUntil: string
+}
+
+export interface ImportedInvoice {
+  id: number
+  number: string
+  issueDate: string
+  customerId: number
+  customer: string | null
+  subtotal: number
+  vat: number
+  total: number
+  paidAt: string | null
+  source: string | null
 }
