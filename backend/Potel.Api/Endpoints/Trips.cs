@@ -242,10 +242,10 @@ public static class TripEndpoints
             var deduction = rate.Rate is { } r ? Money.Round(Totals(trips.Where(t => !t.IsDemo)).Business * r) : 0;
             return Results.Ok(new TripYearDto(y, await DtosAsync(db, user, trips), months, trips.Count, b, c, p, rate.Rate, deduction, rate.Source, rate.Note,
                 TaxYears.KilometreSource));
-        });
+        }).ForAccountant();
 
         g.MapGet("/{id:int}", async (AppDb db, ClaimsPrincipal user, int id) =>
-            await db.Trips.AsNoTracking().FirstOrDefaultAsync(t => t.Id == id) is { } t ? Results.Ok((await DtosAsync(db, user, [t]))[0]) : Results.NotFound());
+            await db.Trips.AsNoTracking().FirstOrDefaultAsync(t => t.Id == id) is { } t ? Results.Ok((await DtosAsync(db, user, [t]))[0]) : Results.NotFound()).ForAccountant();
 
         g.MapPost("/", async (AppDb db, ClaimsPrincipal user, TripInput input) =>
         {

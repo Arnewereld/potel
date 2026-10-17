@@ -4,6 +4,7 @@ import { ArrowLeftRight, Ban, House, Lightbulb, Link2, Plus, Repeat, Search, Und
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useAuth } from '../lib/auth'
+import { isAccountant } from '../lib/accountant'
 import { useToast } from '../lib/toast'
 import { date, euro, utcDateTime } from '../lib/format'
 import { categoryLabel, expenseCategories, expenseVat, expenseVatRates } from '../lib/expenses'
@@ -27,10 +28,13 @@ const iban = (s?: string | null) => s?.replace(/(.{4})/g, '$1 ').trim()
 // De pagina Bank: lees een afschrift in en koppel elke regel aan een factuur of uitgave. Potel doet voorstellen; jij beslist.
 export function BankPage() {
   const { user } = useAuth()
+  // Een boekhouder ziet de regels en waaraan ze gekoppeld zijn, maar leest niets in en koppelt niets.
+  const view = isAccountant(user)
+  const allowed = user.role === 'beheerder' || view
   const [filter, setFilter] = useState<BankFilter>('open')
   const [q, setQ] = useState('')
   const [search, setSearch] = useState('')
-  const { data, error, loading, reload } = useApi<BankOverview>(user.role === 'beheerder' ? `/bank?filter=${filter}&q=${encodeURIComponent(search)}` : null)
+  const { data, error, loading, reload } = useApi<BankOverview>(allowed ? `/bank?filter=${filter}&q=${encodeURIComponent(search)}` : null)
   const [busy, setBusy] = useState(false)
   const [mapping, setMapping] = useState<{ file: string; fileName: string; result: Extract<BankImportResult, { needsMapping: true }> } | null>(null)
   const [making, setMaking] = useState<BankTransaction | null>(null)
@@ -44,7 +48,7 @@ export function BankPage() {
     return () => clearTimeout(t)
   }, [q])
 
-  if (user.role !== 'beheerder') return <ErrorBox message="Alleen een beheerder kan bankafschriften inlezen en koppelen." />
+  if (!allowed) return <ErrorBox message="Alleen een beheerder kan bankafschriften inlezen en koppelen." />
 
   const upload = async (fileName: string, file: string, map?: BankCsvMapping) => {
     setBusy(true)
@@ -120,18 +124,27 @@ export function BankPage() {
       <PageHeader
         icon={<ArrowLeftRight size={20} />}
         title="Bank"
-        subtitle={counts ? (empty ? 'Lees je bankafschrift in en koppel betalingen aan je facturen en kosten' : `${counts.open} ${counts.open === 1 ? 'regel' : 'regels'} om te koppelen`) : undefined}
+        subtitle={counts ? (empty ? (view ? 'Er is nog geen bankafschrift ingelezen' : 'Lees je bankafschrift in en koppel betalingen aan je facturen en kosten') : `${counts.open} ${counts.open === 1 ? 'regel' : 'regels'} om te koppelen`) : undefined}
         actions={<>
           {!empty && <div className="search-input"><Search size={16} /><input placeholder="Zoek naam, omschrijving of bedrag…" value={q} onChange={e => setQ(e.target.value)} /></div>}
-          <input ref={fileInput} type="file" accept=".xml,.csv,.txt,text/xml,text/csv" hidden onChange={pick} />
-          <button className="btn btn-primary" disabled={busy} onClick={() => fileInput.current?.click()}><Upload size={16} /> Afschrift inlezen</button>
+          {!view && <>
+            <input ref={fileInput} type="file" accept=".xml,.csv,.txt,text/xml,text/csv" hidden onChange={pick} />
+            <button className="btn btn-primary" disabled={busy} onClick={() => fileInput.current?.click()}><Upload size={16} /> Afschrift inlezen</button>
+          </>}
         </>}
       />
 
       {error && <ErrorBox message={error} onRetry={() => reload()} />}
       {loading && !data && <Loading />}
 
-      {data && empty && (
+      {data && empty && view && (
+        <div className="card">
+          <Empty icon={<ArrowLeftRight size={22} />} title="Nog geen bankafschrift ingelezen"
+            text="Zodra je klant een bankafschrift inleest, zie je hier de regels en waaraan ze gekoppeld zijn." />
+        </div>
+      )}
+
+      {data && empty && !view && (
         <div className="card">
           <Empty icon={<ArrowLeftRight size={22} />} title="Nog geen bankafschrift ingelezen"
             text="Download bij je bank een afschrift als CAMT.053 (XML) of als CSV en lees het hier in. Potel stelt dan voor bij welke factuur of uitgave elke regel hoort. Jij bevestigt elk voorstel zelf."
@@ -167,7 +180,7 @@ export function BankPage() {
           ) : (
             <div className="bank-list">
               {data.transactions.map(t => (
-                <BankRow key={t.id} t={t} data={data} busy={busy} act={act} onMakeExpense={() => setMaking(t)} onMakeRecurring={() => setMakingRecurring(t)} />
+                <BankRow key={t.id} t={t} data={data} busy={busy} view={view} act={act} onMakeExpense={() => setMaking(t)} onMakeRecurring={() => setMakingRecurring(t)} />
               ))}
             </div>
           )}
@@ -185,7 +198,7 @@ export function BankPage() {
                       <strong style={{ overflowWrap: 'anywhere' }}>{i.fileName}</strong>
                       <span className="row" style={{ gap: 8 }}>
                         <span className="muted">{utcDateTime(i.importedAt)}</span>
-                        <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => undoImport(i.id, i.fileName)}><Undo2 size={14} /> Ongedaan maken</button>
+                        {!view && <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => undoImport(i.id, i.fileName)}><Undo2 size={14} /> Ongedaan maken</button>}
                       </span>
                     </div>
                     <div className="muted">
@@ -194,10 +207,10 @@ export function BankPage() {
                   </li>
                 ))}
               </ul>
-              <p className="cell-sub" style={{ marginBottom: 0 }}>
+              {!view && <p className="cell-sub" style={{ marginBottom: 0 }}>
                 Een import ongedaan maken kan zolang er nog niets uit gekoppeld is. Handig als je de kolommen van een CSV verkeerd had aangewezen.
                 Lees je van dezelfde periode zowel een CAMT.053 als een CSV in, dan kunnen regels dubbel staan; kies één soort bestand.
-              </p>
+              </p>}
             </div>
           </div>
         )}
@@ -222,10 +235,12 @@ export function BankPage() {
 
 const reasonText = (p: BankProposal) => `Gevonden op ${p.reason}`
 
-function BankRow({ t, data, busy, act, onMakeExpense, onMakeRecurring }: {
+function BankRow({ t, data, busy, view, act, onMakeExpense, onMakeRecurring }: {
   t: BankTransaction
   data: BankOverview
   busy: boolean
+  // Alleen bekijken, zoals een boekhouder: geen voorstellen of knoppen.
+  view: boolean
   act: (url: string, body: unknown, done: string) => Promise<boolean>
   onMakeExpense: () => void
   onMakeRecurring: () => void
@@ -292,11 +307,11 @@ function BankRow({ t, data, busy, act, onMakeExpense, onMakeRecurring }: {
               {t.link.recurring && <>, van een <Link to="/kosten?tab=vast">vaste kost</Link></>}
             </span>
           )}
-          <button className="btn btn-sm btn-ghost" disabled={busy} onClick={unlink}><Undo2 size={14} /> Ongedaan maken</button>
+          {!view && <button className="btn btn-sm btn-ghost" disabled={busy} onClick={unlink}><Undo2 size={14} /> Ongedaan maken</button>}
         </div>
       )}
 
-      {open && (<>
+      {open && !view && (<>
         {t.hint && <div className="notice bank-hint"><Lightbulb size={14} /> {t.hint}</div>}
         {t.proposals.map(p => (
           <div key={`${p.kind}-${p.invoiceId}-${p.paymentId}-${p.expenseId}-${p.recurringExpenseId}`} className="bank-proposal">

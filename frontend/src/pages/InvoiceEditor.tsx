@@ -8,6 +8,7 @@ import { useApi } from '../lib/useApi'
 import { useTabs, useTabTitle } from '../lib/tabs'
 import { useToast } from '../lib/toast'
 import { useAuth } from '../lib/auth'
+import { isAccountant } from '../lib/accountant'
 import type {
   BillableTrips, Customer, Invoice, InvoiceHours, InvoiceLine, InvoiceMailInfo, Language, MailServerStatus, MailStep, Project, RecurringInvoice, Settings, VatRegime,
 } from '../lib/types'
@@ -37,6 +38,9 @@ const day = (s?: string | null) => (s ? s.slice(0, 10) : null)
 export function InvoiceEditorPage() {
   const { id } = useParams()
   const isNew = id === 'nieuw'
+  // Een boekhouder bekijkt de factuur en maakt de PDF, maar wijzigt, verstuurt of mailt niets.
+  const { user } = useAuth()
+  const accountant = isAccountant(user)
   const [params] = useSearchParams()
   const { pathname, search } = useLocation()
   const { data: customers } = useApi<Customer[]>('/customers')
@@ -51,17 +55,17 @@ export function InvoiceEditorPage() {
   // Vandaag: bij versturen wordt dat de factuurdatum.
   const [sendDate] = useState(() => toDateInput(new Date()))
   const [dialog, setDialog] = useState<'send' | 'paid' | null>(null)
-  const { data: projects, reload: reloadProjects } = useApi<Project[]>(draft?.customerId ? `/projects?customerId=${draft.customerId}` : null)
+  const { data: projects, reload: reloadProjects } = useApi<Project[]>(draft?.customerId && !accountant ? `/projects?customerId=${draft.customerId}` : null)
   // Open ritten van deze klant met een kilometertarief, om door te belasten. Alleen bij een concept.
-  const { data: openTrips, reload: reloadTrips } = useApi<BillableTrips>(draft?.customerId && draft.status === 'concept' ? `/trips/billable?customerId=${draft.customerId}` : null)
+  const { data: openTrips, reload: reloadTrips } =  useApi<BillableTrips>(draft?.customerId && draft.status === 'concept' && !accountant ? `/trips/billable?customerId=${draft.customerId}` : null)
   // Het nummer dat deze factuur bij versturen krijgt. Hij krijgt dan de datum van die dag, dus ook het nummer van dit jaar.
-  const { data: next } = useApi<{ number: string }>(draft && draft.status === 'concept' ? '/invoices/next-number' : null)
+  const { data: next } = useApi<{ number: string }>(draft && draft.status === 'concept' && !accountant ? '/invoices/next-number' : null)
   // De terugkerende factuur die deze factuur maakte, voor de link terug.
-  const { data: recurring } = useApi<RecurringInvoice>(draft?.recurringInvoiceId ? `/recurring-invoices/${draft.recurringInvoiceId}` : null)
+  const { data: recurring } = useApi<RecurringInvoice>(draft?.recurringInvoiceId && !accountant ? `/recurring-invoices/${draft.recurringInvoiceId}` : null)
   // Kan Potel zelf mailen? Anders opent een mail in je eigen mailprogramma.
-  const { data: mailStatus } = useApi<MailServerStatus>('/invoices/mail-status')
+  const { data: mailStatus } = useApi<MailServerStatus>(accountant ? null : '/invoices/mail-status')
   // Wat er over deze factuur gemaild is; alleen voor een verstuurde, echte factuur.
-  const { data: mailInfo, reload: reloadMails } = useApi<InvoiceMailInfo>(!isNew && draft && draft.status !== 'concept' && !draft.demo ? `/invoices/${id}/mails` : null)
+  const { data: mailInfo, reload: reloadMails } =  useApi<InvoiceMailInfo>(!isNew && !accountant && draft && draft.status !== 'concept' && !draft.demo ? `/invoices/${id}/mails` : null)
   // De urenspecificatie: bij een concept uit de gekoppelde uren van nu, bij een verstuurde factuur zoals hij toen was.
   const { data: hourInfo, reload: reloadHours } = useApi<InvoiceHours>(!isNew ? `/invoices/${id}/hours` : null)
   // Vanuit de lijst met "Herinnering sturen" staat de herinnering meteen klaar, zodra bekend is welke stap de volgende is.
@@ -69,12 +73,12 @@ export function InvoiceEditorPage() {
   const { retarget, close } = useTabs()
   const navigate = useNavigate()
   const toast = useToast()
-  const { user } = useAuth()
   useTabTitle(isNew ? 'Nieuwe factuur' : draft ? invoiceTitle(draft) : null)
   // De PDF heet zoals je klant hem leest: "Invoice 2026-0012 from ..." bij een Engelse factuur.
   usePrintTitle(draft ? docTitle(draft.language, isCredit(draft) ? 'credit' : 'invoice', draft.number, draft.seller?.name ?? settings?.companyName ?? '') : document.title)
 
   useEffect(() => {
+    if (isNew && accountant) return
     if (isNew) {
       const today = toDateInput(new Date())
       const customerId = Number(params.get('klant')) || 0
@@ -92,8 +96,9 @@ export function InvoiceEditorPage() {
     } else {
       api.get<Invoice>(`/invoices/${id}`).then(inv => setDraft(fromServer(inv))).catch(e => setError(e.message))
     }
-  }, [id, isNew, params])
+  }, [id, isNew, params, accountant])
 
+  if (isNew && accountant) return <ErrorBox message="Als boekhouder kun je geen facturen maken. Je kunt ze wel bekijken en als PDF opslaan." />
   if (error) return <ErrorBox message={error} />
   if (!draft) return <Loading />
 
@@ -104,6 +109,8 @@ export function InvoiceEditorPage() {
   const linked = draft.creditForInvoiceId != null
   // Alleen een concept kan nog veranderen; een verstuurde factuur ligt vast.
   const readOnly = draft.status !== 'concept'
+  // Niets aan te passen: verstuurd, of je kijkt alleen mee.
+  const locked = readOnly || accountant
   const noVat = zeroVat(draft.vatRegime)
   const openProjects = (projects ?? []).filter(p => p.billing === 'uur' && p.minutesUnbilled > 0)
   const due = daysUntil(draft.dueDate)
@@ -273,9 +280,9 @@ export function InvoiceEditorPage() {
   // De schakelaars van de urenspecificatie slaan het concept meteen op, zodat het voorbeeld klopt.
   const spec = hourInfo?.spec ?? null
   const specOn = draft.hourSpecification !== false
-  const hoursProblem = specOn && !readOnly && spec ? hourInfo?.problem ?? null : null
+  const hoursProblem = specOn && !locked && spec ? hourInfo?.problem ?? null : null
   const setHourOption = async (patch: Pick<Draft, 'hourSpecification'> | Pick<Draft, 'hourAmounts'>) => {
-    if (readOnly) return
+    if (locked) return
     update(patch)
     await save(patch, true)
   }
@@ -303,17 +310,17 @@ export function InvoiceEditorPage() {
           actions={<>
             {!isNew && <Badge tone={statusInfo.tone}>{statusInfo.label}</Badge>}
             {!isNew && demo && <Badge tone="gray">Voorbeeld</Badge>}
-            {!isNew && (!readOnly || demo) && <button className="btn btn-danger" title={demo ? 'Voorbeeldfactuur verwijderen' : 'Concept verwijderen'} onClick={remove}><Trash2 size={15} /></button>}
-            {!isNew && !credit && <button className="btn" title="Kopie maken als nieuw concept" onClick={() => copy('duplicate')}><Copy size={15} /></button>}
-            {readOnly && !credit && !demo && !fullyCredited && <button className="btn" onClick={() => copy('credit')}><Undo2 size={15} /> Creditnota maken</button>}
+            {!isNew && !accountant && (!readOnly || demo) && <button className="btn btn-danger" title={demo ? 'Voorbeeldfactuur verwijderen' : 'Concept verwijderen'} onClick={remove}><Trash2 size={15} /></button>}
+            {!isNew && !credit && !accountant && <button className="btn" title="Kopie maken als nieuw concept" onClick={() => copy('duplicate')}><Copy size={15} /></button>}
+            {readOnly && !accountant && !credit && !demo && !fullyCredited && <button className="btn" onClick={() => copy('credit')}><Undo2 size={15} /> Creditnota maken</button>}
             <button className="btn" onClick={() => window.print()}><Printer size={15} /> PDF</button>
-            {!readOnly && <button className="btn" onClick={() => save()} disabled={saving || (!dirty && !isNew)}><Save size={15} /> Opslaan</button>}
-            {!readOnly && !isNew && <button className="btn btn-primary" disabled={saving} onClick={openSend}><Send size={15} /> Versturen</button>}
+            {!locked && <button className="btn" onClick={() => save()} disabled={saving || (!dirty && !isNew)}><Save size={15} /> Opslaan</button>}
+            {!locked && !isNew && <button className="btn btn-primary" disabled={saving} onClick={openSend}><Send size={15} /> Versturen</button>}
             {canMail && !fullyCredited && <button className="btn" onClick={() => setMailing({ step: 0, reminder: false })}><Mail size={15} /> Mailen</button>}
-            {draft.status === 'verlopen' && !fullyCredited && (canMail
+            {draft.status === 'verlopen' && !fullyCredited && !accountant && (canMail
               ? <button className="btn" onClick={() => setMailing({ step: mailInfo?.nextStep || 1, reminder: true })}><BellRing size={15} /> Herinnering sturen</button>
               : <a className="btn" href={reminderMail({ ...draft, id: Number(id) }, customer, company)}><BellRing size={15} /> Herinnering</a>)}
-            {(draft.status === 'verzonden' || draft.status === 'verlopen') && !fullyCredited && <button className="btn btn-success" onClick={() => setDialog('paid')}><CheckCircle2 size={15} /> {credit ? 'Verrekend' : 'Betaald'}</button>}
+            {(draft.status === 'verzonden' || draft.status === 'verlopen') && !fullyCredited && !accountant && <button className="btn btn-success" onClick={() => setDialog('paid')}><CheckCircle2 size={15} /> {credit ? 'Verrekend' : 'Betaald'}</button>}
           </>}
         />
       </div>
@@ -323,24 +330,24 @@ export function InvoiceEditorPage() {
           {demo && (
             <div className="notice row between wrap" style={{ gap: 10 }}>
               <span>Dit is een voorbeeldfactuur uit de welkomstwizard. Hij telt niet mee in je echte nummering en je kunt hem gewoon verwijderen.</span>
-              <button className="btn btn-sm" onClick={remove}><Trash2 size={14} /> Verwijderen</button>
+              {!accountant && <button className="btn btn-sm" onClick={remove}><Trash2 size={14} /> Verwijderen</button>}
             </div>
           )}
           {readOnly && !demo && (
             <div className="notice row between wrap" style={{ gap: 10 }}>
               <span>
                 <Lock size={13} /> Deze {credit ? 'creditnota' : 'factuur'} is verstuurd en ligt vast: je moet hem 7 jaar bewaren zoals hij is.
-                {!credit && !fullyCredited && ' Klopt er iets niet? Maak dan een creditnota en zo nodig een nieuwe factuur.'}
+                {!credit && !fullyCredited && !accountant && ' Klopt er iets niet? Maak dan een creditnota en zo nodig een nieuwe factuur.'}
               </span>
-              {!credit && !fullyCredited && <button className="btn btn-sm" onClick={() => copy('credit')}><Undo2 size={14} /> Creditnota maken</button>}
+              {!credit && !fullyCredited && !accountant && <button className="btn btn-sm" onClick={() => copy('credit')}><Undo2 size={14} /> Creditnota maken</button>}
             </div>
           )}
           {draft.recurringInvoiceId != null && (
             <div className="notice">
               <Repeat size={13} /> Gemaakt door de terugkerende factuur{' '}
-              <a onClick={() => navigate(`/facturen/terugkerend/${draft.recurringInvoiceId}`)} style={{ cursor: 'pointer' }}>{recurring ? `"${recurring.name}"` : 'van deze klant'}</a>
+              {accountant ? 'van deze klant' : <a onClick={() => navigate(`/facturen/terugkerend/${draft.recurringInvoiceId}`)} style={{ cursor: 'pointer' }}>{recurring ? `"${recurring.name}"` : 'van deze klant'}</a>}
               {draft.deliveryFrom ? `, voor de periode ${date(draft.deliveryFrom)}${draft.deliveryTo ? ` t/m ${date(draft.deliveryTo)}` : ''}` : ''}.
-              {!readOnly && ' Kijk hem na en verstuur hem als alles klopt.'}
+              {!locked && ' Kijk hem na en verstuur hem als alles klopt.'}
             </div>
           )}
           {!credit && creditNotes.length > 0 && (
@@ -362,10 +369,11 @@ export function InvoiceEditorPage() {
               invoice={{ ...draft, id: Number(id) }}
               total={totals.total}
               admin={user.role === 'beheerder'}
+              view={accountant}
               onChange={inv => { setDraft(fromServer(inv)); reloadMails(true) }}
             />
           )}
-          {!readOnly && linked && (
+          {!locked && linked && (
             <div className="notice">
               Creditnota voor factuur {draft.creditForNumber}{draft.creditForIssueDate ? ` van ${date(draft.creditForIssueDate)}` : ''}.
               Klant en btw-regeling horen bij die factuur. Crediteer je maar een deel? Pas dan de aantallen aan.
@@ -373,7 +381,7 @@ export function InvoiceEditorPage() {
           )}
 
           <div className="card invoice-form">
-            <fieldset className="card-body plain-fieldset" disabled={readOnly}>
+            <fieldset className="card-body plain-fieldset" disabled={locked}>
               <div className="form-grid">
                 <Field label="Klant *">
                   <select value={draft.customerId} disabled={linked} onChange={e => chooseCustomer(Number(e.target.value))}>
@@ -388,7 +396,7 @@ export function InvoiceEditorPage() {
                 <Field label="Vervaldatum">
                   <div className="input-with-chips">
                     <input type="date" value={draft.dueDate} onChange={e => update({ dueDate: e.target.value })} />
-                    {!readOnly && [14, 30].map(n => (
+                    {!locked && [14, 30].map(n => (
                       <button key={n} type="button" className={`chip ${draft.dueDate === addDays(draft.issueDate, n) ? 'active' : ''}`} onClick={() => update({ dueDate: addDays(draft.issueDate, n) })}>{n} d</button>
                     ))}
                   </div>
@@ -410,7 +418,7 @@ export function InvoiceEditorPage() {
                     {regimeError ?? regimeInfo?.help}
                   </p>
                 )}
-                {!readOnly && !linked && (
+                {!locked && !linked && (
                   <RegimeSuggestion kind="factuur" regime={draft.vatRegime} customer={customer} onAccept={regime => update(withRegime(regime))} />
                 )}
                 {/* Een creditnota volgt de taal van de factuur die hij corrigeert. */}
@@ -438,7 +446,7 @@ export function InvoiceEditorPage() {
                     </select>
                     <span className="num">{euro(lineAmount(l))}</span>
                     <span className="line-actions">
-                      {!readOnly && <>
+                      {!locked && <>
                         <button className="icon-btn tiny" disabled={i === 0} onClick={() => moveLine(i, -1)} aria-label="Omhoog"><ChevronUp size={14} /></button>
                         <button className="icon-btn tiny" disabled={i === draft.lines.length - 1} onClick={() => moveLine(i, 1)} aria-label="Omlaag"><ChevronDown size={14} /></button>
                         <button className="icon-btn tiny danger" disabled={draft.lines.length === 1} onClick={() => update({ lines: draft.lines.filter((_, x) => x !== i) })} aria-label="Regel verwijderen"><Trash2 size={14} /></button>
@@ -448,7 +456,7 @@ export function InvoiceEditorPage() {
                 ))}
               </div>
               <div className="row mt between wrap">
-                {readOnly ? <span /> : (
+                {locked ? <span /> : (
                   <button className="btn btn-sm" onClick={() => update({ lines: [...draft.lines, newLine(draft.lines.at(-1)?.unit, draft.lines.at(-1)?.unitPrice, noVat ? 0 : 21)] })}><Plus size={14} /> Regel toevoegen</button>
                 )}
                 <div className="line-totals">
@@ -458,7 +466,7 @@ export function InvoiceEditorPage() {
                 </div>
               </div>
 
-              {!readOnly && !linked && openProjects.length > 0 && (
+              {!locked && !linked && openProjects.length > 0 && (
                 <div className="open-hours">
                   <div className="open-hours-head"><Clock size={15} /> Open uren van {customer?.company || customer?.name}</div>
                   {openProjects.map(p => (
@@ -472,7 +480,7 @@ export function InvoiceEditorPage() {
                 </div>
               )}
 
-              {!readOnly && !linked && openTrips && (openTrips.trips > 0 || openTrips.withoutRate > 0) && (
+              {!locked && !linked && openTrips && (openTrips.trips > 0 || openTrips.withoutRate > 0) && (
                 <div className="open-hours">
                   <div className="open-hours-head"><Car size={15} /> Open ritten van {customer?.company || customer?.name}</div>
                   {openTrips.trips > 0 && (
@@ -493,7 +501,7 @@ export function InvoiceEditorPage() {
               )}
 
               <Field label="Opmerking op factuur" full><textarea value={draft.notes ?? ''} onChange={e => update({ notes: e.target.value })} /></Field>
-              {!readOnly && !settings?.iban && (
+              {!locked && !settings?.iban && (
                 <p className="muted" style={{ fontSize: 13, marginBottom: 0 }}>
                   Tip: vul je IBAN, KvK en btw-id in bij <a onClick={() => navigate('/instellingen')} style={{ cursor: 'pointer' }}><Building size={12} /> Instellingen</a>, dan staan ze op elke factuur.
                 </p>
@@ -514,7 +522,7 @@ export function InvoiceEditorPage() {
                     ? (specOn ? ' Meegestuurd als extra pagina en vastgelegd bij versturen: latere wijzigingen aan de uren veranderen hem niet.' : ' Niet meegestuurd met deze factuur.')
                     : ' Je klant krijgt hem als extra pagina na de factuur en kan hem via de link als CSV downloaden.'}
                 </p>
-                {!readOnly && (<>
+                {!locked && (<>
                   <label className="check-row">
                     <input type="checkbox" checked={specOn} disabled={saving} onChange={e => setHourOption({ hourSpecification: e.target.checked })} />
                     Urenspecificatie meesturen

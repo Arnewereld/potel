@@ -26,9 +26,12 @@ export function AnnualPage() {
   const [exporting, setExporting] = useState(false)
   const toast = useToast()
   const shown = year ?? data?.year
-  // De belastingpot laat ook je loon en voorlopige aanslag zien, dus alleen voor beheerders.
-  const admin = useAuth().user.role === 'beheerder'
-  const pot = useApi<TaxReserve>(admin && shown ? `/tax/reserve?year=${shown}` : null)
+  // De belastingpot laat ook je loon en voorlopige aanslag zien, dus alleen voor beheerders en de boekhouder (die hem alleen bekijkt).
+  const { user } = useAuth()
+  const admin = user.role === 'beheerder'
+  const accountant = user.role === 'boekhouder'
+  const seesPot = admin || accountant
+  const pot = useApi<TaxReserve>(seesPot && shown ? `/tax/reserve?year=${shown}` : null)
   const active = useTabActive()
   const potLoaded = !!pot.data
 
@@ -80,7 +83,7 @@ export function AnnualPage() {
             <button className="btn" disabled>{shown}</button>
             <button className="btn" onClick={() => setYear(shown + 1)} aria-label="Volgend jaar"><ChevronRight size={16} /></button>
           </div>
-          <button className="btn btn-primary" disabled={exporting} onClick={exportCsv}><Download size={16} /> Exporteer voor je boekhouder</button>
+          <button className="btn btn-primary" disabled={exporting} onClick={exportCsv}><Download size={16} /> {accountant ? 'Exporteer als CSV' : 'Exporteer voor je boekhouder'}</button>
         </> : undefined}
       />
 
@@ -241,8 +244,8 @@ export function AnnualPage() {
           </div>
         </div>
 
-        {admin && pot.error && <div className="mt"><ErrorBox message={pot.error} onRetry={() => pot.reload()} /></div>}
-        {admin && pot.data && pot.data.year === shown && <TaxReserveSection r={pot.data} />}
+        {seesPot && pot.error && <div className="mt"><ErrorBox message={pot.error} onRetry={() => pot.reload()} /></div>}
+        {seesPot && pot.data && pot.data.year === shown && <TaxReserveSection r={pot.data} />}
       </>)}
     </>
   )

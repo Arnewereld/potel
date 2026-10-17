@@ -5,6 +5,7 @@ import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useToast } from '../lib/toast'
 import { useAuth } from '../lib/auth'
+import { isAccountant } from '../lib/accountant'
 import type { Invoice, InvoiceStatus, MailServerStatus, RecurringInvoice, Settings } from '../lib/types'
 import { date, euro, invoiceTotals, toDateInput } from '../lib/format'
 import { invoiceStatuses } from '../lib/status'
@@ -17,13 +18,15 @@ import { RecurringList } from './RecurringInvoices'
 type Filter = 'alle' | InvoiceStatus | 'terugkerend'
 
 export function InvoicesPage() {
+  const { user } = useAuth()
+  // Een boekhouder kijkt alleen: geen knoppen om te maken, te markeren of te mailen, en geen terugkerende facturen.
+  const accountant = isAccountant(user)
   const { data, error, loading, reload } = useApi<Invoice[]>('/invoices')
   const { data: settings } = useApi<Settings>('/settings')
-  const { data: mailStatus } = useApi<MailServerStatus>('/invoices/mail-status')
-  const { data: recurring, reload: reloadRecurring } = useApi<RecurringInvoice[]>('/recurring-invoices')
+  const { data: mailStatus } = useApi<MailServerStatus>(accountant ? null : '/invoices/mail-status')
+  const { data: recurring, reload: reloadRecurring } = useApi<RecurringInvoice[]>(accountant ? null : '/recurring-invoices')
   const [params] = useSearchParams()
-  const [filter, setFilter] = useState<Filter>(params.get('tab') === 'terugkerend' ? 'terugkerend' : 'alle')
-  const { user } = useAuth()
+  const [filter, setFilter] = useState<Filter>(params.get('tab') === 'terugkerend' && !accountant ? 'terugkerend' : 'alle')
   const showRecurring = filter === 'terugkerend'
   const [q, setQ] = useState('')
   const navigate = useNavigate()
@@ -76,7 +79,7 @@ export function InvoicesPage() {
         subtitle={showRecurring ? `${recurring?.length ?? 0} terugkerende facturen` : `${filtered.length} facturen · ${euro(total(filtered))}`}
         actions={<>
           <div className="search-input"><Search size={16} /><input placeholder={showRecurring ? 'Zoek naam, klant of referentie…' : 'Zoek nummer, klant of referentie…'} value={q} onChange={e => setQ(e.target.value)} /></div>
-          {showRecurring
+          {accountant ? null : showRecurring
             ? user.role === 'beheerder' && <button className="btn btn-primary" onClick={() => navigate('/facturen/terugkerend/nieuw')}><Plus size={16} /> Nieuwe terugkerende factuur</button>
             : <button className="btn btn-primary" onClick={() => navigate('/facturen/nieuw')}><Plus size={16} /> Nieuwe factuur</button>}
         </>}
@@ -87,7 +90,7 @@ export function InvoicesPage() {
           <MiniStat icon={<Send size={18} />} accent="var(--blue)" label="Openstaand" value={euro(open(by('verzonden')))}
             sub={`${by('verzonden').length} verzonden, nog niet vervallen`} onClick={() => setFilter('verzonden')} />
           <MiniStat icon={<AlertTriangle size={18} />} accent="var(--red)" label="Te laat" value={euro(open(late))}
-            sub={late.length ? `${late.length} facturen, stuur een herinnering` : 'Niemand is te laat'} onClick={() => setFilter('verlopen')} />
+            sub={late.length ? `${late.length} facturen${accountant ? '' : ', stuur een herinnering'}` : 'Niemand is te laat'} onClick={() => setFilter('verlopen')} />
           <MiniStat icon={<FileClock size={18} />} accent="var(--yellow)" label="Concepten" value={String(by('concept').length)}
             sub={by('concept').length ? `${euro(total(by('concept')))} nog te versturen` : 'Alles is verstuurd'} onClick={() => setFilter('concept')} />
           <MiniStat icon={<Euro size={18} />} accent="var(--green)" label={`Ontvangen in ${year}`} value={euro(total(paidThisYear))}
@@ -98,7 +101,7 @@ export function InvoicesPage() {
       <SubTabs<Filter> value={filter} onChange={setFilter} tabs={[
         { id: 'alle', label: 'Alle', count: invoices.length },
         ...invoiceStatuses.map(s => ({ id: s.id, label: s.label, count: by(s.id).length })),
-        { id: 'terugkerend', label: 'Terugkerend', count: recurring?.length, icon: <Repeat size={14} /> },
+        ...(accountant ? [] : [{ id: 'terugkerend' as const, label: 'Terugkerend', count: recurring?.length, icon: <Repeat size={14} /> }]),
       ]} />
 
       {showRecurring && recurring && <RecurringList list={recurring} query={q} reload={() => reloadRecurring(true)} />}
@@ -110,7 +113,7 @@ export function InvoicesPage() {
         <div className="card">
           {filtered.length === 0 ? (
             <Empty icon={<Receipt size={22} />} title="Geen facturen" text={q ? 'Probeer een andere zoekterm.' : 'Hier staan nog geen facturen.'}
-              action={!q && <button className="btn btn-primary" onClick={() => navigate('/facturen/nieuw')}><Plus size={16} /> Factuur maken</button>} />
+              action={!q && !accountant && <button className="btn btn-primary" onClick={() => navigate('/facturen/nieuw')}><Plus size={16} /> Factuur maken</button>} />
           ) : (
             <div className="table-wrap">
               <table>
@@ -148,12 +151,14 @@ export function InvoicesPage() {
                           {(credited || partlyPaid) && unpaid && <div className="cell-sub">nog {euro(openAmount(i))} open</div>}
                         </td>
                         <td className="row-actions" onClick={e => e.stopPropagation()}>
+                          {!accountant && <>
                           {unpaid && <button className="icon-btn" title={isCredit(i) ? 'Markeer als verrekend' : partlyPaid ? `Markeer als betaald (de rest van ${euro(openAmount(i))} is binnen)` : 'Markeer als betaald'} onClick={() => markPaid(i)}><CheckCircle2 size={16} /></button>}
                           {i.status === 'verlopen' && unpaid && (mailStatus?.canSend && !i.demo
                             // Potel kan zelf mailen: in de factuur zie je de herinnering eerst en kies je de stap.
                             ? <button className="icon-btn" title="Herinnering sturen" onClick={() => navigate(`/facturen/${i.id}?herinnering=1`)}><BellRing size={16} /></button>
                             : settings && <a className="icon-btn" title="Herinnering mailen" href={reminderMail(i, i.customer, settings)}><BellRing size={16} /></a>)}
                           {!isCredit(i) && <button className="icon-btn" title="Kopie maken als nieuw concept" onClick={() => duplicate(i)}><Copy size={16} /></button>}
+                          </>}
                         </td>
                       </tr>
                     )

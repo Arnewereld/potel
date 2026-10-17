@@ -71,6 +71,11 @@ public static class Seed
             logger.LogError("Er is geen account met e-mailadres {Email}. Meld je eerst aan via /aanmelden.", email);
             return false;
         }
+        if (user.Role == Roles.Accountant)
+        {
+            logger.LogError("{Email} is een boekhouder. Een boekhouder kan het platform niet beheren; gebruik een eigen account.", email);
+            return false;
+        }
         user.IsPlatformAdmin = true;
         db.SaveChanges();
         logger.LogWarning("{Email} is nu platformbeheerder. Andere platformbeheerders wijs je aan op de pagina Platform.", user.Email);
@@ -84,22 +89,26 @@ public static class Seed
     public static bool ResetTwoFactor(AppDb db, string email, ILogger logger)
     {
         email = email.Trim().ToLower();
-        var user = db.Users.IgnoreQueryFilters().FirstOrDefault(u => u.Email == email);
-        if (user is null)
+        // Een boekhouder staat met hetzelfde account in elke werkruimte waar hij toegang heeft; dan overal.
+        var users = db.Users.IgnoreQueryFilters().Where(u => u.Email == email).ToList();
+        if (users.Count == 0)
         {
             logger.LogError("Er is geen account met e-mailadres {Email}.", email);
             return false;
         }
-        db.Tenant.WorkspaceId = user.WorkspaceId;
-        user.TwoFactorSecret = null;
-        user.TwoFactorPendingSecret = null;
-        user.TwoFactorEnabledAt = null;
-        user.TwoFactorLastStep = null;
-        user.NewSecurityStamp();
-        db.RecoveryCodes.RemoveRange(db.RecoveryCodes.Where(r => r.UserId == user.Id));
-        db.Log("gebruiker", $"Inloggen in twee stappen van {user.Name} uitgezet op de server");
-        db.SaveChanges();
-        logger.LogWarning("Inloggen in twee stappen staat nu uit voor {Email}. Log in met alleen je wachtwoord en zet het daarna opnieuw aan.", user.Email);
+        foreach (var user in users)
+        {
+            db.Tenant.WorkspaceId = user.WorkspaceId;
+            user.TwoFactorSecret = null;
+            user.TwoFactorPendingSecret = null;
+            user.TwoFactorEnabledAt = null;
+            user.TwoFactorLastStep = null;
+            user.NewSecurityStamp();
+            db.RecoveryCodes.RemoveRange(db.RecoveryCodes.Where(r => r.UserId == user.Id));
+            db.Log("gebruiker", $"Inloggen in twee stappen van {user.Name} uitgezet op de server");
+            db.SaveChanges();
+        }
+        logger.LogWarning("Inloggen in twee stappen staat nu uit voor {Email}. Log in met alleen je wachtwoord en zet het daarna opnieuw aan.", email);
         return true;
     }
 

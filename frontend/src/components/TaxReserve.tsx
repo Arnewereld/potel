@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { useAuth } from '../lib/auth'
 import { PiggyBank, ShieldCheck, Wallet, CalendarClock, Landmark, Settings as SettingsIcon } from 'lucide-react'
 import type { IncomeTaxEstimate, TaxReserve } from '../lib/types'
 import { date, euro } from '../lib/format'
@@ -96,6 +97,8 @@ function PercentageTable({ r }: { r: TaxReserve }) {
 
 // De belastingpot op het jaaroverzicht: vier bedragen, de btw die nog betaald moet worden, de som en wat er niet in zit.
 export function TaxReserveSection({ r }: { r: TaxReserve }) {
+  // Een boekhouder bekijkt de pot alleen; de instellingen zijn van de beheerder.
+  const view = useAuth().user.role === 'boekhouder'
   const s = r.settings
   const calculated = r.mode === 'berekend'
   const provisionalSub = s.provisional === 'per-maand' ? `${euro(s.provisionalAmount)} per maand, ${s.provisionalMonths} ${s.provisionalMonths === 1 ? 'maand' : 'maanden'}`
@@ -104,7 +107,7 @@ export function TaxReserveSection({ r }: { r: TaxReserve }) {
     <section className="tax-reserve" id="belastingpot">
       <div className="row between wrap tax-reserve-head">
         <h3 className="row"><PiggyBank size={18} /> Belastingpot {r.year}</h3>
-        <Link className="btn btn-sm" to="/instellingen?tab=belastingpot"><SettingsIcon size={14} /> Instellingen</Link>
+        {!view && <Link className="btn btn-sm" to="/instellingen?tab=belastingpot"><SettingsIcon size={14} /> Instellingen</Link>}
       </div>
 
       {r.missing && <div className="notice">{r.missing}</div>}

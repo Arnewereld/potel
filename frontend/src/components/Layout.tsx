@@ -3,13 +3,16 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, CalendarDays, Users, Target, Receipt, Workflow, Blocks, X, Search, FileSignature,
   ChevronsLeft, ChevronsRight, Moon, Sun, Plus, ShieldCheck, LogOut, KeyRound, Timer, FolderKanban, Settings, Square, Pause, Crown, Wallet, Landmark, CalendarRange,
-  ArrowLeftRight, Car, Package, Coffee, ChartNoAxesCombined, Bell, Repeat,
+  ArrowLeftRight, Car, Package, Coffee, ChartNoAxesCombined, Bell, Repeat, Building2, BookOpenCheck,
 } from 'lucide-react'
 import { clock, useTimer } from '../lib/timer'
 import { mmss } from '../lib/focus'
 import { useWorkspace } from '../lib/workspace'
 import { OnboardingWizard } from './OnboardingWizard'
 import { useAuth } from '../lib/auth'
+import { isAccountant, accountantSettingsTabIds, switchWorkspace, type WorkspaceChoice } from '../lib/accountant'
+import { useApi } from '../lib/useApi'
+import { useToast } from '../lib/toast'
 import { initials } from '../lib/format'
 import { colorFor } from '../lib/status'
 import { PasswordModal } from './PasswordModal'
@@ -23,28 +26,34 @@ import { FocusView } from './FocusView'
 import { NotificationBell } from './Notifications'
 
 // Het menu, per groep in de volgorde waarin het in de zijbalk staat.
-const nav = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true, group: 'Werk' },
+// accountant: ook voor een boekhouder, die verder niets ziet. Zijn startpagina heet Overzicht in plaats van Dashboard.
+interface NavItem { to: string; label: string; icon: typeof LayoutDashboard; group: string; end?: boolean; admin?: boolean; accountant?: boolean }
+const nav: NavItem[] = [
+  { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true, group: 'Werk', accountant: true },
   // Alleen voor beheerders: wat je echt verdient, net als de bank.
   { to: '/inzichten', label: 'Inzichten', icon: ChartNoAxesCombined, group: 'Werk', admin: true },
   { to: '/uren', label: 'Uren', icon: Timer, group: 'Werk' },
   { to: '/projecten', label: 'Projecten', icon: FolderKanban, group: 'Werk' },
-  { to: '/facturen', label: 'Facturen', icon: Receipt, group: 'Werk' },
-  { to: '/kosten', label: 'Kosten', icon: Wallet, group: 'Werk' },
-  { to: '/ritten', label: 'Ritten', icon: Car, group: 'Werk' },
+  { to: '/facturen', label: 'Facturen', icon: Receipt, group: 'Werk', accountant: true },
+  { to: '/kosten', label: 'Kosten', icon: Wallet, group: 'Werk', accountant: true },
+  { to: '/ritten', label: 'Ritten', icon: Car, group: 'Werk', accountant: true },
   // Alleen voor beheerders: een bankafschrift laat al je geldzaken zien.
-  { to: '/bank', label: 'Bank', icon: ArrowLeftRight, group: 'Werk', admin: true },
+  { to: '/bank', label: 'Bank', icon: ArrowLeftRight, group: 'Werk', admin: true, accountant: true },
   { to: '/planning', label: 'Planning', icon: CalendarDays, group: 'Werk' },
-  { to: '/klanten', label: 'Klanten', icon: Users, group: 'Klanten en sales' },
+  { to: '/klanten', label: 'Klanten', icon: Users, group: 'Klanten en sales', accountant: true },
   { to: '/leads', label: 'Leads', icon: Target, group: 'Klanten en sales' },
-  { to: '/offertes', label: 'Offertes', icon: FileSignature, group: 'Klanten en sales' },
-  { to: '/btw-aangifte', label: 'Btw-aangifte', icon: Landmark, group: 'Belasting' },
-  { to: '/jaaroverzicht', label: 'Jaaroverzicht', icon: CalendarRange, group: 'Belasting' },
-  { to: '/investeringen', label: 'Investeringen', icon: Package, group: 'Belasting' },
+  { to: '/offertes', label: 'Offertes', icon: FileSignature, group: 'Klanten en sales', accountant: true },
+  { to: '/btw-aangifte', label: 'Btw-aangifte', icon: Landmark, group: 'Belasting', accountant: true },
+  { to: '/jaaroverzicht', label: 'Jaaroverzicht', icon: CalendarRange, group: 'Belasting', accountant: true },
+  { to: '/investeringen', label: 'Investeringen', icon: Package, group: 'Belasting', accountant: true },
   { to: '/werkstromen', label: 'Werkstromen', icon: Workflow, group: 'Systeem' },
-  { to: '/instellingen', label: 'Instellingen', icon: Settings, group: 'Systeem' },
+  { to: '/instellingen', label: 'Instellingen', icon: Settings, group: 'Systeem', accountant: true },
 ]
 const navGroups = [...new Set(nav.map(n => n.group))]
+
+// Wat iemand in het menu ziet. Een boekhouder alleen de administratie, een medewerker niet wat over geld gaat.
+const visibleFor = (role: string) => (n: NavItem) => role === 'boekhouder' ? n.accountant === true : !n.admin || role === 'beheerder'
+const forRole = (role: string) => nav.filter(visibleFor(role)).map(n => role === 'boekhouder' && n.to === '/' ? { ...n, label: 'Overzicht', icon: BookOpenCheck } : n)
 
 // De tabbladen van Instellingen, om er vanuit het zoekvenster meteen heen te gaan.
 const settingsTabs = [
@@ -58,7 +67,7 @@ const settingsTabs = [
 const isTyping = (target: EventTarget | null) =>
   target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
 
-const navLinks = (items: typeof nav) => items.map(item => (
+const navLinks = (items: NavItem[]) => items.map(item => (
   <NavLink key={item.to} to={item.to} end={item.end} className="nav-item" title={item.label}>
     <item.icon size={18} />
     <span>{item.label}</span>
@@ -87,6 +96,8 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
   const [changingPassword, setChangingPassword] = useState(false)
   const { user, logout } = useAuth()
   const { workspace, reload: reloadWorkspace } = useWorkspace()
+  const accountant = isAccountant(user)
+  const menu = useMemo(() => forRole(user.role), [user.role])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -119,8 +130,15 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
 
   // Alle pagina's voor het zoekvenster, met dezelfde regels als het menu: wat alleen voor beheerders is, zie je alleen als beheerder.
   const pages = useMemo<PaletteLink[]>(() => {
-    const list: PaletteLink[] = nav.filter(n => !n.admin || admin).map(n => ({ to: n.to, label: n.label, icon: <n.icon size={16} />, keywords: [n.group] }))
+    const list: PaletteLink[] = menu.map(n => ({ to: n.to, label: n.label, icon: <n.icon size={16} />, keywords: [n.group] }))
     list.push({ to: '/meldingen', label: 'Meldingen', icon: <Bell size={16} />, keywords: ['bel', 'notificaties'] })
+    if (accountant) {
+      // Een boekhouder: geen terugkerende facturen, modules of gebruikers, en van Instellingen alleen zijn eigen account.
+      list.push({ to: '/kosten?tab=vast', label: 'Vaste kosten', hint: 'Kosten', icon: <Repeat size={16} /> })
+      const ids = accountantSettingsTabIds(user.canFileVat === true)
+      for (const t of settingsTabs.filter(t => ids.includes(t.id))) list.push({ to: `/instellingen?tab=${t.id}`, label: t.label, hint: 'Instellingen', icon: <Settings size={16} />, keywords: ['instellingen'] })
+      return list
+    }
     if (admin) list.push({ to: '/inzichten?tab=cashflow', label: 'Cashflow', hint: 'Inzichten', icon: <ChartNoAxesCombined size={16} /> })
     list.push({ to: '/facturen?tab=terugkerend', label: 'Terugkerende facturen', hint: 'Facturen', icon: <Repeat size={16} /> })
     list.push({ to: '/kosten?tab=vast', label: 'Vaste kosten', hint: 'Kosten', icon: <Repeat size={16} /> })
@@ -130,7 +148,7 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
     list.push({ to: '/modules', label: 'Modules beheren', hint: 'Eigen modules', icon: <Blocks size={16} /> })
     for (const t of settingsTabs) list.push({ to: `/instellingen?tab=${t.id}`, label: t.label, hint: 'Instellingen', icon: <Settings size={16} />, keywords: ['instellingen'] })
     return list
-  }, [admin, platformAdmin, modules])
+  }, [admin, accountant, user.canFileVat, menu, platformAdmin, modules])
 
   return (
     <div className={`app ${collapsed ? 'collapsed' : ''}`}>
@@ -151,8 +169,8 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
         <nav className="nav">
           {navGroups.map(group => (
             <Fragment key={group}>
-              <div className="nav-label">{group}</div>
-              {navLinks(nav.filter(n => n.group === group && (!n.admin || user.role === 'beheerder')))}
+              {menu.some(n => n.group === group) && <div className="nav-label">{group}</div>}
+              {navLinks(menu.filter(n => n.group === group))}
             </Fragment>
           ))}
 
@@ -169,30 +187,32 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
             </NavLink>
           )}
 
-          <div className="nav-label nav-label-row">
-            <span>Eigen modules</span>
-            <button className="icon-btn tiny" title="Module beheren" onClick={() => navigate('/modules')}><Plus size={14} /></button>
-          </div>
-          {modules.map(m => (
-            <NavLink key={m.id} to={`/modules/${m.id}`} className="nav-item" title={m.name}>
-              <span className="nav-dot" style={{ background: m.color }}><ModuleIcon name={m.icon} size={12} /></span>
-              <span>{m.name}</span>
+          {!accountant && <>
+            <div className="nav-label nav-label-row">
+              <span>Eigen modules</span>
+              <button className="icon-btn tiny" title="Module beheren" onClick={() => navigate('/modules')}><Plus size={14} /></button>
+            </div>
+            {modules.map(m => (
+              <NavLink key={m.id} to={`/modules/${m.id}`} className="nav-item" title={m.name}>
+                <span className="nav-dot" style={{ background: m.color }}><ModuleIcon name={m.icon} size={12} /></span>
+                <span>{m.name}</span>
+              </NavLink>
+            ))}
+            <NavLink to="/modules" end className="nav-item muted" title="Modules beheren">
+              <Blocks size={18} />
+              <span>Modules beheren</span>
             </NavLink>
-          ))}
-          <NavLink to="/modules" end className="nav-item muted" title="Modules beheren">
-            <Blocks size={18} />
-            <span>Modules beheren</span>
-          </NavLink>
+          </>}
         </nav>
 
         <div className="sidebar-foot">
-          {workspace && workspace.plan !== 'proef' && workspace.readOnly && (
+          {!accountant && workspace && workspace.plan !== 'proef' && workspace.readOnly && (
             <button className="trial-chip urgent" onClick={() => navigate('/instellingen?tab=abonnement')} title={workspace.readOnly}>
               <span className="trial-days">!</span>
               <span>Alleen-lezen<small>Kies of betaal je abonnement</small></span>
             </button>
           )}
-          {workspace?.plan === 'proef' && (
+          {!accountant && workspace?.plan === 'proef' && (
             <button className={`trial-chip ${(workspace.trialDaysLeft ?? 0) <= 5 ? 'urgent' : ''}`} onClick={() => navigate('/instellingen?tab=abonnement')} title="Abonnement kiezen">
               <span className="trial-days">{workspace.trialDaysLeft}</span>
               <span>{workspace.trialDaysLeft === 1 ? 'dag' : 'dagen'} proef over<small>Kies een abonnement</small></span>
@@ -213,6 +233,7 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
           {userMenu && (
             <div className="user-menu" onMouseLeave={() => setUserMenu(false)}>
               <div className="cell-sub" style={{ padding: '6px 10px' }}>{user.email}</div>
+              {accountant && <WorkspaceSwitcher onPick={() => setUserMenu(false)} />}
               <button className="nav-item" onClick={() => { setUserMenu(false); setChangingPassword(true) }}><KeyRound size={16} /><span>Wachtwoord wijzigen</span></button>
               <button className="nav-item" onClick={() => { setUserMenu(false); navigate('/instellingen?tab=account') }}>
                 <ShieldCheck size={16} /><span>Inloggen in twee stappen{user.twoFactor ? ' (aan)' : ''}</span>
@@ -253,7 +274,7 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
         </div>
         {/* Buiten de tabbladen, zodat de timer en de bel nooit wegschuiven als er veel tabbladen open zijn. */}
         <div className="topbar-actions">
-          <TimerChip />
+          {!accountant && <TimerChip />}
           <NotificationBell />
         </div>
         </div>
@@ -269,6 +290,27 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
       {changingPassword && <PasswordModal onClose={() => setChangingPassword(false)} />}
       {workspace && !workspace.onboarded && user.role === 'beheerder' && <OnboardingWizard onDone={reloadWorkspace} />}
     </div>
+  )
+}
+
+// Wisselen naar een andere administratie, in het menu onder je naam.
+function WorkspaceSwitcher({ onPick }: { onPick: () => void }) {
+  const { data } = useApi<WorkspaceChoice[]>('/auth/workspaces')
+  const toast = useToast()
+  const others = (data ?? []).filter(w => !w.current)
+  if (!others.length) return null
+  return (
+    <>
+      <div className="cell-sub" style={{ padding: '6px 10px 2px' }}>Wisselen naar</div>
+      {others.map(w => (
+        <button key={w.workspaceId} className="nav-item" onClick={() => {
+          onPick()
+          switchWorkspace(w.workspaceId).catch(e => toast((e as Error).message, 'error'))
+        }}>
+          <Building2 size={16} /><span className="truncate">{w.name}</span>
+        </button>
+      ))}
+    </>
   )
 }
 

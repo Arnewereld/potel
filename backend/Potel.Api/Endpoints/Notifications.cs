@@ -30,13 +30,14 @@ public static class NotificationEndpoints
     static async Task<(IQueryable<Notification> Query, User Me)?> MineAsync(AppDb db, ClaimsPrincipal user)
     {
         if (user.UserId() is not { } id || await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == id) is not { } me) return null;
-        var kinds = NotificationKinds.For(me.Role, me.IsPlatformAdmin).Select(k => k.Id).ToList();
+        var kinds = NotificationKinds.For(me).Select(k => k.Id).ToList();
         return (db.Notifications.Where(n => n.UserId == me.Id && n.InApp && kinds.Contains(n.Kind)), me);
     }
 
     public static void MapNotifications(this RouteGroupBuilder api)
     {
-        var g = api.MapGroup("/notifications");
+        // Altijd alleen je eigen meldingen, dus ook voor een boekhouder.
+        var g = api.MapGroup("/notifications").ForAccountantPersonal();
 
         // Nieuwste eerst, per pagina, eventueel alleen ongelezen of één soort. Before is het id van de laatste melding die je al hebt.
         g.MapGet("/", async (AppDb db, ClaimsPrincipal user, string? kind, bool? unread, int? before, int? limit) =>
@@ -96,7 +97,7 @@ public static class NotificationEndpoints
         g.MapPut("/settings", async (AppDb db, IEmailSender sender, ClaimsPrincipal user, NotificationSettingsInput input) =>
         {
             if (user.UserId() is not { } id || await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == id) is not { } me) return Results.Unauthorized();
-            var allowed = NotificationKinds.For(me.Role, me.IsPlatformAdmin).Select(k => k.Id).ToHashSet();
+            var allowed = NotificationKinds.For(me).Select(k => k.Id).ToHashSet();
             var kinds = input.Kinds ?? [];
             if (kinds.Any(k => !allowed.Contains(k.Id))) return Results.BadRequest(new { error = "Een van deze soorten meldingen bestaat niet of is niet voor jou." });
             await using var tx = await WriteLock.BeginAsync(db);
@@ -123,7 +124,7 @@ public static class NotificationEndpoints
         var email = s is null ? NotificationKinds.EmailByDefault : NotificationKinds.Split(s.EmailOn);
         return new
         {
-            kinds = NotificationKinds.For(me.Role, me.IsPlatformAdmin).Select(k => new
+            kinds = NotificationKinds.For(me).Select(k => new
             {
                 k.Id, k.Label, k.Description, inApp = !off.Contains(k.Id), email = email.Contains(k.Id),
             }),

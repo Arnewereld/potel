@@ -17,6 +17,8 @@ public record ReceiptUpload(string? FileName, string? Data);
 
 public record ReceiptInfo(string FileName, string ContentType, int Size, DateTime UploadedAt);
 
+public record ExpenseCategoryInput(string? Category);
+
 public record ExpenseDto(
     int Id, DateTime Date, string Supplier, string? Description, string Category, decimal Amount, decimal? VatRate, decimal VatAmount,
     decimal AmountExclVat, bool ReverseCharge, string? SupplierRegion, int? ProjectId, string? ProjectName, int? CustomerId, string? CustomerName,
@@ -167,10 +169,10 @@ public static class ExpenseEndpoints
                 if (from is { } f) q = q.Where(e => e.Date >= f.Date);
                 if (to is { } t) q = q.Where(e => e.Date <= t.Date);
                 return q;
-            }));
+            })).ForAccountant();
 
         g.MapGet("/{id:int}", async (AppDb db, int id) =>
-            await db.Expenses.AnyAsync(e => e.Id == id) ? Results.Ok(await OneAsync(db, id)) : Results.NotFound());
+            await db.Expenses.AnyAsync(e => e.Id == id) ? Results.Ok(await OneAsync(db, id)) : Results.NotFound()).ForAccountant();
 
         g.MapPost("/", async (AppDb db, ExpenseInput input) =>
         {
@@ -206,6 +208,22 @@ public static class ExpenseEndpoints
             }
             return Results.Ok(await OneAsync(db, id));
         });
+
+        // Alleen de categorie aanpassen. Dat mag ook een boekhouder die kosten mag aanvullen; verder blijft de uitgave zoals hij is.
+        g.MapPut("/{id:int}/category", async (AppDb db, int id, ExpenseCategoryInput input) =>
+        {
+            var e = await db.Expenses.FirstOrDefaultAsync(x => x.Id == id);
+            if (e is null) return Results.NotFound();
+            var category = input.Category?.Trim() ?? "";
+            if (!ExpenseCategories.All.Contains(category)) return Results.BadRequest(new { error = "Kies een categorie." });
+            if (e.Category != category)
+            {
+                db.Log("kosten", $"Categorie van de uitgave bij {e.Supplier} van {e.Date:dd-MM-yyyy} gewijzigd in {ExpenseCategories.Label(category)}");
+                e.Category = category;
+                await db.SaveChangesAsync();
+            }
+            return Results.Ok(await OneAsync(db, id));
+        }).ForAccountant(AccountantPermissions.CompleteExpenses);
 
         // Het bonnetje gaat mee weg.
         g.MapDelete("/{id:int}", async (AppDb db, int id) =>
@@ -253,7 +271,7 @@ public static class ExpenseEndpoints
             await db.SaveChangesAsync();
             await tx.CommitAsync();
             return Results.Ok(await OneAsync(db, id));
-        }).WithMetadata(new RequestSizeLimitAttribute(8 * 1024 * 1024));
+        }).WithMetadata(new RequestSizeLimitAttribute(8 * 1024 * 1024)).ForAccountant(AccountantPermissions.CompleteExpenses);
 
         // Het bonnetje downloaden, alleen binnen de eigen werkruimte. Altijd als bijlage en met het type dat bij de inhoud hoort,
         // zodat de browser het nooit als pagina opent.
@@ -265,7 +283,7 @@ public static class ExpenseEndpoints
             http.Response.Headers.ContentSecurityPolicy = "default-src 'none'; sandbox";
             http.Response.Headers.CacheControl = "private, no-store";
             return Results.File(r.Data, r.ContentType, r.FileName);
-        });
+        }).AccountantExport(Accountants.DescribeReceiptExport);
 
         g.MapDelete("/{id:int}/receipt", async (AppDb db, int id) =>
         {

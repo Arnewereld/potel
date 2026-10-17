@@ -82,6 +82,7 @@ public static class PlatformEndpoints
             var email = (req.Email ?? "").Trim().ToLower();
             var u = await db.Users.IgnoreQueryFilters().FirstOrDefaultAsync(x => x.Email == email);
             if (u is null) return Results.NotFound(new { error = "Er is geen account met dit e-mailadres. Laat die persoon zich eerst aanmelden." });
+            if (u.Role == Roles.Accountant) return Results.BadRequest(new { error = "Dit is een boekhouder. Een boekhouder kan het platform niet beheren; kies een eigen account." });
             u.IsPlatformAdmin = true;
             await db.SaveChangesAsync();
             return Results.Ok(await AdminsAsync(db));

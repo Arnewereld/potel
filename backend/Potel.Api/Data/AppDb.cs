@@ -63,7 +63,10 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
     {
         b.Entity<Invoice>().HasIndex(i => new { i.WorkspaceId, i.Number }).IsUnique();
         b.Entity<Settings>().HasIndex(x => x.WorkspaceId).IsUnique();
-        b.Entity<User>().HasIndex(u => u.Email).IsUnique();
+        // Een e-mailadres hoort bij één account. Alleen een boekhouder kan met hetzelfde adres in meer werkruimtes staan, als één
+        // persoon met één wachtwoord (zie Accountants). Binnen een werkruimte staat elk adres er hooguit één keer.
+        b.Entity<User>().HasIndex(u => u.Email).IsUnique().HasFilter($"\"Role\" <> '{Roles.Accountant}'");
+        b.Entity<User>().HasIndex(u => new { u.WorkspaceId, u.Email }).IsUnique();
         b.Entity<WorkflowRun>().HasIndex(r => new { r.Status, r.ResumeAt });
         b.Entity<Invoice>().HasMany(i => i.Lines).WithOne().HasForeignKey(l => l.InvoiceId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<Invoice>().HasOne(i => i.Customer).WithMany().HasForeignKey(i => i.CustomerId).OnDelete(DeleteBehavior.Restrict);

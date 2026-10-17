@@ -10,13 +10,21 @@ namespace Potel.Api.Endpoints;
 
 public record LoginRequest(string Email, string Password);
 public record PasswordRequest(string Current, string New);
-public record UserInput(string Name, string Email, string Role, bool Active, string? Password);
+// Bij een boekhouder: wat hij daarnaast mag. Een boekhouder krijgt geen wachtwoord van de beheerder; hij krijgt een uitnodiging.
+public record UserInput(string Name, string Email, string Role, bool Active, string? Password, bool CanFileVat = false, bool CanCompleteExpenses = false);
 public record UserDto(int Id, int WorkspaceId, string Name, string Email, string Role, bool Active, DateTime CreatedAt, DateTime? LastLoginAt, bool EmailVerified, bool TwoFactor)
 {
     // Alleen voor jezelf (zie AuthEndpoints.MeAsync): je moet eerst inloggen in twee stappen instellen voordat je verder kunt.
     public bool TwoFactorSetupRequired { get; init; }
+    // Alleen bij een boekhouder: de uitnodiging is nog niet aangenomen, en wat hij daarnaast mag.
+    public bool InvitePending { get; init; }
+    public bool CanFileVat { get; init; }
+    public bool CanCompleteExpenses { get; init; }
 
-    public static UserDto From(User u) => new(u.Id, u.WorkspaceId, u.Name, u.Email, u.Role, u.Active, u.CreatedAt, u.LastLoginAt, u.EmailVerifiedAt != null, u.TwoFactorEnabled);
+    public static UserDto From(User u) => new(u.Id, u.WorkspaceId, u.Name, u.Email, u.Role, u.Active, u.CreatedAt, u.LastLoginAt, u.EmailVerifiedAt != null, u.TwoFactorEnabled)
+    {
+        InvitePending = u.InvitePending, CanFileVat = u.Role == Roles.Accountant && u.CanFileVat, CanCompleteExpenses = u.Role == Roles.Accountant && u.CanCompleteExpenses,
+    };
 }
 
 // Begrenst mislukte inlogpogingen. Streng per e-mailadres en IP-adres samen: wie het wachtwoord raadt, zit na een paar
@@ -132,9 +140,10 @@ public static class AuthEndpoints
             var email = (req.Email ?? "").Trim().ToLower();
             var ip = http.Connection.RemoteIpAddress?.ToString() ?? "onbekend";
             if (Blocked(throttle, email, ip) is { } blocked) return blocked;
-            // Inloggen gebeurt voordat de werkruimte bekend is; het e-mailadres is uniek over alle werkruimtes.
-            var u = await db.Users.IgnoreQueryFilters().FirstOrDefaultAsync(x => x.Email == email);
-            var ok = u is not null && u.Active && PasswordMatches(u, req.Password);
+            // Inloggen gebeurt voordat de werkruimte bekend is. Het e-mailadres is uniek over alle werkruimtes, behalve bij een boekhouder
+            // met toegang tot meer werkruimtes: die komt binnen waar hij het laatst was en wisselt daarna zelf (zie Accountants).
+            var u = Accountants.PickLogin(await db.Users.IgnoreQueryFilters().Where(x => x.Email == email && x.Active && !x.InvitePending).ToListAsync());
+            var ok = u is not null && PasswordMatches(u, req.Password);
             if (!ok)
             {
                 throttle.Failed(email, ip);
@@ -164,7 +173,7 @@ public static class AuthEndpoints
 
         g.MapGet("/me", async (AppDb db, ClaimsPrincipal user) =>
             user.UserId() is { } id && await db.Users.FindAsync(id) is { Active: true } u
-                ? Results.Ok(await MeAsync(db, u)) : Results.Unauthorized());
+                ? Results.Ok(await MeAsync(db, u)) : Results.Unauthorized()).ForAccountant();
 
         // Een nieuw wachtwoord logt je overal anders uit en maakt open herstellinks ongeldig; deze sessie krijgt een nieuwe cookie en blijft ingelogd.
         g.MapPut("/password", async (AppDb db, HttpContext http, ClaimsPrincipal user, PasswordRequest req) =>
@@ -175,13 +184,18 @@ public static class AuthEndpoints
                 return Results.BadRequest(new { error = "Je huidige wachtwoord klopt niet" });
             if ((req.New ?? "").Length < MinPasswordLength)
                 return Results.BadRequest(new { error = $"Kies een wachtwoord van minstens {MinPasswordLength} tekens" });
+            await using var tx = await WriteLock.BeginAsync(db);
             u.PasswordHash = Hash(u, req.New!);
             u.NewSecurityStamp();
             await AccountMail.RevokeAsync(db, u.Id, TokenPurposes.PasswordReset);
             await db.SaveChangesAsync();
+            // Een boekhouder heeft in elke werkruimte hetzelfde wachtwoord.
+            await Accountants.SyncAsync(db, u);
+            await Accountants.RevokeResetsAsync(db, u);
+            await tx.CommitAsync();
             await SignIn(http, u);
             return Results.NoContent();
-        }).RequireRateLimiting("accounts");
+        }).ForAccountantPersonal().RequireRateLimiting("accounts");
     }
 
     public static void MapUsers(this RouteGroupBuilder api)
@@ -191,12 +205,14 @@ public static class AuthEndpoints
         g.MapGet("/", async (AppDb db) => (await db.Users.OrderBy(u => u.Name).ToListAsync()).Select(UserDto.From));
 
         // Toevoegen en wijzigen is begrensd per werkruimte, zodat niemand zo e-mailadressen kan aftasten.
-        g.MapPost("/", async (AppDb db, UserInput input) =>
+        g.MapPost("/", async (AppDb db, AccountMail mail, HttpContext http, ClaimsPrincipal me, UserInput input) =>
         {
             var email = (input.Email ?? "").Trim().ToLower();
-            if (string.IsNullOrWhiteSpace(input.Name) || !email.Contains('@')) return Results.BadRequest(new { error = "Vul een naam en een geldig e-mailadres in" });
+            if (string.IsNullOrWhiteSpace(input.Name) || !email.Contains('@') || email.Length > 320) return Results.BadRequest(new { error = "Vul een naam en een geldig e-mailadres in" });
             if (!Roles.All.Contains(input.Role)) return Results.BadRequest(new { error = "Onbekende rol" });
+            if (input.Role == Roles.Accountant) return await InviteAccountantAsync(db, mail, http, me, input, email);
             if ((input.Password ?? "").Length < MinPasswordLength) return Results.BadRequest(new { error = $"Kies een wachtwoord van minstens {MinPasswordLength} tekens" });
+            await using var tx = await WriteLock.BeginAsync(db);
             if (await UserLimitReached(db) is { } full) return full;
             if (await db.Users.IgnoreQueryFilters().AnyAsync(u => u.Email == email)) return Results.Conflict(new { error = EmailUnavailable });
             var u = new User { Name = input.Name.Trim(), Email = email, Role = input.Role, Active = input.Active };
@@ -204,6 +220,7 @@ public static class AuthEndpoints
             db.Users.Add(u);
             db.Log("gebruiker", $"Gebruiker {u.Name} toegevoegd");
             await db.SaveChangesAsync();
+            await tx.CommitAsync();
             return Results.Created($"/api/users/{u.Id}", UserDto.From(u));
         }).RequireRateLimiting("accounts");
 
@@ -214,6 +231,7 @@ public static class AuthEndpoints
             var email = (input.Email ?? "").Trim().ToLower();
             if (string.IsNullOrWhiteSpace(input.Name) || !email.Contains('@')) return Results.BadRequest(new { error = "Vul een naam en een geldig e-mailadres in" });
             if (!Roles.All.Contains(input.Role)) return Results.BadRequest(new { error = "Onbekende rol" });
+            if (u.Role == Roles.Accountant || input.Role == Roles.Accountant) return await UpdateAccountantAsync(db, me, u, input, email);
             // Eerst de regels binnen de eigen werkruimte, pas daarna of het adres vrij is.
             if (me.UserId() == id && !input.Active) return Results.BadRequest(new { error = "Je kunt jezelf niet uitschakelen" });
             var losesAdmin = u.Role == Roles.Admin && u.Active && (input.Role != Roles.Admin || !input.Active);
@@ -307,12 +325,67 @@ public static class AuthEndpoints
             ? Results.Json(new { error = message }, statusCode: StatusCodes.Status403Forbidden)
             : null;
 
-    // Het abonnement bepaalt hoeveel gebruikers er in een werkruimte passen (zie Plans.MaxUsers).
+    // Een boekhouder uitnodigen. Hij telt niet mee voor de gebruikers van het abonnement, maar er passen er hooguit Plans.MaxAccountants
+    // in een werkruimte. Hij kiest zelf zijn wachtwoord via de link in de mail; een beheerder kan dat nooit, want met hetzelfde account
+    // kan hij ook bij andere klanten. Een adres dat al een gewoon account is, kan geen boekhouder worden.
+    static async Task<IResult> InviteAccountantAsync(AppDb db, AccountMail mail, HttpContext http, ClaimsPrincipal me, UserInput input, string email)
+    {
+        if (!string.IsNullOrEmpty(input.Password))
+            return Results.BadRequest(new { error = "Een boekhouder kiest zelf een wachtwoord via de uitnodiging. Laat het wachtwoord leeg." });
+        if (!mail.Ready(http.Request) && !mail.DevelopmentLog) return Results.Json(new { error = mail.NotConfiguredMessage("uitnodiging") }, statusCode: StatusCodes.Status503ServiceUnavailable);
+        await using var tx = await WriteLock.BeginAsync(db);
+        if (await db.Users.CountAsync(u => u.Role == Roles.Accountant) >= Plans.MaxAccountants)
+            return Results.Json(new { error = $"Er kunnen hooguit {Plans.MaxAccountants} boekhouders in een werkruimte. Verwijder eerst een boekhouder die geen toegang meer nodig heeft." },
+                statusCode: StatusCodes.Status402PaymentRequired);
+        if (await db.Users.AnyAsync(u => u.Email == email)) return Results.Conflict(new { error = "Dit e-mailadres heeft al toegang tot je werkruimte." });
+        if (await db.Users.IgnoreQueryFilters().AnyAsync(u => u.Email == email && u.Role != Roles.Accountant)) return Results.Conflict(new { error = EmailUnavailable });
+        var u = new User
+        {
+            Name = input.Name.Trim(), Email = email, Role = Roles.Accountant, Active = true, InvitePending = true,
+            CanFileVat = input.CanFileVat, CanCompleteExpenses = input.CanCompleteExpenses,
+        };
+        db.Users.Add(u);
+        db.Log("gebruiker", $"{u.Name} uitgenodigd als boekhouder");
+        await db.SaveChangesAsync();
+        await tx.CommitAsync();
+        // De mail gaat buiten de transactie, zodat een trage mailserver niemand laat wachten. Lukt hij niet, dan is er ook geen uitnodiging.
+        var by = me.UserId() is { } myId ? (await db.Users.FindAsync(myId))?.Name : null;
+        if (await Accountants.SendInviteAsync(db, mail, http.Request, u, by) is { } problem)
+        {
+            await db.AccountTokens.Where(t => t.UserId == u.Id).ExecuteDeleteAsync();
+            await db.Users.Where(x => x.Id == u.Id && x.InvitePending).ExecuteDeleteAsync();
+            return problem;
+        }
+        return Results.Created($"/api/users/{u.Id}", UserDto.From(u));
+    }
+
+    // Bij een boekhouder wijzigt een beheerder alleen de naam, of hij actief is en wat hij daarnaast mag. Het adres, het wachtwoord en
+    // de rol horen bij zijn account, dat hij ook bij andere klanten gebruikt; een andere boekhouder nodig je opnieuw uit.
+    static async Task<IResult> UpdateAccountantAsync(AppDb db, ClaimsPrincipal me, User u, UserInput input, string email)
+    {
+        if (u.Role != input.Role)
+            return Results.BadRequest(new { error = "De rol boekhouder kun je niet wisselen met een andere rol. Verwijder de toegang en nodig de persoon opnieuw uit." });
+        if (email != u.Email) return Results.BadRequest(new { error = "Het e-mailadres van een boekhouder kun je niet wijzigen. Nodig het nieuwe adres apart uit." });
+        if (!string.IsNullOrEmpty(input.Password)) return Results.BadRequest(new { error = "Een boekhouder kiest zelf zijn wachtwoord. Je kunt het niet voor hem instellen." });
+        if (me.UserId() == u.Id) return Results.BadRequest(new { error = "Je kunt je eigen toegang niet wijzigen." });
+        if (u.Active && !input.Active) u.NewSecurityStamp();
+        var changes = new List<string>();
+        if (u.CanFileVat != input.CanFileVat) changes.Add(input.CanFileVat ? "mag btw-aangiftes als gedaan markeren" : "mag geen btw-aangiftes meer als gedaan markeren");
+        if (u.CanCompleteExpenses != input.CanCompleteExpenses) changes.Add(input.CanCompleteExpenses ? "mag kosten aanvullen" : "mag geen kosten meer aanvullen");
+        if (u.Active != input.Active) changes.Add(input.Active ? "weer ingeschakeld" : "uitgeschakeld");
+        u.Name = input.Name.Trim(); u.Active = input.Active;
+        u.CanFileVat = input.CanFileVat; u.CanCompleteExpenses = input.CanCompleteExpenses;
+        if (changes.Count > 0) db.Log("gebruiker", $"Boekhouder {u.Name}: {string.Join(", ", changes)}");
+        await db.SaveChangesAsync();
+        return Results.Ok(UserDto.From(u));
+    }
+
+    // Het abonnement bepaalt hoeveel gebruikers er in een werkruimte passen (zie Plans.MaxUsers). Boekhouders tellen niet mee.
     static async Task<IResult?> UserLimitReached(AppDb db)
     {
         var plan = (await db.Workspaces.FindAsync(db.TenantId))?.Plan ?? Plans.Trial;
         var max = Plans.MaxUsers(plan);
-        if (await db.Users.CountAsync() < max) return null;
+        if (await db.Users.CountAsync(u => u.Role != Roles.Accountant) < max) return null;
         var room = max == 1 ? "1 gebruiker" : $"{max} gebruikers";
         return Results.Json(new { error = $"Je abonnement heeft ruimte voor {room}. Verwijder eerst een gebruiker of kies een groter abonnement." },
             statusCode: StatusCodes.Status402PaymentRequired);

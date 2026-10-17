@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useAuth } from '../lib/auth'
+import { isAccountant } from '../lib/accountant'
 import { useToast } from '../lib/toast'
 import type { Customer, Expense, ExpenseCategory, Project, Settings } from '../lib/types'
 import { date as formatDate, euro, toDateInput } from '../lib/format'
@@ -22,14 +23,23 @@ const readFile = (file: File) => new Promise<string>((resolve, reject) => {
   reader.readAsDataURL(file)
 })
 
-export function ExpenseForm({ expense, date, asInvestment, onClose, onSaved }: {
+interface ExpenseFormProps {
   expense?: Expense | null
   date?: string
   // Een nieuwe uitgave die meteen als investering begint, vanaf de pagina Investeringen.
   asInvestment?: boolean
   onClose: () => void
   onSaved: () => void
-}) {
+}
+
+// Een boekhouder bekijkt een uitgave alleen; met het recht om kosten aan te vullen kiest hij ook de categorie of voegt hij een bonnetje toe.
+export function ExpenseForm(props: ExpenseFormProps) {
+  const { user } = useAuth()
+  if (isAccountant(user)) return props.expense ? <ExpenseView expense={props.expense} onClose={props.onClose} onSaved={props.onSaved} /> : null
+  return <ExpenseEditor {...props} />
+}
+
+function ExpenseEditor({ expense, date, asInvestment, onClose, onSaved }: ExpenseFormProps) {
   const { user } = useAuth()
   const admin = user.role === 'beheerder'
   const { data: projects } = useApi<Project[]>('/projects')
@@ -309,6 +319,97 @@ export function ExpenseForm({ expense, date, asInvestment, onClose, onSaved }: {
           <input ref={input} type="file" accept={receiptTypes.join(',')} hidden onChange={e => pickFile(e.target.files?.[0])} />
         </div>
       </form>
+    </Modal>
+  )
+}
+
+function ExpenseView({ expense, onClose, onSaved }: { expense: Expense; onClose: () => void; onSaved: () => void }) {
+  const { user } = useAuth()
+  const canComplete = user.canCompleteExpenses === true
+  const [category, setCategory] = useState<ExpenseCategory>(expense.category)
+  const [savedCategory, setSavedCategory] = useState<ExpenseCategory>(expense.category)
+  const [receipt, setReceipt] = useState(expense.receipt ?? null)
+  const [changed, setChanged] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const input = useRef<HTMLInputElement>(null)
+  const toast = useToast()
+  // Heeft de boekhouder iets aangevuld, dan ververst de lijst bij sluiten.
+  const close = () => (changed ? onSaved() : onClose())
+
+  const saveCategory = async () => {
+    setBusy(true)
+    try {
+      await api.put<Expense>(`/expenses/${expense.id}/category`, { category })
+      setSavedCategory(category)
+      setChanged(true)
+      toast('Categorie aangepast')
+    } catch (err) {
+      toast((err as Error).message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const upload = async (f?: File) => {
+    if (input.current) input.current.value = ''
+    if (!f) return
+    if (!receiptTypes.includes(f.type)) { toast('Kies een PNG-, JPG- of WebP-afbeelding of een PDF', 'error'); return }
+    if (f.size > MaxReceiptBytes) { toast('Een bonnetje mag maximaal 5 MB zijn', 'error'); return }
+    setBusy(true)
+    try {
+      const saved = await api.put<Expense>(`/expenses/${expense.id}/receipt`, { fileName: f.name, data: await readFile(f) })
+      setReceipt(saved.receipt ?? null)
+      setChanged(true)
+      toast('Bonnetje toegevoegd')
+    } catch (err) {
+      toast((err as Error).message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const row = (label: string, value: React.ReactNode) => (
+    <div className="field"><span className="field-label">{label}</span><div>{value}</div></div>
+  )
+
+  return (
+    <Modal wide title={expense.investment ? 'Investering' : 'Uitgave'} onClose={close} footer={<>
+      <span className="spacer" />
+      <button className="btn" type="button" onClick={close}>Sluiten</button>
+    </>}>
+      <div className="form-grid">
+        {row('Datum op de bon', formatDate(expense.date))}
+        {row('Leverancier', expense.supplier)}
+        {expense.description && <div className="field-full">{row('Omschrijving', expense.description)}</div>}
+        {row('Bedrag', <>{euro(expense.amount)}{expense.vatRate ? <span className="muted"> · {euro(expense.amountExclVat)} zonder btw</span> : null}</>)}
+        {row('Btw', expense.vatRate == null ? 'Geen btw' : <>{euro(expense.vatAmount)} ({expense.vatRate}%){expense.reverseCharge ? `, verlegd ${expense.supplierRegion === 'eu' ? 'binnen de EU' : 'buiten de EU'}` : ''}</>)}
+        {(expense.projectName || expense.customerName) && row('Project of klant', [expense.projectName, expense.customerName].filter(Boolean).join(' · '))}
+        {expense.investment && row('Investering', `${expense.usefulLifeYears ?? DefaultUsefulLife} jaar afschrijven${expense.residualValue ? `, restwaarde ${euro(expense.residualValue)}` : ''}`)}
+        <Field label="Categorie" full>
+          {canComplete ? (
+            <div className="row wrap" style={{ gap: 8 }}>
+              <select value={category} onChange={e => setCategory(e.target.value as ExpenseCategory)} disabled={busy}>
+                {expenseCategories.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+              </select>
+              <button type="button" className="btn btn-sm" disabled={busy || category === savedCategory} onClick={saveCategory}>Categorie opslaan</button>
+            </div>
+          ) : <div>{expenseCategories.find(c => c.id === expense.category)?.label ?? expense.category}</div>}
+        </Field>
+        <div className="field-full">
+          <div className="field-label">Bonnetje</div>
+          <div className="logo-drop" style={{ cursor: canComplete && !receipt ? 'pointer' : 'default' }} onClick={() => canComplete && !receipt && !busy && input.current?.click()}>
+            <Paperclip size={20} className="muted" />
+            <div>
+              {receipt ? <><strong>{receipt.fileName}</strong><div className="muted">{fileSize(receipt.size)}</div></>
+                : canComplete ? <><strong>Bonnetje toevoegen</strong><div className="muted">PNG, JPG, WebP of PDF, maximaal 5 MB</div></>
+                : <><strong>Nog geen bonnetje</strong><div className="muted">Vraag je klant om het toe te voegen.</div></>}
+            </div>
+            {receipt && <a className="icon-btn" title="Bonnetje downloaden" href={`/api/expenses/${expense.id}/receipt`} onClick={e => e.stopPropagation()}><Download size={16} /></a>}
+            {canComplete && !receipt && <Upload size={16} className="muted" />}
+          </div>
+          {canComplete && <input ref={input} type="file" accept={receiptTypes.join(',')} hidden onChange={e => upload(e.target.files?.[0])} />}
+        </div>
+      </div>
     </Modal>
   )
 }

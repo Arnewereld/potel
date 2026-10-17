@@ -4,6 +4,7 @@ import { Package, Plus, ChevronLeft, ChevronRight, Info, TrendingDown, Landmark,
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useAuth } from '../lib/auth'
+import { isAccountant } from '../lib/accountant'
 import { useToast } from '../lib/toast'
 import type { Expense, Investment, InvestmentYear } from '../lib/types'
 import { date, euro, toDateInput } from '../lib/format'
@@ -30,6 +31,8 @@ export function InvestmentsPage() {
   const [openId, setOpenId] = useState<number | null>(null)
   const [editing, setEditing] = useState<{ expense?: Expense } | null>(null)
   const toast = useToast()
+  // Een boekhouder bekijkt investeringen alleen.
+  const accountant = isAccountant(useAuth().user)
 
   const s = data?.summary
   const open = data?.investments.find(i => i.id === openId) ?? null
@@ -57,7 +60,7 @@ export function InvestmentsPage() {
             <button className="btn" disabled>{year}</button>
             <button className="btn" onClick={() => setYear(y => y + 1)} aria-label="Volgend jaar"><ChevronRight size={16} /></button>
           </div>
-          <button className="btn btn-primary" onClick={() => setEditing({})}><Plus size={16} /> Investering toevoegen</button>
+          {!accountant && <button className="btn btn-primary" onClick={() => setEditing({})}><Plus size={16} /> Investering toevoegen</button>}
         </>}
       />
 
@@ -102,7 +105,7 @@ export function InvestmentsPage() {
             {data.investments.length === 0 ? (
               <Empty icon={<Package size={22} />} title={`Geen investeringen in ${year}`}
                 text="Een laptop, telefoon of bureau van € 450 of meer schrijf je af over een paar jaar. Markeer de uitgave als investering, dan rekenen we de afschrijving uit."
-                action={<button className="btn btn-primary" onClick={() => setEditing({})}><Plus size={16} /> Investering toevoegen</button>} />
+                action={!accountant && <button className="btn btn-primary" onClick={() => setEditing({})}><Plus size={16} /> Investering toevoegen</button>} />
             ) : (
               <div className="table-wrap">
                 <table>
@@ -181,6 +184,7 @@ function InvestmentModal({ investment: i, year, onClose, onEdit, onChanged }: {
 }) {
   const { user } = useAuth()
   const admin = user.role === 'beheerder'
+  const accountant = isAccountant(user)
   const [disposedOn, setDisposedOn] = useState(() => toDateInput(new Date()))
   const [price, setPrice] = useState('')
   const [busy, setBusy] = useState(false)
@@ -218,7 +222,7 @@ function InvestmentModal({ investment: i, year, onClose, onEdit, onChanged }: {
       title={i.description || i.supplier}
       onClose={onClose}
       footer={<>
-        <button className="btn" type="button" onClick={onEdit}><Pencil size={15} /> Uitgave bewerken</button>
+        <button className="btn" type="button" onClick={onEdit}><Pencil size={15} /> {accountant ? 'Uitgave bekijken' : 'Uitgave bewerken'}</button>
         <span className="spacer" />
         <button className="btn" type="button" onClick={onClose}>Sluiten</button>
       </>}
@@ -277,7 +281,7 @@ function InvestmentModal({ investment: i, year, onClose, onEdit, onChanged }: {
           <div className="field-full"><button className="btn btn-primary" disabled={busy}>Verkocht of weggedaan</button></div>
         </form>
       ) : (
-        <p className="muted" style={{ fontSize: 13, margin: 0 }}>Alleen een beheerder kan een bedrijfsmiddel als verkocht of weggedaan zetten.</p>
+        <p className="muted" style={{ fontSize: 13, margin: 0 }}>{accountant ? 'Nog in gebruik.' : 'Alleen een beheerder kan een bedrijfsmiddel als verkocht of weggedaan zetten.'}</p>
       )}
     </Modal>
   )

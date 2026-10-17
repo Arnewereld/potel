@@ -13,7 +13,7 @@ public record TwoFactorPasswordRequest(string Password);
 public record TwoFactorCodeRequest(string Code);
 public record TwoFactorDisableRequest(string Password, string Code);
 public record TwoFactorLoginRequest(string Code, bool RememberDevice);
-public record TwoFactorPolicyRequest(bool RequireForAdmins);
+public record TwoFactorPolicyRequest(bool RequireForAdmins, bool RequireForAccountants = false);
 
 // Tijdgebonden codes volgens RFC 6238 (TOTP): HMAC-SHA1, 6 cijfers, elke 30 seconden een nieuwe. Zo werken Google Authenticator,
 // Microsoft Authenticator, 1Password, Bitwarden en de meeste andere apps.
@@ -100,6 +100,7 @@ public class TwoFactor(IDataProtectionProvider dp, IConfiguration config, IWebHo
     // Op het verzoek gezet als deze beheerder eerst inloggen in twee stappen moet instellen (zie Program.cs).
     public const string SetupRequiredItem = "potel:2fa-setup";
     public const string SetupRequiredMessage = "In deze werkruimte is inloggen in twee stappen verplicht voor beheerders. Stel het eerst in, dan kun je verder.";
+    public const string AccountantSetupRequiredMessage = "Deze werkruimte vraagt inloggen in twee stappen voor boekhouders. Stel het eerst in, dan kun je verder.";
     public const string WrongCode = "Deze code klopt niet. Vul de code in die nu in je app staat, of een herstelcode.";
     public const string LoginExpired = "Je inlogpoging is verlopen. Log opnieuw in met je e-mailadres en wachtwoord.";
 
@@ -178,8 +179,10 @@ public class TwoFactor(IDataProtectionProvider dp, IConfiguration config, IWebHo
     public static string Normalize(string? input) =>
         input is null || input.Length > 64 ? "" : new string(input.Where(c => !char.IsWhiteSpace(c) && c != '-').Select(char.ToLowerInvariant).ToArray());
 
-    static string RecoveryHash(int userId, string code) =>
-        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{userId}:{code}")));
+    // Per gebruiker, zodat dezelfde code bij een ander niet werkt. Bij een boekhouder hangt hij aan het adres: zijn account staat in
+    // elke werkruimte waar hij toegang heeft, en dezelfde codes werken daar overal (zie Accountants.SyncAsync).
+    public static string RecoveryHash(User u, string code) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(u.Role == Roles.Accountant ? $"boekhouder:{u.Email}:{code}" : $"{u.Id}:{code}")));
 
     // Een code uit de app (huidige, vorige of volgende tijdstap) of, als dat hier mag, een herstelcode. Een code uit de app werkt één keer:
     // de tijdstap moet nieuwer zijn dan de laatst gebruikte, en dat leggen we in één update vast, ook als twee verzoeken tegelijk komen.
@@ -192,15 +195,19 @@ public class TwoFactor(IDataProtectionProvider dp, IConfiguration config, IWebHo
             if (Unprotect(u.TwoFactorSecret) is not { } secret || Totp.Match(secret, code, Now) is not { } step) return CodeKind.None;
             var claimed = await db.Users.Where(x => x.Id == u.Id && x.TwoFactorEnabledAt != null && (x.TwoFactorLastStep == null || x.TwoFactorLastStep < step))
                 .ExecuteUpdateAsync(s => s.SetProperty(x => x.TwoFactorLastStep, step));
-            return claimed == 1 ? CodeKind.App : CodeKind.None;
+            if (claimed != 1) return CodeKind.None;
+            await Accountants.UseStepAsync(db, u, step);
+            return CodeKind.App;
         }
         if (allowRecovery && code.Length == RecoveryCodeLength)
         {
-            var hash = RecoveryHash(u.Id, code);
+            var hash = RecoveryHash(u, code);
             var now = DateTime.UtcNow;
             var used = await db.RecoveryCodes.Where(r => r.UserId == u.Id && r.CodeHash == hash && r.UsedAt == null)
                 .ExecuteUpdateAsync(s => s.SetProperty(r => r.UsedAt, now));
-            return used == 1 ? CodeKind.Recovery : CodeKind.None;
+            if (used != 1) return CodeKind.None;
+            await Accountants.UseRecoveryCodeAsync(db, u, hash, now);
+            return CodeKind.Recovery;
         }
         return CodeKind.None;
     }
@@ -212,7 +219,7 @@ public class TwoFactor(IDataProtectionProvider dp, IConfiguration config, IWebHo
         await db.RecoveryCodes.Where(r => r.UserId == u.Id).ExecuteDeleteAsync();
         var codes = new HashSet<string>();
         while (codes.Count < RecoveryCodeCount) codes.Add(RandomNumberGenerator.GetString(RecoveryAlphabet, RecoveryCodeLength));
-        db.RecoveryCodes.AddRange(codes.Select(c => new RecoveryCode { UserId = u.Id, CodeHash = RecoveryHash(u.Id, c) }));
+        db.RecoveryCodes.AddRange(codes.Select(c => new RecoveryCode { UserId = u.Id, CodeHash = RecoveryHash(u, c) }));
         return codes.Select(c => $"{c[..4]}-{c[4..8]}-{c[8..]}").ToList();
     }
 
@@ -228,10 +235,17 @@ public class TwoFactor(IDataProtectionProvider dp, IConfiguration config, IWebHo
         await db.RecoveryCodes.Where(r => r.UserId == u.Id).ExecuteDeleteAsync();
     }
 
-    // Moet deze gebruiker eerst inloggen in twee stappen instellen? Alleen een beheerder, als zijn werkruimte het verplicht.
-    public static async Task<bool> SetupRequiredAsync(AppDb db, User u) =>
-        u.Role == Roles.Admin && !u.TwoFactorEnabled
-        && await db.Workspaces.Where(w => w.Id == u.WorkspaceId).Select(w => w.RequireTwoFactorForAdmins).FirstOrDefaultAsync();
+    // Moet deze gebruiker eerst inloggen in twee stappen instellen? Een beheerder als zijn werkruimte het verplicht, en een boekhouder
+    // als de werkruimte het ook voor boekhouders verplicht.
+    public static async Task<bool> SetupRequiredAsync(AppDb db, User u) => !u.TwoFactorEnabled && await RequiredForAsync(db, u);
+
+    // Verplicht deze werkruimte inloggen in twee stappen voor deze gebruiker?
+    public static async Task<bool> RequiredForAsync(AppDb db, User u)
+    {
+        if (u.Role is not (Roles.Admin or Roles.Accountant)) return false;
+        var policy = await db.Workspaces.Where(w => w.Id == u.WorkspaceId).Select(w => new { w.RequireTwoFactorForAdmins, w.RequireTwoFactorForAccountants }).FirstOrDefaultAsync();
+        return policy is not null && policy.RequireTwoFactorForAdmins && (u.Role == Roles.Admin || policy.RequireTwoFactorForAccountants);
+    }
 
     // Wat mag zolang een beheerder het nog moet instellen: inloggen, uitloggen, instellen (alles onder /api/auth) en openbare pagina's.
     public static bool AllowedBeforeSetup(HttpRequest r) => r.Path.StartsWithSegments("/api/auth") || r.Path.StartsWithSegments("/api/public");
@@ -241,9 +255,9 @@ public static class TwoFactorEndpoints
 {
     static async Task<User?> CurrentAsync(AppDb db, ClaimsPrincipal user) => user.UserId() is { } id ? await db.Users.FindAsync(id) : null;
 
-    static object Status(User u, int recoveryCodesLeft, bool setupRequired, bool requiredForAdmins) => new
+    static object Status(User u, int recoveryCodesLeft, bool setupRequired, bool requiredForAdmins, bool requiredForMe) => new
     {
-        enabled = u.TwoFactorEnabled, enabledAt = u.TwoFactorEnabledAt, recoveryCodesLeft, setupRequired, requiredForAdmins,
+        enabled = u.TwoFactorEnabled, enabledAt = u.TwoFactorEnabledAt, recoveryCodesLeft, setupRequired, requiredForAdmins, requiredForMe,
     };
 
     public static void MapTwoFactor(this RouteGroupBuilder api)
@@ -254,8 +268,9 @@ public static class TwoFactorEndpoints
         {
             if (await CurrentAsync(db, user) is not { } u) return Results.Unauthorized();
             var required = await db.Workspaces.Where(w => w.Id == u.WorkspaceId).Select(w => w.RequireTwoFactorForAdmins).FirstOrDefaultAsync();
-            return Results.Ok(Status(u, await TwoFactor.RecoveryCodesLeftAsync(db, u.Id), await TwoFactor.SetupRequiredAsync(db, u), required));
-        });
+            return Results.Ok(Status(u, await TwoFactor.RecoveryCodesLeftAsync(db, u.Id), await TwoFactor.SetupRequiredAsync(db, u), required,
+                await TwoFactor.RequiredForAsync(db, u)));
+        }).ForAccountant();
 
         // Stap 1 van instellen: met je wachtwoord, zodat iemand met alleen een overgenomen sessie het niet op zijn eigen telefoon zet.
         g.MapPost("/setup", async (AppDb db, TwoFactor tf, ClaimsPrincipal user, TwoFactorPasswordRequest req) =>
@@ -267,7 +282,7 @@ public static class TwoFactorEndpoints
             u.TwoFactorPendingSecret = tf.Protect(secret);
             await db.SaveChangesAsync();
             return Results.Ok(tf.SetupInfo(u, secret));
-        }).RequireRateLimiting("accounts");
+        }).ForAccountantPersonal().RequireRateLimiting("accounts");
 
         // Stap 2: pas aan als de eerste code uit de app klopt. Je krijgt de herstelcodes één keer te zien; andere sessies stoppen.
         g.MapPost("/enable", async (AppDb db, TwoFactor tf, HttpContext http, ClaimsPrincipal user, TwoFactorCodeRequest req) =>
@@ -287,10 +302,11 @@ public static class TwoFactorEndpoints
             u.NewSecurityStamp();
             db.Log("gebruiker", $"{u.Name} heeft inloggen in twee stappen aangezet");
             await db.SaveChangesAsync();
+            await Accountants.SyncAsync(db, u);
             await tx.CommitAsync();
             await AuthEndpoints.SignIn(http, u);
             return Results.Ok(new { recoveryCodes = codes, user = await AuthEndpoints.MeAsync(db, u) });
-        }).RequireRateLimiting("accounts");
+        }).ForAccountantPersonal().RequireRateLimiting("accounts");
 
         // Uitzetten vraagt je wachtwoord en een code uit de app, of een herstelcode als je telefoon kwijt is.
         g.MapPost("/disable", async (AppDb db, TwoFactor tf, HttpContext http, ClaimsPrincipal user, TwoFactorDisableRequest req) =>
@@ -304,11 +320,12 @@ public static class TwoFactorEndpoints
             u.NewSecurityStamp();
             db.Log("gebruiker", $"{u.Name} heeft inloggen in twee stappen uitgezet");
             await db.SaveChangesAsync();
+            await Accountants.SyncAsync(db, u);
             await tx.CommitAsync();
             await AuthEndpoints.SignIn(http, u);
             tf.ForgetDevice(http);
             return Results.Ok(await AuthEndpoints.MeAsync(db, u));
-        }).RequireRateLimiting("accounts");
+        }).ForAccountantPersonal().RequireRateLimiting("accounts");
 
         // Nieuwe herstelcodes, met een code uit de app. De oude werken daarna niet meer.
         g.MapPost("/recovery-codes", async (AppDb db, TwoFactor tf, HttpContext http, ClaimsPrincipal user, TwoFactorCodeRequest req) =>
@@ -322,10 +339,11 @@ public static class TwoFactorEndpoints
             u.NewSecurityStamp();
             db.Log("gebruiker", $"{u.Name} heeft nieuwe herstelcodes gemaakt voor inloggen in twee stappen");
             await db.SaveChangesAsync();
+            await Accountants.SyncAsync(db, u);
             await tx.CommitAsync();
             await AuthEndpoints.SignIn(http, u);
             return Results.Ok(new { recoveryCodes = codes, user = await AuthEndpoints.MeAsync(db, u) });
-        }).RequireRateLimiting("accounts");
+        }).ForAccountantPersonal().RequireRateLimiting("accounts");
 
         // De tweede stap van inloggen. Werkt alleen met het korte koekje van een goed wachtwoord (zie /api/auth/login), telt mislukte
         // pogingen mee voor de blokkade van inloggen, en geeft pas na een goede code de echte inlogcookie.
@@ -334,7 +352,7 @@ public static class TwoFactorEndpoints
             if (tf.ReadPendingLogin(http) is not { } pending) return Expired(http, tf);
             db.Tenant.WorkspaceId = pending.WorkspaceId;
             var u = await db.Users.FirstOrDefaultAsync(x => x.Id == pending.UserId);
-            if (u is not { Active: true } || !u.TwoFactorEnabled || u.SecurityStamp != pending.Stamp) return Expired(http, tf);
+            if (u is not { Active: true, InvitePending: false } || !u.TwoFactorEnabled || u.SecurityStamp != pending.Stamp) return Expired(http, tf);
             var ip = http.Connection.RemoteIpAddress?.ToString() ?? "onbekend";
             if (AuthEndpoints.Blocked(throttle, u.Email, ip) is { } blocked) return blocked;
             var kind = await tf.VerifyAsync(db, u, req.Code, allowRecovery: true);

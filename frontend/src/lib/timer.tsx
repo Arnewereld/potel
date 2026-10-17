@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { api, ApiError } from './api'
 import { useAuth } from './auth'
+import { isAccountant } from './accountant'
 import { focusAlert, mmss, prepareFocusAlerts, rememberFocusMinutes, unlockSound, useFocusMinutes } from './focus'
 import { hm } from './format'
 import { timerKey } from './storage'
@@ -134,6 +135,8 @@ interface LegacyTimer { projectId: number; description?: string; billable?: bool
 
 export function TimerProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
+  // Een boekhouder heeft geen timer; dan vragen we de server er ook niet naar.
+  const off = isAccountant(user)
   const toast = useToast()
   const [running, setRunning] = useState<RunningTimer | null>(null)
   const [offset, setOffset] = useState(0)
@@ -190,6 +193,7 @@ export function TimerProvider({ children }: { children: ReactNode }) {
   }, [apply, announce])
 
   const refresh = useCallback(async () => {
+    if (off) return
     const mine = ++seq.current
     try {
       const state = await api.get<TimerState>('/timer')
@@ -200,7 +204,7 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       apply(state)
       if (before && before !== state.timer?.key) notifyTimeChanged()
     } catch { /* offline of uitgelogd: de volgende keer weer */ }
-  }, [apply])
+  }, [apply, off])
 
   const flush = useCallback(async () => {
     window.clearTimeout(flushTimer.current)
@@ -243,7 +247,7 @@ export function TimerProvider({ children }: { children: ReactNode }) {
   // Eén keer overzetten: een timer die nog in deze browser stond, gaat naar de server. Daarna gebruiken we de browser er niet meer voor.
   const imported = useRef(false)
   useEffect(() => {
-    if (imported.current) return
+    if (imported.current || off) return
     imported.current = true
     const storageKey = timerKey(user)
     let legacy: LegacyTimer | null = null
@@ -260,7 +264,7 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       if (e.status !== 402) forget()
       toast(e.message, 'error')
     })
-  }, [user, mutate, toast])
+  }, [user, off, mutate, toast])
 
   // Elke seconde verder zolang de timer loopt, en tijdens de pauze van de focusmodus voor het aftellen.
   const ticking = running !== null && (running.pausedAt === null || running.focus?.phase === 'break')

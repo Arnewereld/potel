@@ -5,6 +5,8 @@ import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useToast } from '../lib/toast'
 import { useNewRequest } from '../lib/palette'
+import { useAuth } from '../lib/auth'
+import { isAccountant } from '../lib/accountant'
 import type { Expense, ExpenseCategory, RecurringExpense, RecurringExpenseOverview, Settings } from '../lib/types'
 import { date, euro, toDateInput } from '../lib/format'
 import { categoryLabel, costForProfit, expenseCategories } from '../lib/expenses'
@@ -19,6 +21,8 @@ type Tab = 'uitgaven' | 'vast'
 const firstOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1)
 
 export function ExpensesPage() {
+  // Een boekhouder bekijkt de kosten; met het recht om aan te vullen opent hij een uitgave voor de categorie of het bonnetje.
+  const accountant = isAccountant(useAuth().user)
   const [today] = useState(() => toDateInput(new Date()))
   const [month, setMonth] = useState(() => firstOfMonth(new Date()))
   const from = toDateInput(month)
@@ -35,7 +39,7 @@ export function ExpensesPage() {
   const [missingOnly, setMissingOnly] = useState(false)
   const [editing, setEditing] = useState<{ expense?: Expense } | null>(null)
   // "Nieuwe uitgave" vanuit het zoekvenster.
-  useNewRequest('uitgave', () => setEditing({}))
+  useNewRequest('uitgave', () => { if (!accountant) setEditing({}) })
 
   const shift = (months: number) => setMonth(m => new Date(m.getFullYear(), m.getMonth() + months, 1))
   const isThisMonth = from === `${today.slice(0, 8)}01`
@@ -78,7 +82,7 @@ export function ExpensesPage() {
           : `${label} · ${filtered.length} ${filtered.length === 1 ? 'uitgave' : 'uitgaven'} · ${euro(sum(e => e.amount))}`}
         actions={tab === 'vast' ? <>
           <div className="search-input"><Search size={16} /><input placeholder="Zoek leverancier, omschrijving of project…" value={q} onChange={e => setQ(e.target.value)} /></div>
-          <button className="btn btn-primary" onClick={() => setEditingRecurring({})}><Plus size={16} /> Vaste kost toevoegen</button>
+          {!accountant && <button className="btn btn-primary" onClick={() => setEditingRecurring({})}><Plus size={16} /> Vaste kost toevoegen</button>}
         </> : <>
           <div className="search-input"><Search size={16} /><input placeholder="Zoek leverancier, omschrijving of project…" value={q} onChange={e => setQ(e.target.value)} /></div>
           <select value={category} onChange={e => setCategory(e.target.value as 'alle' | ExpenseCategory)} aria-label="Categorie">
@@ -90,7 +94,7 @@ export function ExpensesPage() {
             <button className="btn" disabled={isThisMonth} onClick={() => setMonth(firstOfMonth(new Date(`${today}T00:00:00`)))}>Deze maand</button>
             <button className="btn" onClick={() => shift(1)} aria-label="Volgende maand"><ChevronRight size={16} /></button>
           </div>
-          <button className="btn btn-primary" onClick={() => setEditing({})}><Plus size={16} /> Uitgave toevoegen</button>
+          {!accountant && <button className="btn btn-primary" onClick={() => setEditing({})}><Plus size={16} /> Uitgave toevoegen</button>}
         </>}
       />
 
@@ -100,7 +104,7 @@ export function ExpensesPage() {
       ]} />
 
       {tab === 'vast' && recurring && (
-        <RecurringExpenseList data={recurring} query={q} reload={reloadAll}
+        <RecurringExpenseList data={recurring} query={q} reload={reloadAll} view={accountant}
           onEdit={t => setEditingRecurring({ recurring: t })} onNew={() => setEditingRecurring({})} />
       )}
 
@@ -126,7 +130,7 @@ export function ExpensesPage() {
           {filtered.length === 0 ? (
             <Empty icon={<Wallet size={22} />} title={`Geen kosten in ${label}`}
               text={q || category !== 'alle' || missingOnly ? 'Probeer een andere zoekterm of categorie.' : 'Zet hier je zakelijke uitgaven neer, met het bonnetje erbij.'}
-              action={!q && category === 'alle' && !missingOnly && <button className="btn btn-primary" onClick={() => setEditing({})}><Plus size={16} /> Uitgave toevoegen</button>} />
+              action={!q && category === 'alle' && !missingOnly && !accountant && <button className="btn btn-primary" onClick={() => setEditing({})}><Plus size={16} /> Uitgave toevoegen</button>} />
           ) : (
             <div className="table-wrap">
               <table>
@@ -158,7 +162,7 @@ export function ExpensesPage() {
                       </td>
                       <td className="num"><strong>{euro(e.amount)}</strong>{e.vatRate ? <div className="cell-sub">{euro(e.amountExclVat)} zonder btw</div> : null}</td>
                       <td className="row-actions" onClick={ev => ev.stopPropagation()}>
-                        {e.needsReview && <button className="btn btn-sm" title="Het bedrag klopt" onClick={() => reviewed(e)}><Check size={14} /> Klopt</button>}
+                        {e.needsReview && !accountant && <button className="btn btn-sm" title="Het bedrag klopt" onClick={() => reviewed(e)}><Check size={14} /> Klopt</button>}
                         {e.receipt
                           ? <a className="icon-btn" title={`Bonnetje downloaden (${e.receipt.fileName})`} href={`/api/expenses/${e.id}/receipt`}><Paperclip size={16} /></a>
                           : <span className="icon-btn muted" title="Nog geen bonnetje" style={{ opacity: 0.35 }}><Paperclip size={16} /></span>}

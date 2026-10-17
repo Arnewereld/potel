@@ -7,7 +7,7 @@ export interface User {
   workspaceId: number
   name: string
   email: string
-  role: 'beheerder' | 'medewerker'
+  role: 'beheerder' | 'medewerker' | 'boekhouder'
   active: boolean
   createdAt: string
   lastLoginAt?: string | null
@@ -17,6 +17,10 @@ export interface User {
   twoFactor: boolean
   // Alleen bij jezelf: je werkruimte verplicht inloggen in twee stappen voor beheerders en je moet het eerst instellen.
   twoFactorSetupRequired?: boolean
+  // Alleen bij een boekhouder: de uitnodiging is nog niet aangenomen, en wat hij naast meekijken mag.
+  invitePending?: boolean
+  canFileVat?: boolean
+  canCompleteExpenses?: boolean
 }
 
 // Het antwoord van de tweede stap: wie je bent, en hoeveel herstelcodes je nog hebt als je er net een gebruikte.

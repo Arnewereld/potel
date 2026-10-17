@@ -45,12 +45,17 @@ public class AccountMail(AppDb db, IEmailSender sender, SystemMailQueue queue, A
 {
     public static readonly TimeSpan ResetLifetime = TimeSpan.FromHours(1);
     public static readonly TimeSpan VerifyLifetime = TimeSpan.FromDays(2);
+    public static readonly TimeSpan InviteLifetime = TimeSpan.FromDays(7);
     public const string ResetPath = "/wachtwoord-herstellen";
     public const string VerifyPath = "/email-bevestigen";
+    public const string InvitePath = "/uitnodiging";
 
     string Product => config["Platform:Name"] is { Length: > 0 } name ? name : "Potel";
 
     public bool Ready(HttpRequest request) => sender.Configured && urls.Base(request) is not null;
+
+    // In ontwikkelmodus zonder mailserver komt de link in het serverlog in plaats van in een mail.
+    public bool DevelopmentLog => !sender.Configured && env.IsDevelopment();
 
     public string NotConfiguredMessage(string what) =>
         $"Er is nog geen mailserver ingesteld, dus we kunnen geen {what} sturen."
@@ -89,7 +94,9 @@ public class AccountMail(AppDb db, IEmailSender sender, SystemMailQueue queue, A
         var ready = Ready(request);
         if (!ready && !env.IsDevelopment()) return MailOutcome.NotConfigured;
         var allowed = throttle.TryAcquire(TokenPurposes.PasswordReset, email);
-        var u = await db.Users.IgnoreQueryFilters().FirstOrDefaultAsync(x => x.Email == email && x.Active);
+        // Bij een boekhouder in meer werkruimtes is het wachtwoord overal hetzelfde; de link hoort bij waar hij het laatst was.
+        var u = await db.Users.IgnoreQueryFilters().Where(x => x.Email == email && x.Active && !x.InvitePending)
+            .OrderByDescending(x => x.LastLoginAt).ThenBy(x => x.Id).FirstOrDefaultAsync();
         if (u is not null && allowed)
         {
             db.Tenant.WorkspaceId = u.WorkspaceId;
@@ -116,6 +123,32 @@ public class AccountMail(AppDb db, IEmailSender sender, SystemMailQueue queue, A
             return MailOutcome.Failed;
         }
     }
+
+    // Een uitnodiging als boekhouder, meteen verstuurd. Hoort binnen de werkruimte van de gebruiker. Per werkruimte begrensd,
+    // zodat een boekhouder met veel klanten op één dag van elk een uitnodiging kan krijgen.
+    public async Task<MailOutcome> SendInviteAsync(User u, string workspace, string? by, HttpRequest request)
+    {
+        if (!throttle.TryAcquire($"{TokenPurposes.Invite}:{u.WorkspaceId}", u.Email)) return MailOutcome.Throttled;
+        await RevokeAsync(db, u.Id, TokenPurposes.Invite);
+        if (await LinkAsync(u, TokenPurposes.Invite, InviteLifetime, InvitePath, request) is not { } link) return MailOutcome.NotConfigured;
+        try
+        {
+            await sender.SendAsync(new OutgoingEmail(u.Email, $"{workspace} geeft je toegang als boekhouder in {Product}", InviteBody(u, workspace, by, link), Product));
+            return MailOutcome.Sent;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Uitnodiging niet verstuurd");
+            return MailOutcome.Failed;
+        }
+    }
+
+    string InviteBody(User u, string workspace, string? by, string link) =>
+        $"Hoi {u.Name},\n\n{(by is null ? workspace : $"{by} van {workspace}")} geeft je toegang tot de administratie in {Product}, als boekhouder. " +
+        "Je kunt de facturen, kosten met bonnetjes, bankregels, ritten, investeringen, de btw-aangifte en het jaaroverzicht bekijken en exporteren. " +
+        $"Wijzigen kan alleen wat je klant je apart toestaat.\n\nNeem de uitnodiging aan met de link hieronder. Ben je al boekhouder bij een andere klant in {Product}, " +
+        "dan komt deze werkruimte erbij en log je in met je bestaande wachtwoord. Anders kies je eerst een wachtwoord.\n\n" +
+        $"{link}\n\nDe link werkt zeven dagen en maar één keer. Verwacht je deze mail niet? Dan kun je hem negeren.\n\nGroet,\n{Product}";
 
     string ResetBody(User u, string link) =>
         $"Hoi {u.Name},\n\nJe hebt gevraagd om een nieuw wachtwoord voor je account bij {Product}. Klik op de link hieronder om een nieuw wachtwoord te kiezen. " +
@@ -184,7 +217,7 @@ public static class AccountEmailEndpoints
         {
             if ((req.Password ?? "").Length < AuthEndpoints.MinPasswordLength)
                 return Results.BadRequest(new { error = $"Kies een wachtwoord van minstens {AuthEndpoints.MinPasswordLength} tekens" });
-            if (await mail.FindAsync(req.Token, TokenPurposes.PasswordReset) is not { User.Active: true } found || !await mail.ClaimAsync(found.Token))
+            if (await mail.FindAsync(req.Token, TokenPurposes.PasswordReset) is not { User: { Active: true, InvitePending: false } } found || !await mail.ClaimAsync(found.Token))
                 return Results.BadRequest(new { error = ResetLinkInvalid });
             var u = found.User;
             u.PasswordHash = AuthEndpoints.Hash(u, req.Password!);
@@ -196,12 +229,16 @@ public static class AccountEmailEndpoints
             if (u.TwoFactorEnabled)
             {
                 await db.SaveChangesAsync();
+                await Accountants.SyncAsync(db, u);
+                await Accountants.RevokeResetsAsync(db, u);
                 await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
                 twoFactor.StartPendingLogin(http, u);
                 return Results.Ok(new { twoFactorRequired = true });
             }
             u.LastLoginAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
+            await Accountants.SyncAsync(db, u);
+            await Accountants.RevokeResetsAsync(db, u);
             await AuthEndpoints.SignIn(http, u);
             return Results.Ok(await AuthEndpoints.MeAsync(db, u));
         }).AllowAnonymous().RequireRateLimiting("auth");
@@ -238,6 +275,6 @@ public static class AccountEmailEndpoints
                 MailOutcome.NotConfigured => Results.Json(new { error = mail.NotConfiguredMessage("bevestigingsmail") }, statusCode: StatusCodes.Status503ServiceUnavailable),
                 _ => Results.Json(new { error = "De bevestigingsmail kon niet worden verstuurd. Probeer het later opnieuw." }, statusCode: StatusCodes.Status503ServiceUnavailable),
             };
-        }).RequireRateLimiting("accounts");
+        }).ForAccountantPersonal().RequireRateLimiting("accounts");
     }
 }

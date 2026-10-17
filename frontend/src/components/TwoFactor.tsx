@@ -3,6 +3,7 @@ import { ArrowLeft, Check, Copy, Download, KeyRound, LogIn, LogOut, RefreshCw, S
 import { api, ApiError } from '../lib/api'
 import { useAuth, type CodeLogin, type User } from '../lib/auth'
 import { useApi } from '../lib/useApi'
+import { isAccountant, switchWorkspace, type WorkspaceChoice } from '../lib/accountant'
 import { useToast } from '../lib/toast'
 import { date } from '../lib/format'
 import { Badge, Field, Loading, Modal } from './ui'
@@ -13,6 +14,8 @@ interface TwoFactorStatus {
   recoveryCodesLeft: number
   setupRequired: boolean
   requiredForAdmins: boolean
+  // Verplicht voor jou: als beheerder, of als boekhouder als de werkruimte het ook voor boekhouders verplicht.
+  requiredForMe?: boolean
 }
 
 interface SetupInfo { key: string; otpauthUrl: string; issuer: string; account: string }
@@ -291,9 +294,9 @@ export function TwoFactorCard() {
             <button type="button" className="btn" onClick={() => setModal('codes')}><RefreshCw size={15} /> Nieuwe herstelcodes</button>
             <button type="button" className="btn" onClick={() => setModal('disable')}><ShieldOff size={15} /> Uitzetten</button>
           </div>
-          {data.requiredForAdmins && user.role === 'beheerder' && (
+          {data.requiredForAdmins && (user.role === 'beheerder' || data.requiredForMe) && (
             <p className="muted" style={{ fontSize: 13, marginBottom: 0 }}>
-              In je werkruimte is inloggen in twee stappen verplicht voor beheerders. Zet je het uit, bijvoorbeeld voor een nieuwe
+              In je werkruimte is inloggen in twee stappen verplicht voor {user.role === 'beheerder' ? 'beheerders' : 'boekhouders'}. Zet je het uit, bijvoorbeeld voor een nieuwe
               telefoon, dan stel je het daarna meteen opnieuw in.
             </p>
           )}
@@ -370,10 +373,14 @@ export function TwoFactorLoginStep({ onDone, onExpired, onBack }: {
   )
 }
 
-// Voor een beheerder in een werkruimte waar inloggen in twee stappen verplicht is: eerst instellen, dan verder.
+// Voor een beheerder (of boekhouder) in een werkruimte waar inloggen in twee stappen verplicht is: eerst instellen, dan verder.
+// Een boekhouder kan ook eerst naar een andere administratie waar het niet verplicht is.
 export function TwoFactorRequiredPage() {
   const { user, update, logout } = useAuth()
   const [enabled, setEnabled] = useState(false)
+  const accountant = isAccountant(user)
+  const { data: choices } = useApi<WorkspaceChoice[]>(accountant ? '/auth/workspaces' : null)
+  const others = (choices ?? []).filter(c => !c.current)
   return (
     <div className="login login-single">
       <div className="login-card two-factor-required">
@@ -381,9 +388,17 @@ export function TwoFactorRequiredPage() {
         <p className="muted" style={{ margin: '6px 0 18px' }}>
           {enabled
             ? 'Bijna klaar. Bewaar je herstelcodes, dan ga je verder naar je werkruimte.'
-            : `Hoi ${user.name}. In deze werkruimte is inloggen in twee stappen verplicht voor beheerders. Stel het nu in; het duurt een paar minuten.`}
+            : `Hoi ${user.name}. In deze werkruimte is inloggen in twee stappen verplicht voor ${accountant ? 'boekhouders' : 'beheerders'}. Stel het nu in; het duurt een paar minuten.${accountant ? ' Het geldt daarna ook in je andere administraties.' : ''}`}
         </p>
         <SetupFlow onEnabled={() => setEnabled(true)} onFinish={update} />
+        {!enabled && others.length > 0 && (
+          <div style={{ marginTop: 18 }}>
+            <p className="muted" style={{ fontSize: 13, margin: '0 0 8px' }}>Of ga eerst naar een andere administratie:</p>
+            <div className="row wrap" style={{ gap: 8 }}>
+              {others.map(c => <button key={c.workspaceId} type="button" className="btn btn-sm" onClick={() => void switchWorkspace(c.workspaceId)}>{c.name}</button>)}
+            </div>
+          </div>
+        )}
         {!enabled && (
           <button type="button" className="link-btn" style={{ marginTop: 18, fontSize: 13 }} onClick={() => logout()}><LogOut size={13} /> Uitloggen</button>
         )}

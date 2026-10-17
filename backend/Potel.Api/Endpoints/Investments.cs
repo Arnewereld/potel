@@ -172,7 +172,7 @@ public static class InvestmentEndpoints
             var (rows, summary, _) = await YearAsync(db, y, deduction, demo == true);
             return Results.Ok(new InvestmentYearDto(y, deduction, rows, summary, demo == true && rows.Any(r => r.Demo),
                 TaxYears.DepreciationSource, TaxYears.DepreciationCalculationSource, TaxYears.KiaExclusionsSource));
-        });
+        }).ForAccountant();
 
         // Verkocht of weggedaan. De boekwaarde die dan nog over is boek je af; een hogere verkoopprijs is boekwinst.
         g.MapPut("/{id:int}/disposal", async (AppDb db, int id, DisposalInput input) =>

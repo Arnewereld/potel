@@ -7,6 +7,7 @@ import {
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useAuth } from '../lib/auth'
+import { isAccountant } from '../lib/accountant'
 import { useWorkspace } from '../lib/workspace'
 import { useTimer } from '../lib/timer'
 import { useToast } from '../lib/toast'
@@ -71,12 +72,15 @@ export function CommandPalette({ onClose, theme, onToggleTheme, pages }: {
   const { running, paused, focus, focusMinutes, start, stop, pause, resume, switchTo, startFocus, openFocus } = useTimer()
   const readOnly = workspace?.readOnly ?? null
   const admin = user.role === 'beheerder'
+  // Een boekhouder kijkt alleen mee: geen acties en niet zoeken in de gegevens, alleen de pagina's die hij mag zien.
+  const accountant = isAccountant(user)
+  const noActions = !!readOnly || accountant
   // Projecten voor de timer en de open uren; in een alleen-lezen werkruimte zijn die acties er niet.
-  const { data: projects } = useApi<Project[]>(readOnly ? null : '/projects')
+  const { data: projects } = useApi<Project[]>(noActions ? null : '/projects')
   const [recent] = useState(() => loadRecent(user.id))
 
   // Zoeken in je gegevens vanaf twee letters; daaronder tellen oude treffers niet meer.
-  const searching = q.trim().length >= 2
+  const searching = !accountant && q.trim().length >= 2
   useEffect(() => {
     if (!searching) return
     const t = setTimeout(() => {
@@ -90,7 +94,7 @@ export function CommandPalette({ onClose, theme, onToggleTheme, pages }: {
     const go = (to: string) => () => navigate(to)
     const newOn = (kind: NewKind, to: string) => () => { requestNew(kind, to); navigate(to) }
 
-    if (!readOnly) {
+    if (!noActions) {
       const active = (projects ?? []).filter(p => p.status === 'actief')
       if (running) {
         const since = new Date(running.startedAt).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
@@ -191,7 +195,7 @@ export function CommandPalette({ onClose, theme, onToggleTheme, pages }: {
       icon: theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />, group: 'Weergave', run: onToggleTheme,
     })
     return list
-  }, [readOnly, admin, projects, running, paused, focus, focusMinutes, pages, theme, onToggleTheme, navigate, toast, start, stop, pause, resume, switchTo, startFocus, openFocus])
+  }, [readOnly, noActions, admin, projects, running, paused, focus, focusMinutes, pages, theme, onToggleTheme, navigate, toast, start, stop, pause, resume, switchTo, startFocus, openFocus])
 
   // Zonder zoektekst: eerst wat je laatst deed, dan alles per groep. Met zoektekst: de beste treffers, wat je laatst deed iets hoger.
   const shown = useMemo<Command[]>(() => {
@@ -264,7 +268,7 @@ export function CommandPalette({ onClose, theme, onToggleTheme, pages }: {
             aria-controls="palette-list"
             aria-activedescendant={shown[active] ? `palette-${shown[active].id}` : undefined}
             aria-autocomplete="list"
-            placeholder="Zoek een pagina of typ een actie…"
+            placeholder={accountant ? 'Zoek een pagina…' : 'Zoek een pagina of typ een actie…'}
             value={q}
             onChange={e => search(e.target.value)}
             onKeyDown={e => {
@@ -277,7 +281,7 @@ export function CommandPalette({ onClose, theme, onToggleTheme, pages }: {
           />
         </div>
         <div className="palette-list" id="palette-list" role="listbox" aria-label="Acties en resultaten" ref={list}>
-          {readOnly && (
+          {readOnly && !accountant && (
             <div className="palette-note" role="note" title={readOnly}>
               <Lock size={14} />
               <span>

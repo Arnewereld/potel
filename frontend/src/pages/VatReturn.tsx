@@ -37,7 +37,10 @@ export function VatReturnPage() {
   if (withDemo) params.set('demo', 'true')
   const { data, error, loading, reload } = useApi<VatReturn>(`/tax/vat-return${params.size ? `?${params}` : ''}`)
   const navigate = useNavigate()
-  const admin = useAuth().user.role === 'beheerder'
+  const { user } = useAuth()
+  // Een beheerder markeert de aangifte als gedaan, en een boekhouder die dat recht kreeg.
+  const admin = user.role === 'beheerder' || (user.role === 'boekhouder' && user.canFileVat === true)
+  const accountant = user.role === 'boekhouder'
   const toast = useToast()
   const [marking, setMarking] = useState(false)
   const [today] = useState(() => toDateInput(new Date()))
@@ -121,7 +124,7 @@ export function VatReturnPage() {
               {data.toReview === 1 ? 'Eén uitgave in dit kwartaal is' : `${data.toReview} uitgaven in dit kwartaal zijn`} klaargezet door een vaste kost en nog niet
               nagekeken. {data.toReview === 1 ? 'Die telt' : 'Die tellen'} al mee. Kijk bedrag en btw na voordat je de aangifte doet.
             </span>
-            <button className="btn btn-sm" onClick={() => navigate('/kosten?tab=vast')}>Nakijken</button>
+            <button className="btn btn-sm" onClick={() => navigate('/kosten?tab=vast')}>{accountant ? 'Bekijken' : 'Nakijken'}</button>
           </div>
         )}
         {ended && !data.kor && (

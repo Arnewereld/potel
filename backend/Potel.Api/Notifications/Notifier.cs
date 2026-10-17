@@ -41,17 +41,21 @@ public static class NotificationKinds
 
     public static NotificationKind? Find(string? id) => All.FirstOrDefault(k => k.Id == id);
 
-    public static bool Allowed(NotificationKind kind, string role, bool platformAdmin) => kind.For switch
-    {
-        Admins => role == Roles.Admin,
-        Platform => platformAdmin,
-        _ => true,
-    };
+    // Een boekhouder krijgt alleen de btw-deadline, en dan alleen als hij de aangifte als gedaan mag markeren. Al het andere (geld,
+    // werkstromen, het platform) is niet voor hem.
+    public static bool Allowed(NotificationKind kind, User u) => u.Role == Roles.Accountant
+        ? kind.Id == Vat && u.CanFileVat
+        : kind.For switch
+        {
+            Admins => u.Role == Roles.Admin,
+            Platform => u.IsPlatformAdmin,
+            _ => true,
+        };
 
-    public static bool Allowed(string kind, User u) => Find(kind) is { } k && Allowed(k, u.Role, u.IsPlatformAdmin);
+    public static bool Allowed(string kind, User u) => Find(kind) is { } k && Allowed(k, u);
 
     // De soorten die deze gebruiker mag krijgen en zien.
-    public static List<NotificationKind> For(string role, bool platformAdmin) => All.Where(k => Allowed(k, role, platformAdmin)).ToList();
+    public static List<NotificationKind> For(User u) => All.Where(k => Allowed(k, u)).ToList();
 
     public static string[] Split(string? list) => (list ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
@@ -107,7 +111,7 @@ public partial class Notifier(AppDb db, BusinessClock clock, Workflows.IEmailSen
     async Task<int> CreateAsync(NotificationEvent e, List<User> recipients)
     {
         var kind = NotificationKinds.Find(e.Kind) ?? throw new ArgumentException($"Onbekende soort melding {e.Kind}", nameof(e));
-        recipients = recipients.Where(u => NotificationKinds.Allowed(kind, u.Role, u.IsPlatformAdmin)).DistinctBy(u => u.Id).ToList();
+        recipients = recipients.Where(u => NotificationKinds.Allowed(kind, u)).DistinctBy(u => u.Id).ToList();
         if (recipients.Count == 0) return 0;
         var ids = recipients.Select(u => u.Id).ToList();
         var settings = await db.NotificationSettings.IgnoreQueryFilters().AsNoTracking().Where(s => ids.Contains(s.UserId)).ToDictionaryAsync(s => s.UserId);

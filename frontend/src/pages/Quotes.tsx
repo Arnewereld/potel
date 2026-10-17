@@ -4,6 +4,8 @@ import { FileSignature, Plus, Search, Send, FileClock, ThumbsUp, Hourglass, Copy
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useToast } from '../lib/toast'
+import { useAuth } from '../lib/auth'
+import { isAccountant } from '../lib/accountant'
 import type { Quote, QuoteState } from '../lib/types'
 import { date, euro, invoiceTotals } from '../lib/format'
 import { quoteStatuses } from '../lib/status'
@@ -18,6 +20,8 @@ const who = (q: Quote) => q.buyer?.name ?? q.customer?.company ?? q.customer?.na
 
 export function QuotesPage() {
   const { data, error, loading, reload } = useApi<Quote[]>('/quotes')
+  // Een boekhouder bekijkt offertes alleen.
+  const accountant = isAccountant(useAuth().user)
   const [filter, setFilter] = useState<Filter>('alle')
   const [q, setQ] = useState('')
   const navigate = useNavigate()
@@ -56,7 +60,7 @@ export function QuotesPage() {
         subtitle={`${filtered.length} offertes · ${euro(subtotal(filtered))} zonder btw`}
         actions={<>
           <div className="search-input"><Search size={16} /><input placeholder="Zoek nummer, onderwerp of klant…" value={q} onChange={e => setQ(e.target.value)} /></div>
-          <button className="btn btn-primary" onClick={() => navigate('/offertes/nieuw')}><Plus size={16} /> Nieuwe offerte</button>
+          {!accountant && <button className="btn btn-primary" onClick={() => navigate('/offertes/nieuw')}><Plus size={16} /> Nieuwe offerte</button>}
         </>}
       />
 
@@ -85,7 +89,7 @@ export function QuotesPage() {
         <div className="card">
           {filtered.length === 0 ? (
             <Empty icon={<FileSignature size={22} />} title="Geen offertes" text={q ? 'Probeer een andere zoekterm.' : 'Maak een offerte voor een klant of lead. Je klant accepteert hem online, met één klik.'}
-              action={!q && <button className="btn btn-primary" onClick={() => navigate('/offertes/nieuw')}><Plus size={16} /> Offerte maken</button>} />
+              action={!q && !accountant && <button className="btn btn-primary" onClick={() => navigate('/offertes/nieuw')}><Plus size={16} /> Offerte maken</button>} />
           ) : (
             <div className="table-wrap">
               <table>
@@ -115,7 +119,7 @@ export function QuotesPage() {
                         <td><Badge tone={st.tone}>{st.label}</Badge></td>
                         <td className="num"><strong>{euro(invoiceTotals(x.lines).total)}</strong></td>
                         <td className="row-actions" onClick={e => e.stopPropagation()}>
-                          {!x.newerVersionId && (
+                          {!x.newerVersionId && !accountant && (
                             <button className="icon-btn" title={x.state === 'concept' || x.demo ? 'Kopie maken als nieuw concept' : 'Nieuwe versie maken'} onClick={() => duplicate(x)}><Copy size={16} /></button>
                           )}
                         </td>

@@ -82,7 +82,7 @@ public static partial class WorkspaceEndpoints
         // Online betalen via Mollie staat aan, en hoe het abonnement ervoor staat.
         onlinePayment, subscriptionActive = w.MollieSubscriptionId != null, w.PaidUntil, w.SubscriptionCanceledAt,
         readOnly = w.ReadOnlyReason(DateTime.UtcNow),
-        w.RequireTwoFactorForAdmins,
+        w.RequireTwoFactorForAdmins, w.RequireTwoFactorForAccountants, maxAccountants = Plans.MaxAccountants,
     };
 
     public static void MapWorkspace(this RouteGroupBuilder api)
@@ -99,6 +99,8 @@ public static partial class WorkspaceEndpoints
             if (NormalizeKvk(req.Kvk) is not { } kvk) return Results.BadRequest(new { error = "Vul je KvK-nummer in. Dat zijn 8 cijfers." });
             if (!req.BusinessUse) return Results.BadRequest(new { error = "Potel is alleen voor zakelijk gebruik. Bevestig dat je het voor je bedrijf gebruikt." });
             if (!req.AcceptTerms) return Results.BadRequest(new { error = "Ga akkoord met de algemene voorwaarden en de verwerkersovereenkomst om een account aan te maken." });
+            // Eén schrijver tegelijk, zodat hetzelfde adres niet tegelijk als boekhouder elders wordt uitgenodigd.
+            await using var tx = await WriteLock.BeginAsync(db);
             if (await db.Users.IgnoreQueryFilters().AnyAsync(u => u.Email == email))
                 return Results.Conflict(new { error = AuthEndpoints.EmailUnavailable });
             if (throttle.TryStart(http.Connection.RemoteIpAddress) is { } tooMany)
@@ -122,6 +124,7 @@ public static partial class WorkspaceEndpoints
             ws.TermsAcceptedByEmail = user.Email;
             db.Log("systeem", $"Algemene voorwaarden en verwerkersovereenkomst (versie {Terms.Version}) geaccepteerd door {user.Email}");
             await db.SaveChangesAsync();
+            await tx.CommitAsync();
             if (req.DemoData) Seed.Run(db, sampleCompany: false);
             // Werken kan meteen; mail uit werkstromen pas na het bevestigen van het adres.
             await mail.SendVerificationAsync(user, http.Request);
@@ -133,7 +136,8 @@ public static partial class WorkspaceEndpoints
         var g = api.MapGroup("/workspace");
 
         g.MapGet("/", async (AppDb db, ClaimsPrincipal user, MollieBilling billing) =>
-            await db.Workspaces.FindAsync(db.TenantId) is { } w ? Results.Ok(Dto(w, await PlatformEndpoints.IsPlatformAdmin(db, user), billing.Enabled)) : Results.NotFound());
+            await db.Workspaces.FindAsync(db.TenantId) is { } w ? Results.Ok(Dto(w, await PlatformEndpoints.IsPlatformAdmin(db, user), billing.Enabled)) : Results.NotFound())
+            .ForAccountant();
 
         g.MapPost("/onboarded", async (AppDb db) =>
         {
@@ -144,8 +148,9 @@ public static partial class WorkspaceEndpoints
             return Results.Ok(Dto(w));
         });
 
-        // Inloggen in twee stappen verplicht maken voor alle beheerders van deze werkruimte. Wie het nog niet heeft, stelt het
-        // bij de volgende stap in de app eerst in. Aanzetten kan alleen als je het zelf al gebruikt, anders sluit je jezelf even buiten.
+        // Inloggen in twee stappen verplicht maken voor alle beheerders van deze werkruimte, en als dat aan staat eventueel ook voor
+        // boekhouders. Wie het nog niet heeft, stelt het bij de volgende stap in de app eerst in. Aanzetten kan alleen als je het zelf al
+        // gebruikt, anders sluit je jezelf even buiten.
         g.MapPut("/two-factor", async (AppDb db, ClaimsPrincipal me, MollieBilling billing, TwoFactorPolicyRequest req) =>
         {
             var w = await db.Workspaces.FindAsync(db.TenantId);
@@ -153,14 +158,22 @@ public static partial class WorkspaceEndpoints
             if (w is null || u is null) return Results.NotFound();
             if (req.RequireForAdmins && !u.TwoFactorEnabled)
                 return Results.BadRequest(new { error = "Zet eerst voor jezelf inloggen in twee stappen aan, bij Instellingen, Account. Daarna kun je het verplicht maken voor alle beheerders." });
+            var forAccountants = req.RequireForAdmins && req.RequireForAccountants;
             if (w.RequireTwoFactorForAdmins != req.RequireForAdmins)
             {
                 w.RequireTwoFactorForAdmins = req.RequireForAdmins;
                 db.Log("gebruiker", req.RequireForAdmins
                     ? $"{u.Name} heeft inloggen in twee stappen verplicht gemaakt voor beheerders"
                     : $"{u.Name} heeft inloggen in twee stappen niet meer verplicht voor beheerders");
-                await db.SaveChangesAsync();
             }
+            if (w.RequireTwoFactorForAccountants != forAccountants)
+            {
+                w.RequireTwoFactorForAccountants = forAccountants;
+                db.Log("gebruiker", forAccountants
+                    ? $"{u.Name} heeft inloggen in twee stappen verplicht gemaakt voor boekhouders"
+                    : $"{u.Name} heeft inloggen in twee stappen niet meer verplicht voor boekhouders");
+            }
+            await db.SaveChangesAsync();
             return Results.Ok(Dto(w, await PlatformEndpoints.IsPlatformAdmin(db, me), billing.Enabled));
         }).RequireAuthorization(p => p.RequireRole(Roles.Admin));
 

@@ -100,7 +100,7 @@ public static class BankEndpoints
 
     public static void MapBank(this RouteGroupBuilder api)
     {
-        var g = api.MapGroup("/bank").RequireAuthorization(p => p.RequireRole(Roles.Admin));
+        var g = api.MapGroup("/bank").AdminOrAccountant();
 
         // De regels met hun stand en voorstellen. filter: open (te koppelen), gekoppeld, prive, negeren of alle.
         g.MapGet("/", async (AppDb db, BusinessClock clock, string? filter, string? q) =>
@@ -173,7 +173,7 @@ public static class BankEndpoints
                     .Select(i => new { id = i.Id, number = i.Number, customer = i.Customer, open = i.Open, customerIban = i.CustomerIban }),
                 expenses = expenses.OrderByDescending(e => e.Date).Take(500).Select(e => new { id = e.Id, date = e.Date, supplier = e.Supplier, amount = e.Amount }),
             });
-        });
+        }).ForAccountant();
 
         // Een afschrift inlezen. Herkennen we de CSV niet, dan krijg je de kolommen terug om zelf aan te wijzen; die keuze
         // onthouden we voor de volgende keer. Regels die er al staan slaan we over.
@@ -254,7 +254,7 @@ public static class BankEndpoints
                 needsMapping = false, importId = import?.Id, format = result.Format, added, skipped,
                 skippedOtherCurrency = result.SkippedOtherCurrency, skippedNotBooked = result.SkippedNotBooked,
             });
-        }).WithMetadata(new RequestSizeLimitAttribute(15 * 1024 * 1024));
+        }).WithMetadata(new RequestSizeLimitAttribute(15 * 1024 * 1024)).AdminOnly();
 
         // Een import ongedaan maken, bijvoorbeeld na een verkeerde kolomindeling. Kan alleen zolang er niets uit gekoppeld is.
         g.MapDelete("/imports/{id:int}", async (AppDb db, int id) =>
@@ -272,7 +272,7 @@ public static class BankEndpoints
             await db.SaveChangesAsync();
             await tx.CommitAsync();
             return Results.NoContent();
-        });
+        }).AdminOnly();
 
         // Geld dat binnenkwam koppelen aan een factuur. Het bedrag en de datum komen uit de bank. Met paymentId hoort de regel bij
         // een betaling die je zelf al had ingevuld (met hetzelfde bedrag); anders komt er een betaling bij, en is het minder dan er
@@ -333,7 +333,7 @@ public static class BankEndpoints
             // Een nieuwe betaling uit je bank: een melding voor de andere beheerders.
             await notifier.PaymentAsync(inv.Id, created, user.UserId());
             return Results.Ok(new { becamePaid });
-        });
+        }).AdminOnly();
 
         // Geld dat eraf ging koppelen aan een uitgave die er al staat.
         g.MapPost("/transactions/{id:int}/expense", async (AppDb db, int id, BankExpenseLink req) =>
@@ -367,7 +367,7 @@ public static class BankEndpoints
             await db.SaveChangesAsync();
             await tx.CommitAsync();
             return Results.Ok(new { expenseId = e.Id, message });
-        });
+        }).AdminOnly();
 
         // Geld dat eraf ging hoort bij de periode van een vaste kost die nog niet geboekt is: de uitgave voor die periode komt erbij,
         // met bedrag en datum uit de bank, of een uitgave die je al had ingevoerd wordt eraan gekoppeld. Per periode één uitgave.
@@ -389,7 +389,7 @@ public static class BankEndpoints
                 RecurringExpenseOutcome.Invalid => Problem(result.Error!),
                 _ => Problem(RecurringExpenseEndpoints.RaceError, StatusCodes.Status409Conflict),
             };
-        });
+        }).AdminOnly();
 
         // Van een afschrijving een vaste kost maken: de uitgave voor de eerste periode komt uit de bank (bedrag en datum), en vanaf
         // dan komt hij elke maand, elk kwartaal of elk jaar terug. Leverancier, categorie en btw kies je zelf.
@@ -429,7 +429,7 @@ public static class BankEndpoints
             // Lag de afschrijving al een tijd terug, dan staan de perioden daarna meteen klaar.
             await service.RunOneAsync(recurringId);
             return Results.Ok(new { recurringExpenseId = recurringId, expenseId, message = "Vaste kost gemaakt. De uitgave uit je bank is de eerste periode." });
-        });
+        }).AdminOnly();
 
         // Van een afschrijving een nieuwe uitgave maken. Bedrag (inclusief btw) en datum komen uit de bank; leverancier,
         // omschrijving, categorie en btw-tarief kies je zelf. Dezelfde regels als bij Kosten.
@@ -451,7 +451,7 @@ public static class BankEndpoints
             await db.SaveChangesAsync();
             await tx.CommitAsync();
             return Results.Ok(new { expenseId = e.Id });
-        });
+        }).AdminOnly();
 
         // Op privé of negeren zetten, of dat weer weghalen (mark leeg).
         g.MapPost("/transactions/{id:int}/mark", async (AppDb db, int id, BankMarkRequest req) =>
@@ -467,7 +467,7 @@ public static class BankEndpoints
             await db.SaveChangesAsync();
             await tx.CommitAsync();
             return Results.Ok(new { mark });
-        });
+        }).AdminOnly();
 
         // Een koppeling ongedaan maken. Een betaling die door de koppeling op de factuur kwam, gaat weer weg (en de factuur
         // staat dan weer open); een betaling die je zelf invulde blijft staan. Een uitgave blijft altijd staan.
@@ -509,7 +509,7 @@ public static class BankEndpoints
             await db.SaveChangesAsync();
             await tx.CommitAsync();
             return Results.Ok(new { message });
-        });
+        }).AdminOnly();
     }
 
     static string? Blank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();

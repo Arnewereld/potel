@@ -14,6 +14,7 @@ using Potel.Api.Invoicing;
 using Potel.Api.Notifications;
 using Potel.Api.Payments;
 using Potel.Api.Workflows;
+using System.Text.Json.Serialization.Metadata;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -55,9 +56,10 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
             var u = await db.Users.FindAsync(id);
             // Cookies van voor de stempel bestonden hebben er geen; die horen bij een lege stempel.
             var stamp = ctx.Principal.FindFirstValue(AuthEndpoints.StampClaim) ?? "";
-            if (u is { Active: true } && u.SecurityStamp == stamp && ctx.Principal.FindFirstValue(ClaimTypes.Role) == u.Role)
+            if (u is { Active: true, InvitePending: false } && u.SecurityStamp == stamp && ctx.Principal.FindFirstValue(ClaimTypes.Role) == u.Role)
             {
-                // Verplicht de werkruimte inloggen in twee stappen voor beheerders, dan kan deze beheerder eerst alleen dat instellen.
+                // Verplicht de werkruimte inloggen in twee stappen voor beheerders (en eventueel boekhouders), dan kan deze gebruiker eerst
+                // alleen dat instellen.
                 if (await TwoFactor.SetupRequiredAsync(db, u)) ctx.HttpContext.Items[TwoFactor.SetupRequiredItem] = true;
                 return;
             }
@@ -160,6 +162,10 @@ builder.Services.Configure<InvoicingLimits>(builder.Configuration.GetSection("In
 builder.Services.AddScoped<RecurringInvoiceService>();
 // Facturen en herinneringen mailen, met een openbare link naar de factuur. De planner stuurt de automatische herinneringen.
 builder.Services.AddHttpContextAccessor();
+// Een boekhouder ziet klanten en leads alleen met hun factuurgegevens (zie Accountants.HideFromAccountants).
+builder.Services.ConfigureHttpJsonOptions(o =>
+    o.SerializerOptions.TypeInfoResolver = (o.SerializerOptions.TypeInfoResolver ?? new DefaultJsonTypeInfoResolver())
+        .WithAddedModifier(Accountants.HideFromAccountants));
 builder.Services.AddScoped<InvoiceMailer>();
 builder.Services.AddScoped<QuoteNotices>();
 builder.Services.AddScoped<ReminderService>();
@@ -245,11 +251,18 @@ app.Use(async (http, next) =>
     if (http.Items.ContainsKey(TwoFactor.SetupRequiredItem) && http.Request.Path.StartsWithSegments("/api") && !TwoFactor.AllowedBeforeSetup(http.Request))
     {
         http.Response.StatusCode = StatusCodes.Status403Forbidden;
-        await http.Response.WriteAsJsonAsync(new { error = TwoFactor.SetupRequiredMessage, twoFactorSetupRequired = true });
+        await http.Response.WriteAsJsonAsync(new
+        {
+            error = http.User.IsInRole(Roles.Accountant) ? TwoFactor.AccountantSetupRequiredMessage : TwoFactor.SetupRequiredMessage, twoFactorSetupRequired = true,
+        });
         return;
     }
     await next();
 });
+
+// Een boekhouder kan alleen wat daarvoor gemarkeerd is: de geldzaken bekijken en exporteren, zijn eigen account, en wat een beheerder
+// hem apart toestaat. Alles zonder markering is dicht, ook wat hier later bijkomt (zie Accountants.GateAsync).
+app.Use(Accountants.GateAsync);
 
 app.UseAuthorization();
 app.UseRateLimiter();
@@ -302,6 +315,7 @@ app.Use(async (http, next) =>
 // Alles onder /api vraagt om een ingelogde gebruiker, behalve inloggen zelf.
 var api = app.MapGroup("/api").RequireAuthorization();
 api.MapAuth();
+api.MapAccountants();
 api.MapAccountEmail();
 api.MapTwoFactor();
 api.MapPublicInfo();

@@ -332,10 +332,11 @@ public static class TaxReserve
 
 public static class TaxReserveEndpoints
 {
-    // De belastingpot laat ook je loon en je voorlopige aanslag zien: net als de bank alleen voor beheerders.
+    // De belastingpot laat ook je loon en je voorlopige aanslag zien: net als de bank alleen voor beheerders. Een boekhouder kijkt mee,
+    // maar wijzigt niets.
     public static void MapTaxReserve(this RouteGroupBuilder api)
     {
-        var g = api.MapGroup("/tax/reserve").RequireAuthorization(p => p.RequireRole(Roles.Admin));
+        var g = api.MapGroup("/tax/reserve").AdminOrAccountant();
 
         // De pot voor een jaar; zonder jaar het lopende jaar.
         g.MapGet("/", async (AppDb db, BusinessClock clock, int? year) =>
@@ -343,7 +344,7 @@ public static class TaxReserveEndpoints
             var y = year ?? clock.Today.Year;
             if (y is < 2000 or > 2100) return Results.BadRequest(new { error = "Kies een geldig jaar." });
             return Results.Ok(await TaxReserve.CalculateAsync(db, clock, y));
-        });
+        }).ForAccountant();
 
         g.MapGet("/settings", async (AppDb db, BusinessClock clock, int? year) =>
         {
@@ -351,7 +352,7 @@ public static class TaxReserveEndpoints
             if (y is < 2000 or > 2100) return Results.BadRequest(new { error = "Kies een geldig jaar." });
             var (row, saved) = await TaxReserve.SettingsAsync(db, y);
             return Results.Ok(TaxReserveSettingsDto.From(row, saved));
-        });
+        }).ForAccountant();
 
         g.MapPut("/settings", async (AppDb db, BusinessClock clock, ClaimsPrincipal user, int? year, TaxReserveSettingsInput input) =>
         {
@@ -375,6 +376,6 @@ public static class TaxReserveEndpoints
             await db.SaveChangesAsync();
             await tx.CommitAsync();
             return Results.Ok(TaxReserveSettingsDto.From(row, true));
-        });
+        }).AdminOnly();
     }
 }

@@ -4,6 +4,8 @@ import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useToast } from '../lib/toast'
 import { useNewRequest } from '../lib/palette'
+import { useAuth } from '../lib/auth'
+import { isAccountant } from '../lib/accountant'
 import type { Trip, TripRoute, TripYear } from '../lib/types'
 import { date, euro, toDateInput } from '../lib/format'
 import { km, tripKinds } from '../lib/trips'
@@ -18,11 +20,13 @@ export function TripsPage() {
   const [today] = useState(() => toDateInput(new Date()))
   const [year, setYear] = useState(() => Number(today.slice(0, 4)))
   const [month, setMonth] = useState<string>('alle')
+  // Een boekhouder bekijkt de ritten alleen: geen nieuwe ritten, retourritten of vaste routes.
+  const accountant = isAccountant(useAuth().user)
   const { data, error, loading, reload } = useApi<TripYear>(`/trips?year=${year}`)
-  const { data: routes, reload: reloadRoutes } = useApi<TripRoute[]>('/trips/routes')
+  const { data: routes, reload: reloadRoutes } = useApi<TripRoute[]>(accountant ? null : '/trips/routes')
   const [editing, setEditing] = useState<{ trip?: Trip } | null>(null)
   // "Nieuwe rit" vanuit het zoekvenster.
-  useNewRequest('rit', () => setEditing({}))
+  useNewRequest('rit', () => { if (!accountant) setEditing({}) })
   const toast = useToast()
 
   const trips = useMemo(() => (data?.trips ?? []).filter(t => month === 'alle' || t.date.startsWith(month)), [data, month])
@@ -71,7 +75,7 @@ export function TripsPage() {
             <button className="btn" disabled>{year}</button>
             <button className="btn" onClick={() => { setYear(y => y + 1); setMonth('alle') }} aria-label="Volgend jaar"><ChevronRight size={16} /></button>
           </div>
-          <button className="btn btn-primary" onClick={() => setEditing({})}><Plus size={16} /> Rit toevoegen</button>
+          {!accountant && <button className="btn btn-primary" onClick={() => setEditing({})}><Plus size={16} /> Rit toevoegen</button>}
         </>}
       />
 
@@ -106,7 +110,7 @@ export function TripsPage() {
             {trips.length === 0 ? (
               <Empty icon={<Car size={22} />} title={month === 'alle' ? `Nog geen ritten in ${year}` : `Geen ritten in ${monthName(month)}`}
                 text="Leg je ritten vast met datum, adressen, kilometers en doel. Met een vaste route gaat dat in een paar tellen."
-                action={<button className="btn btn-primary" onClick={() => setEditing({})}><Plus size={16} /> Rit toevoegen</button>} />
+                action={!accountant && <button className="btn btn-primary" onClick={() => setEditing({})}><Plus size={16} /> Rit toevoegen</button>} />
             ) : (
               <div className="table-wrap">
                 <table>
@@ -133,7 +137,7 @@ export function TripsPage() {
                         </td>
                         <td className="num nowrap"><strong>{km(t.kilometres)}</strong></td>
                         <td className="row-actions" onClick={ev => ev.stopPropagation()}>
-                          <button className="icon-btn" title={`Retourrit: ${t.to} naar ${t.from}`} onClick={() => addReturn(t)}><Repeat size={16} /></button>
+                          {!accountant && <button className="icon-btn" title={`Retourrit: ${t.to} naar ${t.from}`} onClick={() => addReturn(t)}><Repeat size={16} /></button>}
                         </td>
                       </tr>
                     ))}
@@ -171,7 +175,7 @@ export function TripsPage() {
               )}
             </div>
 
-            <div className="card mt">
+            {!accountant && <div className="card mt">
               <div className="card-head"><h3>Vaste routes</h3><span className="muted">Kies ze bij een nieuwe rit</span></div>
               {(routes ?? []).length === 0 ? (
                 <div className="card-body muted" style={{ fontSize: 13 }}>Nog geen vaste routes. Vink bij een nieuwe rit "Bewaren als vaste route" aan.</div>
@@ -190,7 +194,7 @@ export function TripsPage() {
                   </table>
                 </div>
               )}
-            </div>
+            </div>}
           </div>
         </div>
       )}

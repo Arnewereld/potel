@@ -21,6 +21,9 @@ public static class Plans
     // De verkooppagina toont dit vanuit frontend/src/lib/plans.ts; PlanTests controleert dat die gelijk blijft.
     static readonly Dictionary<string, int> UserLimits = new() { [Trial] = 5, [Solo] = 1, [Team] = 5 };
     public static int MaxUsers(string plan) => UserLimits.GetValueOrDefault(plan, 1);
+    // Boekhouders tellen niet mee voor de gebruikers van het abonnement: ze kijken alleen mee. Wel hooguit zoveel per werkruimte,
+    // in elk abonnement, zodat niemand zo onbeperkt uitnodigingen verstuurt.
+    public const int MaxAccountants = 3;
 
     // De prijs per maand in euro, exclusief btw. Ook dit staat in frontend/src/lib/plans.ts (monthly); PlanTests controleert dat.
     static readonly Dictionary<string, decimal> MonthlyPrices = new() { [Trial] = 0, [Solo] = 12, [Team] = 29 };
@@ -76,6 +79,8 @@ public class Workspace
     public int? BillingCustomerId { get; set; }
     // Beheerders moeten inloggen in twee stappen. Wie het nog niet heeft, stelt het in voordat hij verder kan.
     public bool RequireTwoFactorForAdmins { get; set; }
+    // Hetzelfde voor boekhouders. Kan alleen aan als het voor beheerders al verplicht is.
+    public bool RequireTwoFactorForAccountants { get; set; }
 
     // Na de proef zonder abonnement is een werkruimte alleen-lezen: niets wijzigen en geen werkstromen meer.
     public bool TrialExpired(DateTime utcNow) => Plan == Plans.Trial && TrialEndsAt is { } end && end < utcNow;
@@ -1407,7 +1412,10 @@ public static class Roles
 {
     public const string Admin = "beheerder";
     public const string Employee = "medewerker";
-    public static readonly string[] All = [Admin, Employee];
+    // Kijkt mee in de geldzaken en kan niets wijzigen, behalve wat een beheerder hem apart toestaat (zie AccountantAccess).
+    // Een boekhouder nodig je uit per e-mail; met hetzelfde adres kan hij boekhouder zijn in meer werkruimtes.
+    public const string Accountant = "boekhouder";
+    public static readonly string[] All = [Admin, Employee, Accountant];
 }
 
 public class User : IWorkspaceOwned
@@ -1436,6 +1444,12 @@ public class User : IWorkspaceOwned
     [JsonIgnore] public string? TwoFactorPendingSecret { get; set; }
     public DateTime? TwoFactorEnabledAt { get; set; }
     [JsonIgnore] public long? TwoFactorLastStep { get; set; }
+    // Alleen voor een boekhouder: wat een beheerder hem daarnaast toestaat. Een btw-aangifte als gedaan markeren, en bij een
+    // uitgave een bonnetje of categorie aanvullen.
+    public bool CanFileVat { get; set; }
+    public bool CanCompleteExpenses { get; set; }
+    // Een uitgenodigde boekhouder die de uitnodiging nog niet heeft aangenomen. Kan nog niet inloggen en heeft nog geen wachtwoord.
+    public bool InvitePending { get; set; }
 
     public bool TwoFactorEnabled => TwoFactorEnabledAt is not null && TwoFactorSecret is not null;
 
@@ -1457,6 +1471,7 @@ public static class TokenPurposes
 {
     public const string PasswordReset = "wachtwoord";
     public const string VerifyEmail = "e-mail";
+    public const string Invite = "uitnodiging";
 }
 
 // Een link uit een mail om je wachtwoord te herstellen of je e-mailadres te bevestigen. Werkt één keer en kort.

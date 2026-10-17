@@ -327,14 +327,14 @@ public static partial class InvoiceEndpoints
             await MarkOverdue(db, clock, engine, notifier);
             return await Full(db).AsNoTracking()
                 .OrderBy(i => i.Status != InvoiceStatus.Draft).ThenBy(i => i.IsDemo).ThenByDescending(i => i.Number).ThenByDescending(i => i.Id).ToListAsync();
-        });
+        }).ForAccountant();
 
         // Het nummer dat een factuur met deze datum zou krijgen als je hem nu verstuurt.
         g.MapGet("/next-number", async (AppDb db, BusinessClock clock, DateTime? date) =>
             new { number = await NextNumber(db, (date ?? clock.Today).Year) });
 
         g.MapGet("/{id:int}", async (AppDb db, int id) =>
-            await Full(db).AsNoTracking().FirstOrDefaultAsync(i => i.Id == id) is { } inv ? Results.Ok(inv) : Results.NotFound());
+            await Full(db).AsNoTracking().FirstOrDefaultAsync(i => i.Id == id) is { } inv ? Results.Ok(inv) : Results.NotFound()).ForAccountant();
 
         // Een nieuwe factuur is een concept. Met een andere status wordt hij meteen verstuurd (of als betaald vastgelegd).
         g.MapPost("/", async (AppDb db, BusinessClock clock, WorkflowEngine engine, Invoice input) =>
@@ -607,7 +607,7 @@ public static partial class InvoiceEndpoints
             if (inv is null) return Results.NotFound();
             var (spec, problem) = await HourSpecs.ForAsync(db, inv);
             return Results.Ok(new { spec, problem, enabled = inv.HourSpecification, amounts = inv.HourAmounts });
-        });
+        }).ForAccountant();
 
         // Dezelfde specificatie als CSV, om aan de klant te geven of zelf te bewaren.
         g.MapGet("/{id:int}/hours.csv", async (AppDb db, HttpContext http, int id) =>
@@ -619,7 +619,7 @@ public static partial class InvoiceEndpoints
             var seller = inv.Seller?.Name ?? (await SettingsEndpoints.GetAsync(db)).CompanyName;
             http.Response.Headers.CacheControl = "private, no-store";
             return Results.File(HourSpecs.Csv(spec, inv.Number, seller, inv.Language), "text/csv; charset=utf-8", HourSpecs.CsvFileName(inv.Number, inv.Language));
-        });
+        }).AccountantExport(Accountants.DescribeHoursExport);
 
         // Alleen een concept mag weg. Een verstuurde factuur moet je bewaren; corrigeren doe je met een creditnota.
         // Een voorbeeldfactuur uit de welkomstwizard is nooit echt verstuurd en mag altijd weg.

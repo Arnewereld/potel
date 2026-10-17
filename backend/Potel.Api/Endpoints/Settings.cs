@@ -51,7 +51,7 @@ public static partial class SettingsEndpoints
     {
         var g = api.MapGroup("/settings");
 
-        g.MapGet("/", async (AppDb db) => await GetAsync(db));
+        g.MapGet("/", async (AppDb db) => await GetAsync(db)).ForAccountant();
 
         // Bedrijfsgegevens, IBAN en huisstijl komen op elke factuur; die past alleen een beheerder aan.
         g.MapPut("/", async (AppDb db, Settings input) =>

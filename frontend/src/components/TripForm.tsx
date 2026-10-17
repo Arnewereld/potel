@@ -3,6 +3,8 @@ import { Lock, Repeat } from 'lucide-react'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useToast } from '../lib/toast'
+import { useAuth } from '../lib/auth'
+import { isAccountant } from '../lib/accountant'
 import type { Customer, Project, Trip, TripKind, TripRoute } from '../lib/types'
 import { euro, toDateInput } from '../lib/format'
 import { isBusiness, km, tripKindHelp, tripKinds } from '../lib/trips'
@@ -20,7 +22,9 @@ export function TripForm({ trip, date, routes, rate, year, onClose, onSaved }: {
   onClose: () => void
   onSaved: (routesChanged?: boolean) => void
 }) {
-  const { data: projects } = useApi<Project[]>('/projects')
+  // Een boekhouder bekijkt een rit alleen en ziet geen projecten; dan tonen we de namen die bij de rit horen.
+  const accountant = isAccountant(useAuth().user)
+  const { data: projects } = useApi<Project[]>(accountant ? null : '/projects')
   const { data: customers } = useApi<Customer[]>('/customers')
   const [form, setForm] = useState(() => ({
     date: trip?.date.slice(0, 10) ?? date ?? toDateInput(new Date()),
@@ -127,7 +131,7 @@ export function TripForm({ trip, date, routes, rate, year, onClose, onSaved }: {
       onClose={onClose}
       footer={<>
         {trip && !readOnly && <button className="btn btn-danger" type="button" onClick={remove}>Verwijderen</button>}
-        {trip && <button className="btn" type="button" onClick={addReturn}><Repeat size={15} /> Retourrit</button>}
+        {trip && !accountant && <button className="btn" type="button" onClick={addReturn}><Repeat size={15} /> Retourrit</button>}
         <span className="spacer" />
         <button className="btn" type="button" onClick={onClose}>{readOnly ? 'Sluiten' : 'Annuleren'}</button>
         {!readOnly && <button className="btn btn-primary" form="trip-form" disabled={busy}>Opslaan</button>}
@@ -137,7 +141,7 @@ export function TripForm({ trip, date, routes, rate, year, onClose, onSaved }: {
         <div className="notice"><Lock size={13} /> Deze rit staat op {trip?.invoiceNumber ? `factuur ${trip.invoiceNumber}` : 'een conceptfactuur'} en ligt vast.
           {trip?.invoiceNumber ? '' : ' Haal hem van de factuur af om hem weer vrij te geven.'}</div>
       )}
-      {!locked && trip && !trip.canEdit && (
+      {!locked && trip && !trip.canEdit && !accountant && (
         <div className="notice">Deze rit is vastgelegd door {trip.userName ?? 'iemand anders'}. Alleen die persoon of een beheerder kan hem aanpassen.</div>
       )}
       <form id="trip-form" onSubmit={save}>
@@ -177,7 +181,11 @@ export function TripForm({ trip, date, routes, rate, year, onClose, onSaved }: {
               <input maxLength={500} required={business} value={form.purpose} onChange={e => set('purpose', e.target.value)}
                 placeholder={business ? 'Bijv. overleg met Sanne over de koppeling' : 'Bijv. boodschappen'} />
             </Field>
-            {business && (<>
+            {business && accountant && (<>
+              <Field label="Project"><input readOnly value={trip?.projectName ?? 'Geen project'} /></Field>
+              <Field label="Klant"><input readOnly value={trip?.customerName ?? 'Geen klant'} /></Field>
+            </>)}
+            {business && !accountant && (<>
               <Field label="Project (optioneel)">
                 <select value={form.projectId} onChange={e => pickProject(Number(e.target.value))}>
                   <option value={0}>Geen project</option>
@@ -191,6 +199,8 @@ export function TripForm({ trip, date, routes, rate, year, onClose, onSaved }: {
                   {(customers ?? []).map(c => <option key={c.id} value={c.id}>{c.company || c.name}</option>)}
                 </select>
               </Field>
+            </>)}
+            {business && (<>
               <label className={`check-row field-full ${customer ? '' : 'muted'}`}>
                 <input type="checkbox" disabled={!customer} checked={form.billable && !!customer} onChange={e => set('billable', e.target.checked)} />
                 <span>Doorbelasten aan de klant</span>

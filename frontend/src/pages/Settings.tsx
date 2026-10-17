@@ -5,6 +5,7 @@ import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useToast } from '../lib/toast'
 import { useAuth } from '../lib/auth'
+import { isAccountant, accountantSettingsTabIds } from '../lib/accountant'
 import { useWorkspace } from '../lib/workspace'
 import { plans, product, type Plan } from '../lib/plans'
 import { contactEmail, usePlatformInfo } from '../lib/platform'
@@ -29,8 +30,12 @@ export function SettingsPage() {
   const [form, setForm] = useState<Settings | null>(null)
   const [busy, setBusy] = useState(false)
   const [params, setParams] = useSearchParams()
-  const tab = (params.get('tab') as Tab) || 'bedrijf'
   const { user } = useAuth()
+  // Een boekhouder ziet alleen zijn eigen account (en meldingen als hij de btw-aangifte mag markeren).
+  const accountant = isAccountant(user)
+  const allowed = accountant ? accountantSettingsTabIds(user.canFileVat === true) : null
+  const asked = (params.get('tab') as Tab) || (accountant ? 'account' : 'bedrijf')
+  const tab: Tab = allowed && !allowed.includes(asked) ? 'account' : asked
   const toast = useToast()
 
   useEffect(() => { if (data) setForm(data) }, [data])
@@ -70,10 +75,10 @@ export function SettingsPage() {
       <PageHeader
         icon={<SettingsIcon size={20} />}
         title="Instellingen"
-        subtitle="Je gegevens, huisstijl, meldingen, belastingpot, iDEAL, koppelingen, Potel op je telefoon, abonnement en account."
+        subtitle={accountant ? 'Je account: wachtwoord, inloggen in twee stappen en meldingen.' : 'Je gegevens, huisstijl, meldingen, belastingpot, iDEAL, koppelingen, Potel op je telefoon, abonnement en account.'}
         actions={admin && (tab === 'bedrijf' || tab === 'huisstijl') && <button className="btn btn-primary" disabled={busy || !dirty}><Save size={15} /> Opslaan</button>}
       />
-      <SubTabs<Tab> value={tab} onChange={t => setParams({ tab: t }, { replace: true })} tabs={[
+      <SubTabs<Tab> value={tab} onChange={t => setParams({ tab: t }, { replace: true })} tabs={([
         { id: 'bedrijf', label: 'Bedrijf', icon: <Building size={14} /> },
         { id: 'huisstijl', label: 'Huisstijl', icon: <Palette size={14} /> },
         { id: 'email', label: 'E-mail en herinneringen', icon: <BellRing size={14} /> },
@@ -85,7 +90,7 @@ export function SettingsPage() {
         { id: 'agenda', label: 'Agenda', icon: <CalendarCheck size={14} /> },
         { id: 'abonnement', label: 'Abonnement', icon: <CreditCard size={14} /> },
         { id: 'account', label: 'Account', icon: <UserCog size={14} /> },
-      ]} />
+      ] satisfies { id: Tab; label: string; icon: React.ReactNode }[]).filter(t => !allowed || allowed.includes(t.id))} />
 
       {!admin && (tab === 'bedrijf' || tab === 'huisstijl') && (
         <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>Alleen een beheerder kan de bedrijfsgegevens en de huisstijl wijzigen.</p>
@@ -156,7 +161,7 @@ export function SettingsPage() {
       {tab === 'telefoon' && <InstallAppTab />}
       {tab === 'agenda' && <CalendarFeedTab />}
       {tab === 'abonnement' && <Subscription admin={admin} />}
-      {tab === 'account' && <Account admin={admin} />}
+      {tab === 'account' && <Account admin={admin} accountant={accountant} />}
     </form>
   )
 }
@@ -446,7 +451,7 @@ function Subscription({ admin }: { admin: boolean }) {
   </>)
 }
 
-function Account({ admin }: { admin: boolean }) {
+function Account({ admin, accountant }: { admin: boolean; accountant: boolean }) {
   const { workspace, reload } = useWorkspace()
   const [deleting, setDeleting] = useState(false)
   const [clearing, setClearing] = useState(false)
@@ -489,7 +494,9 @@ function Account({ admin }: { admin: boolean }) {
   if (!admin) return (
     <div className="grid grid-1-1">
       <TwoFactorCard />
-      <div className="card"><div className="card-body muted">Alleen een beheerder kan gegevens exporteren of de werkruimte verwijderen.</div></div>
+      <div className="card"><div className="card-body muted">{accountant
+        ? `Je bent boekhouder bij ${workspace?.name ?? 'deze werkruimte'}. Je kunt de administratie bekijken en exporteren, maar niets wijzigen. Je wachtwoord en inloggen in twee stappen gelden in elke werkruimte waar je boekhouder bent.`
+        : 'Alleen een beheerder kan gegevens exporteren of de werkruimte verwijderen.'}</div></div>
     </div>
   )
 

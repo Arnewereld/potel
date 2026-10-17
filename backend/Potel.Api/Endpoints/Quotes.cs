@@ -268,12 +268,12 @@ public static partial class QuoteEndpoints
                 q.NewerVersionId = newer.TryGetValue(q.Id, out var n) ? n : null;
             }
             return list.OrderBy(q => q.Status != QuoteStatus.Draft).ThenBy(q => q.IsDemo).ThenByDescending(q => q.SentAt ?? q.CreatedAt).ThenByDescending(q => q.Id);
-        });
+        }).ForAccountant();
 
         g.MapGet("/next-number", async (AppDb db, BusinessClock clock) => new { number = await NextNumber(db, clock.Today.Year) });
 
         g.MapGet("/{id:int}", async (AppDb db, BusinessClock clock, int id) =>
-            await db.Quotes.AnyAsync(q => q.Id == id) ? await OkAsync(db, clock, id) : Results.NotFound());
+            await db.Quotes.AnyAsync(q => q.Id == id) ? await OkAsync(db, clock, id) : Results.NotFound()).ForAccountant();
 
         g.MapPost("/", async (AppDb db, BusinessClock clock, Quote input) =>
         {

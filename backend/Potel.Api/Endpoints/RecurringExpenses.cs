@@ -156,10 +156,10 @@ public static class RecurringExpenseEndpoints
             var review = await db.Expenses.AsNoTracking().Where(e => e.NeedsReview).OrderBy(e => e.Date).ThenBy(e => e.Id).Take(100)
                 .Select(e => new RecurringExpenseReview(e.Id, e.Date, e.Supplier, e.Description, e.Amount, e.RecurringExpenseId)).ToListAsync();
             return new RecurringExpenseOverview(items, perMonth, perYear, review);
-        });
+        }).ForAccountant();
 
         g.MapGet("/{id:int}", async (AppDb db, BusinessClock clock, IOptions<InvoicingLimits> limits, int id) =>
-            (await ListAsync(db, clock, Math.Max(1, limits.Value.MaxCatchUpPeriods), id)).FirstOrDefault() is { } t ? Results.Ok(t) : Results.NotFound());
+            (await ListAsync(db, clock, Math.Max(1, limits.Value.MaxCatchUpPeriods), id)).FirstOrDefault() is { } t ? Results.Ok(t) : Results.NotFound()).ForAccountant();
 
         // Rekent uit wat deze instellingen doen, zonder iets op te slaan: de eerstvolgende perioden, hoeveel er meteen aan de beurt zijn
         // en de omschrijving op de eerste uitgave. Met een id: vanaf de volgende periode van die vaste kost. Booked: de eerste periode

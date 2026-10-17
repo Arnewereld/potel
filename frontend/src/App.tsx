@@ -4,18 +4,20 @@ import { Layout } from './components/Layout'
 import { TabsProvider } from './lib/tabs'
 import { ToastProvider } from './lib/toast'
 import { ModulesProvider } from './lib/modules'
-import { AuthProvider } from './lib/auth'
+import { AuthProvider, useAuth } from './lib/auth'
+import { isAccountant } from './lib/accountant'
 import { TimerProvider } from './lib/timer'
 import { WorkspaceProvider } from './lib/workspace'
-import { Loading } from './components/ui'
+import { ErrorBox, Loading } from './components/ui'
 import { PublicSite } from './pages/public/PublicSite'
-import { ResetPasswordPage, VerifyEmailPage } from './pages/public/AccountLinks'
+import { AcceptInvitePage, ResetPasswordPage, VerifyEmailPage } from './pages/public/AccountLinks'
 import { ProcessorAgreementPage, PrivacyPage, TermsPage } from './pages/public/Legal'
 import { PublicInvoicePage } from './pages/public/PublicInvoice'
 import { PublicQuotePage } from './pages/public/PublicQuote'
 import { PortalPage } from './pages/public/Portal'
 import { UsersPage } from './pages/Users'
 import { DashboardPage } from './pages/Dashboard'
+import { AccountantHomePage } from './pages/AccountantHome'
 import { CustomersPage } from './pages/Customers'
 import { CustomerDetailPage } from './pages/CustomerDetail'
 import { LeadsPage } from './pages/Leads'
@@ -49,6 +51,8 @@ import { TwoFactorRequiredPage } from './components/TwoFactor'
 const standalone: Record<string, () => React.ReactNode> = {
   '/wachtwoord-herstellen': ResetPasswordPage,
   '/email-bevestigen': VerifyEmailPage,
+  // De uitnodiging als boekhouder.
+  '/uitnodiging': AcceptInvitePage,
   '/voorwaarden': TermsPage,
   '/privacy': PrivacyPage,
   '/verwerkersovereenkomst': ProcessorAgreementPage,
@@ -89,9 +93,11 @@ export default function App() {
 
 // Elk tabblad houdt zijn eigen pagina vast, zodat je niets kwijtraakt als je wisselt.
 function AppRoutes({ location }: { location: string }) {
+  const { user } = useAuth()
+  if (isAccountant(user)) return <AccountantRoutes location={location} />
   return (
     <Routes location={location}>
-      <Route path="/" element={<DashboardPage />} />
+      <Route path="/" element={<HomePage />} />
       <Route path="/inzichten" element={<InsightsPage />} />
       <Route path="/uren" element={<TimePage />} />
       <Route path="/projecten" element={<ProjectsPage />} />
@@ -119,7 +125,37 @@ function AppRoutes({ location }: { location: string }) {
       <Route path="/modules/:id" element={<ModuleRecordsPage />} />
       <Route path="/gebruikers" element={<UsersPage />} />
       <Route path="/meldingen" element={<NotificationsPage />} />
-      <Route path="*" element={<DashboardPage />} />
+      <Route path="*" element={<HomePage />} />
     </Routes>
   )
+}
+
+// Een boekhouder ziet alleen de administratie. Een andere pagina, bijvoorbeeld uit een oude link, laat uitleg zien in plaats van fouten.
+function AccountantRoutes({ location }: { location: string }) {
+  return (
+    <Routes location={location}>
+      <Route path="/" element={<AccountantHomePage />} />
+      <Route path="/facturen" element={<InvoicesPage />} />
+      <Route path="/facturen/:id" element={<InvoiceEditorPage />} />
+      <Route path="/offertes" element={<QuotesPage />} />
+      <Route path="/offertes/:id" element={<QuoteEditorPage />} />
+      <Route path="/kosten" element={<ExpensesPage />} />
+      <Route path="/ritten" element={<TripsPage />} />
+      <Route path="/bank" element={<BankPage />} />
+      <Route path="/btw-aangifte" element={<VatReturnPage />} />
+      <Route path="/jaaroverzicht" element={<AnnualPage />} />
+      <Route path="/investeringen" element={<InvestmentsPage />} />
+      <Route path="/klanten" element={<CustomersPage />} />
+      <Route path="/klanten/:id" element={<CustomerDetailPage />} />
+      <Route path="/instellingen" element={<SettingsPage />} />
+      <Route path="/meldingen" element={<NotificationsPage />} />
+      <Route path="*" element={<ErrorBox message="Deze pagina is er niet voor boekhouders. Je vindt de administratie in het menu links." />} />
+    </Routes>
+  )
+}
+
+// Een boekhouder heeft geen dashboard maar een eigen overzicht van wat hij kan bekijken.
+function HomePage() {
+  const { user } = useAuth()
+  return isAccountant(user) ? <AccountantHomePage /> : <DashboardPage />
 }

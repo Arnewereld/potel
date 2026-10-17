@@ -25,12 +25,14 @@ const intervalShort = (id: string) => recurringIntervals.find(i => i.id === id)?
 const day = (s?: string | null) => (s ? s.slice(0, 10) : '')
 
 // Het overzicht van je vaste kosten: wat ze samen kosten, wat aan de beurt is, concepten om na te kijken en de lijst zelf.
-export function RecurringExpenseList({ data, query, reload, onEdit, onNew }: {
+export function RecurringExpenseList({ data, query, reload, onEdit, onNew, view = false }: {
   data: RecurringExpenseOverview
   query: string
   reload: () => void
   onEdit: (t: RecurringExpense) => void
   onNew: () => void
+  // Alleen bekijken, zoals een boekhouder: niets boeken, overslaan, nakijken of aanpassen.
+  view?: boolean
 }) {
   const toast = useToast()
   const [busy, setBusy] = useState(false)
@@ -73,7 +75,7 @@ export function RecurringExpenseList({ data, query, reload, onEdit, onNew }: {
           sub={`${running.length} ${running.length === 1 ? 'lopende vaste kost' : 'lopende vaste kosten'}, met btw`} />
         <MiniStat icon={<CalendarRange size={18} />} accent="var(--blue)" label="Per jaar" value={euro(data.perYear)} sub="Zoals je ze nu betaalt" />
         <MiniStat icon={<BellRing size={18} />} accent="var(--yellow)" label="Aan de beurt" value={String(due.length)}
-          sub={due.length ? 'Boek ze of sla een periode over' : 'Niets om te boeken'} />
+          sub={due.length ? (view ? 'Nog niet geboekt' : 'Boek ze of sla een periode over') : 'Niets om te boeken'} />
         <MiniStat icon={<ClipboardCheck size={18} />} accent="var(--green)" label="Na te kijken" value={String(data.toReview.length)}
           sub={data.toReview.length ? 'Concepten van je vaste kosten' : 'Alles is nagekeken'} />
       </div>
@@ -91,10 +93,12 @@ export function RecurringExpenseList({ data, query, reload, onEdit, onNew }: {
                     {t.due!.count > 1 && ` Daarna ${t.due!.count === 2 ? 'staat er nog 1 periode' : `staan er nog ${t.due!.count - 1} perioden`} klaar.`}
                   </div>
                 </div>
-                <div className="row" style={{ gap: 6 }}>
-                  <button className="btn btn-sm" disabled={busy} onClick={() => skip(t)}><SkipForward size={14} /> Overslaan</button>
-                  <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => book(t)}><Wallet size={14} /> Boeken</button>
-                </div>
+                {!view && (
+                  <div className="row" style={{ gap: 6 }}>
+                    <button className="btn btn-sm" disabled={busy} onClick={() => skip(t)}><SkipForward size={14} /> Overslaan</button>
+                    <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => book(t)}><Wallet size={14} /> Boeken</button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -106,8 +110,8 @@ export function RecurringExpenseList({ data, query, reload, onEdit, onNew }: {
           <div className="card-head"><h3><ClipboardCheck size={16} /> Concepten om na te kijken</h3></div>
           <div className="card-body">
             <p className="muted" style={{ marginTop: 0 }}>
-              Deze uitgaven zette een vaste kost voor je klaar. Ze tellen al mee in je kosten en je btw-aangifte. Klopt het bedrag? Klik dan op Klopt,
-              of open de uitgave om iets aan te passen of het bonnetje toe te voegen.
+              Deze uitgaven zette een vaste kost klaar. Ze tellen al mee in de kosten en de btw-aangifte.
+              {view ? ' De beheerder kijkt ze nog na.' : ' Klopt het bedrag? Klik dan op Klopt, of open de uitgave om iets aan te passen of het bonnetje toe te voegen.'}
             </p>
             <div className="list">
               {data.toReview.map(e => (
@@ -117,9 +121,11 @@ export function RecurringExpenseList({ data, query, reload, onEdit, onNew }: {
                     <div className="cell-sub">{e.description ?? bySupplier(e.recurringExpenseId)?.description}</div>
                   </div>
                   <strong className="nowrap">{euro(e.amount)}</strong>
-                  <button className="btn btn-sm" disabled={busy} onClick={ev => { ev.stopPropagation(); post(`/expenses/${e.id}/reviewed`, `Uitgave bij ${e.supplier} nagekeken`) }}>
-                    <Check size={14} /> Klopt
-                  </button>
+                  {!view && (
+                    <button className="btn btn-sm" disabled={busy} onClick={ev => { ev.stopPropagation(); post(`/expenses/${e.id}/reviewed`, `Uitgave bij ${e.supplier} nagekeken`) }}>
+                      <Check size={14} /> Klopt
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -131,7 +137,7 @@ export function RecurringExpenseList({ data, query, reload, onEdit, onNew }: {
         {items.length === 0 ? (
           <Empty icon={<Repeat size={22} />} title={query ? 'Niets gevonden' : 'Nog geen vaste kosten'}
             text={query ? 'Probeer een andere zoekterm.' : 'Betaal je elke maand, elk kwartaal of elk jaar hetzelfde, zoals software, je telefoon of een flexplek? Zet het hier neer. Potel zet de uitgave dan elke keer voor je klaar, of herinnert je eraan.'}
-            action={!query && <button className="btn btn-primary" onClick={onNew}><Plus size={16} /> Vaste kost toevoegen</button>} />
+            action={!query && !view && <button className="btn btn-primary" onClick={onNew}><Plus size={16} /> Vaste kost toevoegen</button>} />
         ) : (
           <div className="table-wrap">
             <table>
@@ -140,7 +146,7 @@ export function RecurringExpenseList({ data, query, reload, onEdit, onNew }: {
                 {items.map(t => {
                   const st = states[t.state]
                   return (
-                    <tr key={t.id} className="clickable" onClick={() => onEdit(t)}>
+                    <tr key={t.id} className={view ? undefined : 'clickable'} onClick={view ? undefined : () => onEdit(t)}>
                       <td>
                         <strong>{t.supplier}</strong>
                         {t.demo && <span className="badge badge-gray" style={{ marginLeft: 8 }}>voorbeeld</span>}

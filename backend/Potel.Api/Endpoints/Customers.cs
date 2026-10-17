@@ -21,10 +21,10 @@ public static class CustomerEndpoints
     {
         var g = api.MapGroup("/customers");
 
-        g.MapGet("/", async (AppDb db) => await db.Customers.OrderBy(c => c.Name).ToListAsync());
+        g.MapGet("/", async (AppDb db) => await db.Customers.OrderBy(c => c.Name).ToListAsync()).ForAccountant();
 
         g.MapGet("/{id:int}", async (AppDb db, int id) =>
-            await db.Customers.FindAsync(id) is { } c ? Results.Ok(c) : Results.NotFound());
+            await db.Customers.FindAsync(id) is { } c ? Results.Ok(c) : Results.NotFound()).ForAccountant();
 
         g.MapPost("/", async (AppDb db, WorkflowEngine engine, Customer input) =>
         {

@@ -429,10 +429,10 @@ public static class TaxEndpoints
             var q = quarter ?? VatReturn.QuarterOf(today);
             if (y is < 2000 or > 2100 || q is < 1 or > 4) return Results.BadRequest(new { error = "Kies een kwartaal van 1 tot en met 4 en een geldig jaar." });
             return Results.Ok(await VatReturn.CalculateAsync(db, clock, y, q, demo == true));
-        });
+        }).ForAccountant();
 
         // Een aangifte als gedaan markeren (of dat terugdraaien), zodat hij niet meer in de belastingpot telt. Alleen voor een
-        // kwartaal dat voorbij is, en alleen een beheerder.
+        // kwartaal dat voorbij is, en alleen een beheerder of een boekhouder die dat van de beheerder mag.
         g.MapPut("/vat-return/filed", async (AppDb db, BusinessClock clock, ClaimsPrincipal user, VatFiledRequest req) =>
         {
             if (req.Year is < 2000 or > 2100 || req.Quarter is < 1 or > 4) return Results.BadRequest(new { error = "Kies een kwartaal van 1 tot en met 4 en een geldig jaar." });
@@ -455,7 +455,7 @@ public static class TaxEndpoints
             await db.SaveChangesAsync();
             await tx.CommitAsync();
             return Results.Ok(new { year = req.Year, quarter = req.Quarter, filedAt = row?.FiledAt, filedBy = row?.FiledBy });
-        }).RequireAuthorization(p => p.RequireRole(Roles.Admin));
+        }).AdminOrAccountant().ForAccountant(AccountantPermissions.VatFiling);
 
         // Het jaaroverzicht; zonder jaar het lopende jaar. Starter geeft de startersaftrek mee in de indicatie; zonder starter
         // telt wat een beheerder bij de belastingpot voor dat jaar heeft ingesteld.
@@ -465,7 +465,7 @@ public static class TaxEndpoints
             if (y is < 2000 or > 2100) return Results.BadRequest(new { error = "Kies een geldig jaar." });
             var isStarter = starter ?? (await TaxReserve.SettingsAsync(db, y)).Row.Starter;
             return Results.Ok((await AnnualOverview.CalculateAsync(db, y, isStarter)).Summary);
-        });
+        }).ForAccountant();
 
         // Hetzelfde overzicht als CSV voor je boekhouder, met alle facturen en kosten van dat jaar.
         g.MapGet("/annual.csv", async (AppDb db, BusinessClock clock, HttpContext http, int? year) =>
@@ -476,6 +476,6 @@ public static class TaxEndpoints
             var company = (await SettingsEndpoints.GetAsync(db)).CompanyName;
             http.Response.Headers.CacheControl = "private, no-store";
             return Results.File(AnnualOverview.Csv(data, company), "text/csv; charset=utf-8", $"jaaroverzicht-{y}.csv");
-        });
+        }).AccountantExport(Accountants.DescribeAnnualExport);
     }
 }

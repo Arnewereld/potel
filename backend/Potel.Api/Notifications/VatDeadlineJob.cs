@@ -38,7 +38,9 @@ public class VatDeadlineJob(AppDb db, BusinessClock clock, Notifier notifier, IO
             : new NotificationEvent(NotificationKinds.Vat, key, $"Je btw-aangifte over {pending.Label} moet {In(days)} binnen zijn",
                 $"Je btw-aangifte over {pending.Label} moet {In(days)} binnen zijn, uiterlijk {due}.", "/btw-aangifte",
                 $"Je btw-aangifte over {pending.Label} moet uiterlijk {due} bij de Belastingdienst binnen zijn. Op de pagina Btw-aangifte staan de bedragen per rubriek. Heb je hem al gedaan? Markeer hem daar dan als gedaan, dan krijg je geen melding meer.");
-        await notifier.ToWorkspaceAsync(e);
+        // Ook voor een boekhouder die de aangifte als gedaan mag markeren.
+        var accountants = await db.Users.Where(u => u.Role == Roles.Accountant && u.Active && !u.InvitePending && u.CanFileVat).Select(u => (int?)u.Id).ToArrayAsync();
+        await notifier.ToWorkspaceAsync(e, null, accountants);
     }
 
     static string In(int days) => days == 1 ? "morgen" : $"over {days} dagen";

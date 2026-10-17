@@ -2386,6 +2386,12 @@ namespace Potel.Api.Data.Migrations
                     b.Property<bool>("Active")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("CanCompleteExpenses")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("CanFileVat")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
@@ -2397,6 +2403,9 @@ namespace Potel.Api.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<int?>("FocusMinutes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("InvitePending")
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("IsPlatformAdmin")
@@ -2439,9 +2448,13 @@ namespace Potel.Api.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Email")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"Role\" <> 'boekhouder'");
 
                     b.HasIndex("WorkspaceId");
+
+                    b.HasIndex("WorkspaceId", "Email")
+                        .IsUnique();
 
                     b.ToTable("Users");
                 });
@@ -2618,6 +2631,9 @@ namespace Potel.Api.Data.Migrations
                     b.Property<string>("Plan")
                         .IsRequired()
                         .HasColumnType("TEXT");
+
+                    b.Property<bool>("RequireTwoFactorForAccountants")
+                        .HasColumnType("INTEGER");
 
                     b.Property<bool>("RequireTwoFactorForAdmins")
                         .HasColumnType("INTEGER");

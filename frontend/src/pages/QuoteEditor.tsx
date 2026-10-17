@@ -7,6 +7,7 @@ import {
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useAuth } from '../lib/auth'
+import { isAccountant } from '../lib/accountant'
 import { useTabs, useTabTitle } from '../lib/tabs'
 import { useToast } from '../lib/toast'
 import type { Customer, InvoiceLine, Language, Lead, MailServerStatus, Quote, QuoteLinks, QuoteMailPreview, Settings, VatRegime } from '../lib/types'
@@ -34,11 +35,14 @@ export function QuoteEditorPage() {
   const isNew = id === 'nieuw'
   const [params] = useSearchParams()
   const { pathname, search } = useLocation()
+  const { user } = useAuth()
+  // Een boekhouder bekijkt de offerte en maakt de PDF, maar wijzigt of verstuurt niets.
+  const accountant = isAccountant(user)
   const { data: customers } = useApi<Customer[]>('/customers')
-  const { data: leads } = useApi<Lead[]>('/leads')
+  const { data: leads } = useApi<Lead[]>(accountant ? null : '/leads')
   const { data: settings } = useApi<Settings>('/settings')
   // Kan Potel zelf mailen? Dezelfde voorwaarden als bij facturen.
-  const { data: mailStatus } = useApi<MailServerStatus>('/invoices/mail-status')
+  const { data: mailStatus } = useApi<MailServerStatus>(accountant ? null : '/invoices/mail-status')
   const [draft, setDraft] = useState<Draft | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
@@ -46,9 +50,8 @@ export function QuoteEditorPage() {
   const [saving, setSaving] = useState(false)
   const [dialog, setDialog] = useState<'send' | 'mail' | 'project' | null>(null)
   const [sendDate] = useState(() => toDateInput(new Date()))
-  const { data: next } = useApi<{ number: string }>(draft && draft.status === 'concept' && !draft.demo ? '/quotes/next-number' : null)
-  const { data: links, reload: reloadLinks } = useApi<QuoteLinks>(!isNew && draft && draft.status !== 'concept' && !draft.demo ? `/quotes/${id}/links` : null)
-  const { user } = useAuth()
+  const { data: next } = useApi<{ number: string }>(draft && draft.status === 'concept' && !draft.demo && !accountant ? '/quotes/next-number' : null)
+  const { data: links, reload: reloadLinks } = useApi<QuoteLinks>(!isNew && !accountant && draft && draft.status !== 'concept' && !draft.demo ? `/quotes/${id}/links` : null)
   const admin = user.role === 'beheerder'
   const { retarget, close } = useTabs()
   const navigate = useNavigate()
@@ -58,6 +61,7 @@ export function QuoteEditorPage() {
   usePrintTitle(draft ? docTitle(draft.language, 'quote', draft.number, draft.seller?.name ?? settings?.companyName ?? '') : document.title)
 
   useEffect(() => {
+    if (isNew && accountant) return
     if (isNew) {
       const today = toDateInput(new Date())
       const customerId = Number(params.get('klant')) || null
@@ -75,8 +79,9 @@ export function QuoteEditorPage() {
     } else {
       api.get<Quote>(`/quotes/${id}`).then(q => setDraft(fromServer(q))).catch(e => setError(e.message))
     }
-  }, [id, isNew, params])
+  }, [id, isNew, params, accountant])
 
+  if (isNew && accountant) return <ErrorBox message="Als boekhouder kun je geen offertes maken. Je kunt ze wel bekijken en als PDF opslaan." />
   if (error) return <ErrorBox message={error} />
   if (!draft) return <Loading />
 
@@ -87,6 +92,8 @@ export function QuoteEditorPage() {
   const totals = invoiceTotals(draft.lines)
   const state = quoteState(draft)
   const readOnly = draft.status !== 'concept'
+  // Niets aan te passen: verstuurd, of je kijkt alleen mee.
+  const locked = readOnly || accountant
   const demo = !!draft.demo
   const noVat = zeroVat(draft.vatRegime)
   const regimeInfo = vatRegimes.find(r => r.id === draft.vatRegime)
@@ -225,13 +232,13 @@ export function QuoteEditorPage() {
           actions={<>
             {!isNew && <Badge tone={st.tone}>{st.label}</Badge>}
             {!isNew && demo && <Badge tone="gray">Voorbeeld</Badge>}
-            {!isNew && (!readOnly || demo) && <button className="btn btn-danger" title={demo ? 'Voorbeeldofferte verwijderen' : 'Concept verwijderen'} onClick={remove}><Trash2 size={15} /></button>}
-            {!isNew && !draft.newerVersionId && (readOnly && !demo
+            {!isNew && !accountant && (!readOnly || demo) && <button className="btn btn-danger" title={demo ? 'Voorbeeldofferte verwijderen' : 'Concept verwijderen'} onClick={remove}><Trash2 size={15} /></button>}
+            {!isNew && !accountant && !draft.newerVersionId && (readOnly && !demo
               ? <button className="btn" onClick={duplicate}><History size={15} /> Nieuwe versie</button>
               : <button className="btn" title="Kopie maken als nieuw concept" onClick={duplicate}><Copy size={15} /></button>)}
             <button className="btn" onClick={() => window.print()}><Printer size={15} /> PDF</button>
-            {!readOnly && <button className="btn" onClick={() => save()} disabled={saving || (!dirty && !isNew)}><Save size={15} /> Opslaan</button>}
-            {!readOnly && !isNew && admin && <button className="btn btn-primary" disabled={saving} onClick={openSend}><Send size={15} /> Versturen</button>}
+            {!locked && <button className="btn" onClick={() => save()} disabled={saving || (!dirty && !isNew)}><Save size={15} /> Opslaan</button>}
+            {!locked && !isNew && admin && <button className="btn btn-primary" disabled={saving} onClick={openSend}><Send size={15} /> Versturen</button>}
             {canMail && state === 'verstuurd' && <button className="btn" onClick={() => setDialog('mail')}><Mail size={15} /> Mailen</button>}
             {state === 'verstuurd' && admin && !demo && <button className="btn" onClick={withdraw}><Ban size={15} /> Intrekken</button>}
           </>}
@@ -243,13 +250,13 @@ export function QuoteEditorPage() {
           {demo && (
             <div className="notice row between wrap" style={{ gap: 10 }}>
               <span>Dit is een voorbeeldofferte uit de welkomstwizard. Hij telt niet mee in je echte nummering en Potel mailt of deelt hem niet. Maak een kopie als je er een echte offerte van wilt maken.</span>
-              <button className="btn btn-sm" onClick={remove}><Trash2 size={14} /> Verwijderen</button>
+              {!accountant && <button className="btn btn-sm" onClick={remove}><Trash2 size={14} /> Verwijderen</button>}
             </div>
           )}
           {readOnly && !demo && (
             <div className="notice row between wrap" style={{ gap: 10 }}>
-              <span><Lock size={13} /> Deze offerte is verstuurd en ligt vast. Wil je iets veranderen? Maak dan een nieuwe versie; die vervangt deze offerte als je hem verstuurt.</span>
-              {!draft.newerVersionId && <button className="btn btn-sm" onClick={duplicate}><History size={14} /> Nieuwe versie</button>}
+              <span><Lock size={13} /> Deze offerte is verstuurd en ligt vast.{!accountant && ' Wil je iets veranderen? Maak dan een nieuwe versie; die vervangt deze offerte als je hem verstuurt.'}</span>
+              {!draft.newerVersionId && !accountant && <button className="btn btn-sm" onClick={duplicate}><History size={14} /> Nieuwe versie</button>}
             </div>
           )}
           {draft.newerVersionId && (
@@ -257,7 +264,7 @@ export function QuoteEditorPage() {
               Er is een nieuwere versie van deze offerte. <a onClick={() => navigate(`/offertes/${draft.newerVersionId}`)} style={{ cursor: 'pointer' }}>Open de nieuwste versie</a>.
             </div>
           )}
-          {!readOnly && draft.previousVersionId && (
+          {!locked && draft.previousVersionId && (
             <div className="notice">
               Dit is versie {draft.version} van offerte{' '}
               <a onClick={() => navigate(`/offertes/${draft.previousVersionId}`)} style={{ cursor: 'pointer' }}>{draft.previousNumber ?? 'de vorige versie'}</a>.
@@ -265,10 +272,10 @@ export function QuoteEditorPage() {
             </div>
           )}
 
-          {!isNew && readOnly && <DecisionCard quote={draft} state={state} onProject={() => setDialog('project')} onInvoice={makeInvoice} onOpen={navigate} onNewVersion={duplicate} />}
+          {!isNew && readOnly && <DecisionCard quote={draft} state={state} view={accountant} onProject={() => setDialog('project')} onInvoice={makeInvoice} onOpen={navigate} onNewVersion={duplicate} />}
 
           <div className="card invoice-form">
-            <fieldset className="card-body plain-fieldset" disabled={readOnly}>
+            <fieldset className="card-body plain-fieldset" disabled={locked}>
               <div className="form-grid">
                 <Field label="Voor *">
                   <select value={draft.customerId ? `k${draft.customerId}` : draft.leadId ? `l${draft.leadId}` : ''} onChange={e => choose(e.target.value)}>
@@ -290,7 +297,7 @@ export function QuoteEditorPage() {
                 <Field label="Geldig tot en met">
                   <div className="input-with-chips">
                     <input type="date" value={draft.validUntil} min={draft.issueDate} onChange={e => update({ validUntil: e.target.value })} />
-                    {!readOnly && [14, 30, 60].map(n => (
+                    {!locked && [14, 30, 60].map(n => (
                       <button key={n} type="button" className={`chip ${draft.validUntil === addDays(draft.issueDate, n) ? 'active' : ''}`} onClick={() => update({ validUntil: addDays(draft.issueDate, n) })}>{n} d</button>
                     ))}
                   </div>
@@ -305,7 +312,7 @@ export function QuoteEditorPage() {
                     {vatRegimes.map(r => <option key={r.id} value={r.id} disabled={!!lead && (r.id === 'verlegd' || r.id === 'buiten-eu')}>{r.label}</option>)}
                   </select>
                 </Field>
-                {lead && !readOnly && (
+                {lead && !locked && (
                   <p className="muted" style={{ fontSize: 13, margin: 0, alignSelf: 'end' }}>
                     Accepteert de lead de offerte, dan wordt hij vanzelf klant. Daarna kun je er een project of factuur van maken.
                   </p>
@@ -313,7 +320,7 @@ export function QuoteEditorPage() {
                 {(regimeError || draft.vatRegime !== 'normaal') && (
                   <p className={regimeError ? 'text-red' : 'muted'} style={{ fontSize: 13, margin: 0, gridColumn: '1 / -1' }}>{regimeError ?? regimeInfo?.help}</p>
                 )}
-                {!readOnly && (
+                {!locked && (
                   <RegimeSuggestion kind="offerte" regime={draft.vatRegime} customer={customer} onAccept={regime => update(withRegime(regime))} />
                 )}
                 <LanguageField kind="offerte" value={draft.language} onChange={(language: Language) => update({ language })} />
@@ -343,7 +350,7 @@ export function QuoteEditorPage() {
                     </select>
                     <span className="num">{euro(lineAmount(l))}</span>
                     <span className="line-actions">
-                      {!readOnly && <>
+                      {!locked && <>
                         <button className="icon-btn tiny" disabled={i === 0} onClick={() => moveLine(i, -1)} aria-label="Omhoog"><ChevronUp size={14} /></button>
                         <button className="icon-btn tiny" disabled={i === draft.lines.length - 1} onClick={() => moveLine(i, 1)} aria-label="Omlaag"><ChevronDown size={14} /></button>
                         <button className="icon-btn tiny danger" disabled={draft.lines.length === 1} onClick={() => update({ lines: draft.lines.filter((_, x) => x !== i) })} aria-label="Regel verwijderen"><Trash2 size={14} /></button>
@@ -353,7 +360,7 @@ export function QuoteEditorPage() {
                 ))}
               </div>
               <div className="row mt between wrap">
-                {readOnly ? <span /> : (
+                {locked ? <span /> : (
                   <button className="btn btn-sm" onClick={() => update({ lines: [...draft.lines, newLine(draft.lines.at(-1)?.unit, draft.lines.at(-1)?.unitPrice, noVat ? 0 : 21)] })}><Plus size={14} /> Regel toevoegen</button>
                 )}
                 <div className="line-totals">
@@ -367,8 +374,8 @@ export function QuoteEditorPage() {
               <Field label="Voorwaarden" full>
                 <textarea rows={4} maxLength={5000} value={draft.terms ?? ''} placeholder="Bijv. hoe je meer- en minderwerk afrekent, de betaaltermijn en wie eigenaar is van de code." onChange={e => update({ terms: e.target.value })} />
               </Field>
-              {!readOnly && !admin && <p className="muted" style={{ fontSize: 13, marginBottom: 0 }}>Alleen een beheerder kan de offerte versturen. Sla hem op, dan staat hij klaar voor een beheerder.</p>}
-              {!readOnly && !settings?.kvk && (
+              {!locked && !admin && <p className="muted" style={{ fontSize: 13, marginBottom: 0 }}>Alleen een beheerder kan de offerte versturen. Sla hem op, dan staat hij klaar voor een beheerder.</p>}
+              {!locked && !settings?.kvk && (
                 <p className="muted" style={{ fontSize: 13, marginBottom: 0 }}>
                   Tip: vul je adres en KvK-nummer in bij <a onClick={() => navigate('/instellingen')} style={{ cursor: 'pointer' }}><Building size={12} /> Instellingen</a>, dan staan ze op elke offerte.
                 </p>
@@ -415,9 +422,11 @@ export function QuoteEditorPage() {
 const fromServer = (q: Quote): Draft => ({ ...q, issueDate: q.issueDate.slice(0, 10), validUntil: q.validUntil.slice(0, 10) })
 
 // Wat de klant besloot en wat je daarna doet. Een project of factuur maak je zelf; Potel doet dat nooit vanzelf.
-function DecisionCard({ quote, state, onProject, onInvoice, onOpen, onNewVersion }: {
+function DecisionCard({ quote, state, view, onProject, onInvoice, onOpen, onNewVersion }: {
   quote: Draft
   state: string
+  // Alleen bekijken, zoals een boekhouder: geen project, factuur of nieuwe versie maken.
+  view: boolean
   onProject: () => void
   onInvoice: (deposit: boolean) => void
   onOpen: (path: string) => void
@@ -446,9 +455,15 @@ function DecisionCard({ quote, state, onProject, onInvoice, onOpen, onNewVersion
             {quote.decidedAt ? ` op ${utcDateTime(quote.decidedAt)}` : ''}{quote.decidedIp ? `, vanaf IP-adres ${quote.decidedIp}` : ''}.
           </p>
           <p className="muted" style={{ margin: '6px 0 10px', fontSize: 13 }}>
-            {noCustomer ? 'Deze offerte hoort nog niet bij een klant.' : 'Maak er nu een project of factuur van. Dat doet Potel niet vanzelf, zodat jij bepaalt wanneer.'}
+            {noCustomer ? 'Deze offerte hoort nog niet bij een klant.' : view ? '' : 'Maak er nu een project of factuur van. Dat doet Potel niet vanzelf, zodat jij bepaalt wanneer.'}
           </p>
-          {!noCustomer && (
+          {view && !noCustomer && (quote.depositInvoiceId || quote.invoiceId) && (
+            <div className="row wrap" style={{ gap: 8 }}>
+              {quote.depositInvoiceId && <button className="btn btn-sm" onClick={() => onOpen(`/facturen/${quote.depositInvoiceId}`)}><Receipt size={14} /> Factuur aanbetaling bekijken</button>}
+              {quote.invoiceId && <button className="btn btn-sm" onClick={() => onOpen(`/facturen/${quote.invoiceId}`)}><Receipt size={14} /> Factuur bekijken</button>}
+            </div>
+          )}
+          {!noCustomer && !view && (
             <div className="row wrap" style={{ gap: 8 }}>
               {quote.projectId
                 ? <button className="btn btn-sm" onClick={() => onOpen(`/projecten/${quote.projectId}`)}><FolderKanban size={14} /> Project bekijken</button>
@@ -477,7 +492,7 @@ function DecisionCard({ quote, state, onProject, onInvoice, onOpen, onNewVersion
           {state === 'ingetrokken' && <>Deze offerte is ingetrokken{quote.withdrawnAt ? ` op ${utcDateTime(quote.withdrawnAt)}` : ''}. Je klant kan hem niet meer accepteren.</>}
         </p>
         {state === 'afgewezen' && quote.rejectReason && <blockquote className="quote-reason">{quote.rejectReason}</blockquote>}
-        {!quote.newerVersionId && !quote.demo && (
+        {!quote.newerVersionId && !quote.demo && !view && (
           <button className="btn btn-sm mt" onClick={onNewVersion}><History size={14} /> Nieuwe versie maken</button>
         )}
       </div>

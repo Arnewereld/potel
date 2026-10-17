@@ -579,6 +579,10 @@ export interface Workspace {
   readOnly?: string | null
   // Beheerders moeten inloggen in twee stappen aan hebben.
   requireTwoFactorForAdmins: boolean
+  // En boekhouders ook (kan alleen als het voor beheerders al verplicht is).
+  requireTwoFactorForAccountants?: boolean
+  // Hoeveel boekhouders je mag uitnodigen. Die tellen niet mee voor maxUsers.
+  maxAccountants?: number
 }
 
 export interface Dashboard {

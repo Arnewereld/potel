@@ -6,6 +6,7 @@ import { api } from '../lib/api'
 import { useTabs, useTabTitle } from '../lib/tabs'
 import { useToast } from '../lib/toast'
 import { useAuth } from '../lib/auth'
+import { isAccountant } from '../lib/accountant'
 import type { Appointment, Customer, CustomerPortalSettings, Invoice, Project, RecurringInvoice } from '../lib/types'
 import { date, dateTime, euro, initials, invoiceTotals } from '../lib/format'
 import { colorFor, invoiceStatuses, kindColor } from '../lib/status'
@@ -23,13 +24,15 @@ type TabId = 'overzicht' | 'projecten' | 'facturen' | 'planning' | 'notities' | 
 
 export function CustomerDetailPage() {
   const { id } = useParams()
+  const { user } = useAuth()
+  // Een boekhouder ziet alleen de factuurgegevens en de facturen van een klant.
+  const accountant = isAccountant(user)
   const { data: customer, setData, error, loading } = useApi<Customer>(`/customers/${id}`)
   const { data: invoices } = useApi<Invoice[]>('/invoices')
-  const { data: appointments } = useApi<Appointment[]>('/appointments')
-  const { data: projects } = useApi<Project[]>(`/projects?customerId=${id}`)
-  const { data: recurring } = useApi<RecurringInvoice[]>(`/recurring-invoices?customerId=${id}`)
-  const { data: portal, setData: setPortal } = useApi<CustomerPortalSettings>(`/customers/${id}/portal`)
-  const { user } = useAuth()
+  const { data: appointments } = useApi<Appointment[]>(accountant ? null : '/appointments')
+  const { data: projects } = useApi<Project[]>(accountant ? null : `/projects?customerId=${id}`)
+  const { data: recurring } = useApi<RecurringInvoice[]>(accountant ? null : `/recurring-invoices?customerId=${id}`)
+  const { data: portal, setData: setPortal } = useApi<CustomerPortalSettings>(accountant ? null : `/customers/${id}/portal`)
   const [newProject, setNewProject] = useState(false)
   const [tab, setTab] = useState<TabId>('overzicht')
   const [editing, setEditing] = useState(false)
@@ -83,16 +86,21 @@ export function CustomerDetailPage() {
             {customer.city && <span className="row"><MapPin size={14} /> {customer.city}</span>}
           </div>
         </div>
-        <div className="row">
-          <button className="btn" onClick={() => setEditing(true)}><Pencil size={15} /> Bewerken</button>
-          <button className="btn btn-danger" onClick={remove}><Trash2 size={15} /></button>
-        </div>
+        {!accountant && (
+          <div className="row">
+            <button className="btn" onClick={() => setEditing(true)}><Pencil size={15} /> Bewerken</button>
+            <button className="btn btn-danger" onClick={remove}><Trash2 size={15} /></button>
+          </div>
+        )}
       </div>
 
       <SubTabs<TabId>
         value={tab}
         onChange={setTab}
-        tabs={[
+        tabs={accountant ? [
+          { id: 'overzicht', label: 'Overzicht', icon: <User size={14} /> },
+          { id: 'facturen', label: 'Facturen', icon: <Receipt size={14} />, count: mine.length },
+        ] : [
           { id: 'overzicht', label: 'Overzicht', icon: <User size={14} /> },
           { id: 'projecten', label: 'Projecten', icon: <FolderKanban size={14} />, count: projects?.length },
           { id: 'facturen', label: 'Facturen', icon: <Receipt size={14} />, count: mine.length },
@@ -116,7 +124,7 @@ export function CustomerDetailPage() {
                 <dt>Btw-nummer</dt><dd>{customer.vatNumber || '—'}</dd>
                 <dt>Taal</dt><dd>{languages.find(l => l.id === (customer.language ?? 'nl'))?.label}</dd>
                 <dt>Klant sinds</dt><dd>{date(customer.createdAt)}</dd>
-                <dt>Klantportaal</dt><dd><a href="#portaal" onClick={e => { e.preventDefault(); setTab('portaal') }}>{portalOpened(portal)}</a></dd>
+                {!accountant && <><dt>Klantportaal</dt><dd><a href="#portaal" onClick={e => { e.preventDefault(); setTab('portaal') }}>{portalOpened(portal)}</a></dd></>}
               </dl>
             </div>
           </div>
@@ -142,7 +150,7 @@ export function CustomerDetailPage() {
       </>)}
 
       {tab === 'facturen' && (<>
-        <div className="card" style={{ marginBottom: 16 }}>
+        {!accountant && <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-head">
             <h3><Repeat size={16} /> Terugkerende facturen</h3>
             {user.role === 'beheerder' && <button className="btn btn-sm" onClick={() => navigate(`/facturen/terugkerend/nieuw?klant=${customer.id}`)}><Plus size={14} /> Terugkerende factuur</button>}
@@ -170,14 +178,14 @@ export function CustomerDetailPage() {
               </table>
             </div>
           )}
-        </div>
+        </div>}
         <div className="card">
           <div className="card-head">
             <h3>Facturen</h3>
-            <div className="row" style={{ gap: 6 }}>
+            {!accountant && <div className="row" style={{ gap: 6 }}>
               <button className="btn btn-sm" onClick={() => navigate(`/offertes/nieuw?klant=${customer.id}`)}><Plus size={14} /> Offerte</button>
               <button className="btn btn-sm btn-primary" onClick={() => navigate(`/facturen/nieuw?klant=${customer.id}`)}><Plus size={14} /> Factuur</button>
-            </div>
+            </div>}
           </div>
           {mine.length === 0 ? <Empty icon={<Receipt size={22} />} title="Nog geen facturen" /> : (
             <div className="table-wrap" style={{ marginTop: 10 }}>

@@ -9,10 +9,12 @@ import { Field, Modal } from './ui'
 
 // De betalingen op een verstuurde factuur: wat er binnen is, wat er nog openstaat en een deelbetaling toevoegen.
 // Weghalen mag alleen een beheerder; de factuur gaat dan terug naar verzonden of verlopen.
-export function PaymentsPanel({ invoice, total, admin, onChange }: {
+export function PaymentsPanel({ invoice, total, admin, view = false, onChange }: {
   invoice: Invoice
   total: number
   admin: boolean
+  // Alleen bekijken, zoals een boekhouder: geen betaling toevoegen of weghalen.
+  view?: boolean
   onChange: (inv: Invoice) => void
 }) {
   const [adding, setAdding] = useState(false)
@@ -20,7 +22,7 @@ export function PaymentsPanel({ invoice, total, admin, onChange }: {
   const payments = invoice.payments ?? []
   const paid = invoice.paidTotal ?? payments.reduce((a, p) => a + p.amount, 0)
   const open = invoice.openAmount ?? 0
-  const canAdd = (invoice.status === 'verzonden' || invoice.status === 'verlopen') && !invoice.fullyCredited && open > 0
+  const canAdd = !view && (invoice.status === 'verzonden' || invoice.status === 'verlopen') && !invoice.fullyCredited && open > 0
 
   const remove = async (p: InvoicePayment) => {
     const back = invoice.status === 'betaald' ? ' De factuur staat daarna weer open.' : ''
@@ -43,7 +45,7 @@ export function PaymentsPanel({ invoice, total, admin, onChange }: {
       <div className="card-body">
         <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
           {payments.length === 0
-            ? `Er is nog niets betaald. Kreeg je een deel van de ${euro(total)}? Voeg dan een deelbetaling toe.`
+            ? view ? `Er is nog niets van de ${euro(total)} betaald.` : `Er is nog niets betaald. Kreeg je een deel van de ${euro(total)}? Voeg dan een deelbetaling toe.`
             : invoice.status === 'betaald'
               ? `Helemaal betaald: ${euro(paid)} in ${payments.length === 1 ? '1 betaling' : `${payments.length} betalingen`}.`
               : `${euro(paid)} betaald, er staat nog ${euro(open)} open.`}
@@ -56,7 +58,7 @@ export function PaymentsPanel({ invoice, total, admin, onChange }: {
                   <strong>{euro(p.amount)}</strong>
                   <span className="row" style={{ gap: 6 }}>
                     <span className="muted">{date(p.date)}</span>
-                    {admin && <button className="icon-btn tiny danger" title="Betaling weghalen" aria-label="Betaling weghalen" onClick={() => remove(p)}><Trash2 size={14} /></button>}
+                    {admin && !view && <button className="icon-btn tiny danger" title="Betaling weghalen" aria-label="Betaling weghalen" onClick={() => remove(p)}><Trash2 size={14} /></button>}
                   </span>
                 </div>
                 <div className="muted">
