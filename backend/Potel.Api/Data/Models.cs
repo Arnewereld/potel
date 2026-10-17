@@ -1335,6 +1335,29 @@ public class Appointment : IWorkspaceOwned, IDemoData
     public string? Location { get; set; }
     public string? Notes { get; set; }
     public bool Done { get; set; }
+    // Voor wie het is, voor de eigen agendalink. Leeg is: voor iedereen in de werkruimte.
+    public int? UserId { get; set; }
+}
+
+// Je planning in je eigen agenda (Apple, Google, Outlook): één geheime link per gebruiker (zie CalendarFeedEndpoints). Alleen de
+// hash van het token staat hier; leeg is: geen werkende link. Wat erin staat kies je zelf; facturen, offertes en btw alleen als
+// beheerder, en bedragen en notities alleen met ShowAmounts. LastFetchedAt, Fetches en LastClient zeggen wanneer je agenda keek.
+public class CalendarFeed : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int UserId { get; set; }
+    [JsonIgnore] public string? TokenHash { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public bool Planning { get; set; } = true;
+    public bool Deadlines { get; set; } = true;
+    public bool Invoices { get; set; } = true;
+    public bool Quotes { get; set; } = true;
+    public bool Vat { get; set; } = true;
+    public bool ShowAmounts { get; set; }
+    public DateTime? LastFetchedAt { get; set; }
+    public int Fetches { get; set; }
+    public string? LastClient { get; set; }
 }
 
 // Eigen modules: de gebruiker bepaalt zelf de velden, records worden als JSON opgeslagen.

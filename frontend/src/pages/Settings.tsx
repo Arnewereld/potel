@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Settings as SettingsIcon, Save, Building, Target, Palette, CreditCard, UserCog, Download, Trash2, Check, Mail, BellRing, RotateCcw, GitBranch, Banknote, PiggyBank, Smartphone } from 'lucide-react'
+import { Settings as SettingsIcon, Save, Building, Target, Palette, CreditCard, UserCog, Download, Trash2, Check, Mail, BellRing, RotateCcw, GitBranch, Banknote, PiggyBank, Smartphone, CalendarCheck } from 'lucide-react'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useToast } from '../lib/toast'
@@ -18,9 +18,10 @@ import { GitHubSettingsTab } from '../components/GitHub'
 import { IdealSettingsTab } from '../components/IdealSettings'
 import { TaxReserveSettingsTab } from '../components/TaxReserveSettings'
 import { InstallAppTab } from '../components/InstallApp'
+import { CalendarFeedTab } from '../components/CalendarFeed'
 import { TwoFactorCard } from '../components/TwoFactor'
 
-type Tab = 'bedrijf' | 'huisstijl' | 'email' | 'belastingpot' | 'ideal' | 'github' | 'telefoon' | 'abonnement' | 'account'
+type Tab = 'bedrijf' | 'huisstijl' | 'email' | 'belastingpot' | 'ideal' | 'github' | 'telefoon' | 'agenda' | 'abonnement' | 'account'
 
 export function SettingsPage() {
   const { data, error, loading, setData } = useApi<Settings>('/settings')
@@ -79,6 +80,7 @@ export function SettingsPage() {
         { id: 'ideal', label: 'iDEAL', icon: <Banknote size={14} /> },
         { id: 'github', label: 'GitHub', icon: <GitBranch size={14} /> },
         { id: 'telefoon', label: 'Op je telefoon', icon: <Smartphone size={14} /> },
+        { id: 'agenda', label: 'Agenda', icon: <CalendarCheck size={14} /> },
         { id: 'abonnement', label: 'Abonnement', icon: <CreditCard size={14} /> },
         { id: 'account', label: 'Account', icon: <UserCog size={14} /> },
       ]} />
@@ -149,6 +151,7 @@ export function SettingsPage() {
       {tab === 'ideal' && <IdealSettingsTab admin={admin} />}
       {tab === 'github' && <GitHubSettingsTab admin={admin} />}
       {tab === 'telefoon' && <InstallAppTab />}
+      {tab === 'agenda' && <CalendarFeedTab />}
       {tab === 'abonnement' && <Subscription admin={admin} />}
       {tab === 'account' && <Account admin={admin} />}
     </form>

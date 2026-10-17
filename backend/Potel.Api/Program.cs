@@ -109,6 +109,12 @@ builder.Services.AddRateLimiter(o =>
     o.AddPolicy("portal", http => RateLimitPartition.GetFixedWindowLimiter(
         http.Connection.RemoteIpAddress?.ToString() ?? "onbekend",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = portalPerMinute, Window = TimeSpan.FromMinutes(1) }));
+    // De agendalink (geheim token per gebruiker): per IP-adres begrensd. Ruim, want Google en Outlook halen veel agenda's op vanaf
+    // dezelfde adressen.
+    var calendarPerMinute = builder.Configuration.GetValue("RateLimit:CalendarFeedPerMinute", 120);
+    o.AddPolicy("calendar", http => RateLimitPartition.GetFixedWindowLimiter(
+        http.Connection.RemoteIpAddress?.ToString() ?? "onbekend",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = calendarPerMinute, Window = TimeSpan.FromMinutes(1) }));
 });
 
 // Sleutels voor de inlogcookies bewaren, zodat gebruikers ingelogd blijven na een herstart of update.
@@ -244,7 +250,7 @@ app.UseRateLimiter();
 // maar niets meer wijzigen tot je (weer) een abonnement kiest. Wel mag je nog inloggen, je wachtwoord wijzigen of herstellen,
 // je e-mailadres bevestigen en inloggen in twee stappen regelen (alles onder /api/auth), betalen of opzeggen (/api/billing),
 // gebruikers uitschakelen of verwijderen of hun inloggen in twee stappen uitzetten, dat verplicht maken voor beheerders,
-// een link naar het klantportaal intrekken, het GitHub-token of de sleutel van Mollie weghalen, een offerte of de links ernaar intrekken,
+// een link naar het klantportaal of je agendalink intrekken, het GitHub-token of de sleutel van Mollie weghalen, een offerte of de links ernaar intrekken,
 // de welkomstwizard sluiten, je eigen lopende timer weggooien (er wordt dan niets geboekt) en je werkruimte verwijderen. Openbare
 // pagina's (/api/public) werken gewoon, ook akkoord op een offerte. Al het andere is dicht, ook wat hier later bijkomt: een timer
 // starten, pauzeren of stoppen en boeken kan dus pas weer met een abonnement. Een lopende timer blijft tot dan gewoon staan.
@@ -255,6 +261,7 @@ static bool WritableAfterTrial(HttpRequest r)
     if (r.Path.StartsWithSegments("/api/public")) return true;
     if (r.Path.StartsWithSegments("/api/users", out var user) && user.HasValue && (HttpMethods.IsPut(r.Method) || HttpMethods.IsDelete(r.Method))) return true;
     if (CustomerPortalEndpoints.IsRevoke(r)) return true;
+    if (CalendarFeedEndpoints.IsRevoke(r)) return true;
     if (GitHubEndpoints.IsRemoveToken(r)) return true;
     if (InvoiceIdealEndpoints.IsRemoveKey(r)) return true;
     if (QuoteEndpoints.IsSafetyAction(r)) return true;
@@ -306,6 +313,7 @@ api.MapTax();
 api.MapTaxReserve();
 api.MapInsights();
 api.MapAppointments();
+api.MapCalendarFeed();
 api.MapModules();
 api.MapWorkflows();
 api.MapProjects();

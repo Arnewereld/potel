@@ -124,6 +124,9 @@ namespace Potel.Api.Data.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("UserId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("WorkspaceId")
                         .HasColumnType("INTEGER");
 
@@ -275,6 +278,65 @@ namespace Potel.Api.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("BankTransactions");
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.CalendarFeed", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Deadlines")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Fetches")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("Invoices")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LastClient")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastFetchedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Planning")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("Quotes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("ShowAmounts")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("TokenHash")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("Vat")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("WorkspaceId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasFilter("\"TokenHash\" IS NOT NULL");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.ToTable("CalendarFeeds");
                 });
 
             modelBuilder.Entity("Potel.Api.Data.CashflowSettings", b =>
@@ -2503,6 +2565,15 @@ namespace Potel.Api.Data.Migrations
                     b.HasOne("Potel.Api.Data.BankImport", null)
                         .WithMany()
                         .HasForeignKey("ImportId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Potel.Api.Data.CalendarFeed", b =>
+                {
+                    b.HasOne("Potel.Api.Data.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

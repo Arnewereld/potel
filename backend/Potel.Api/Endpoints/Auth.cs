@@ -228,6 +228,9 @@ public static class AuthEndpoints
                 return Results.Conflict(new { error = EmailUnavailable });
 
             if (!string.IsNullOrEmpty(input.Password)) u.PasswordHash = Hash(u, input.Password);
+            // Uitgeschakeld: ook de agendalink werkt niet meer. Na weer inschakelen maakt hij zelf een nieuwe.
+            if (u.Active && !input.Active)
+                await db.CalendarFeeds.Where(f => f.UserId == id).ExecuteUpdateAsync(x => x.SetProperty(f => f.TokenHash, (string?)null));
             // Een nieuw adres moet opnieuw bevestigd worden, en links naar het oude adres werken niet meer.
             var emailChanged = email != u.Email;
             if (emailChanged) u.EmailVerifiedAt = null;
@@ -277,6 +280,9 @@ public static class AuthEndpoints
             if (await ProtectedPlatformAdmin(db, me, u) is { } refused) return refused;
             db.AccountTokens.RemoveRange(db.AccountTokens.Where(t => t.UserId == id));
             db.RecoveryCodes.RemoveRange(db.RecoveryCodes.Where(r => r.UserId == id));
+            // Zijn agendalink werkt niet meer, en wat voor hem was ingepland, is daarna voor iedereen.
+            db.CalendarFeeds.RemoveRange(db.CalendarFeeds.Where(f => f.UserId == id));
+            await db.Appointments.Where(a => a.UserId == id).ExecuteUpdateAsync(x => x.SetProperty(a => a.UserId, (int?)null));
             db.Users.Remove(u);
             db.Log("gebruiker", $"Gebruiker {u.Name} verwijderd");
             await db.SaveChangesAsync();

@@ -326,6 +326,28 @@ export interface Appointment {
   location?: string | null
   notes?: string | null
   done: boolean
+  // Voor wie het is, voor de eigen agendalink. Leeg is: voor iedereen.
+  userId?: number | null
+}
+
+// Iemand uit je werkruimte voor wie je iets kunt inplannen.
+export interface Person { id: number; name: string }
+
+// Je eigen agendalink (Instellingen, Agenda). De link zelf zie je alleen als je hem maakt.
+export interface CalendarFeedSettings {
+  active: boolean
+  createdAt?: string | null
+  planning: boolean
+  deadlines: boolean
+  invoices: boolean
+  quotes: boolean
+  vat: boolean
+  showAmounts: boolean
+  lastFetchedAt?: string | null
+  fetches: number
+  client?: string | null
+  // Facturen, offertes en btw zijn er alleen voor een beheerder.
+  canSeeMoney: boolean
 }
 
 export type FieldType = 'text' | 'number' | 'date' | 'textarea' | 'checkbox'

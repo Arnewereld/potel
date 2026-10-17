@@ -34,6 +34,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
     public DbSet<Expense> Expenses => Set<Expense>();
     public DbSet<ExpenseReceipt> ExpenseReceipts => Set<ExpenseReceipt>();
     public DbSet<RecurringExpense> RecurringExpenses => Set<RecurringExpense>();
+    public DbSet<CalendarFeed> CalendarFeeds => Set<CalendarFeed>();
     public DbSet<RecurringInvoice> RecurringInvoices => Set<RecurringInvoice>();
     public DbSet<RecurringInvoiceLine> RecurringInvoiceLines => Set<RecurringInvoiceLine>();
     public DbSet<InvoiceMail> InvoiceMails => Set<InvoiceMail>();
@@ -119,6 +120,10 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         b.Entity<RecurringExpense>().HasOne<Project>().WithMany().HasForeignKey(r => r.ProjectId).OnDelete(DeleteBehavior.SetNull);
         b.Entity<RecurringExpense>().HasOne<Customer>().WithMany().HasForeignKey(r => r.CustomerId).OnDelete(DeleteBehavior.SetNull);
         b.Entity<RecurringExpense>().HasIndex(r => new { r.WorkspaceId, r.NextRunDate });
+        // De agendalink: één per gebruiker, weg met de gebruiker, en het token is overal uniek.
+        b.Entity<CalendarFeed>().HasOne<User>().WithMany().HasForeignKey(f => f.UserId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<CalendarFeed>().HasIndex(f => f.UserId).IsUnique();
+        b.Entity<CalendarFeed>().HasIndex(f => f.TokenHash).IsUnique().HasFilter("\"TokenHash\" IS NOT NULL");
         // Hooguit één bonnetje per uitgave, en het gaat mee als de uitgave weggaat.
         b.Entity<ExpenseReceipt>().HasOne<Expense>().WithMany().HasForeignKey(r => r.ExpenseId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<ExpenseReceipt>().HasIndex(r => r.ExpenseId).IsUnique();
@@ -198,7 +203,7 @@ public class AppDb(DbContextOptions<AppDb> options, Tenant tenant) : DbContext(o
         Filter<Customer>(b); Filter<Lead>(b); Filter<Invoice>(b); Filter<Appointment>(b); Filter<Project>(b); Filter<TimeEntry>(b); Filter<RunningTimer>(b);
         Filter<Settings>(b); Filter<CustomModule>(b); Filter<CustomRecord>(b); Filter<Workflow>(b); Filter<Activity>(b);
         Filter<User>(b); Filter<WorkflowRun>(b); Filter<AccountToken>(b); Filter<RecoveryCode>(b); Filter<MolliePayment>(b);
-        Filter<Expense>(b); Filter<ExpenseReceipt>(b); Filter<RecurringExpense>(b); Filter<RecurringInvoice>(b);
+        Filter<Expense>(b); Filter<ExpenseReceipt>(b); Filter<RecurringExpense>(b); Filter<RecurringInvoice>(b); Filter<CalendarFeed>(b);
         Filter<InvoiceMail>(b); Filter<InvoiceLink>(b); Filter<ReminderSettings>(b); Filter<CustomerPortal>(b); Filter<PortalLink>(b);
         Filter<GitHubSettings>(b); Filter<GitHubAuthor>(b); Filter<GitHubCommit>(b);
         Filter<Quote>(b); Filter<QuoteLink>(b);
