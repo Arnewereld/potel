@@ -408,7 +408,7 @@ public class ProductionMailTests
     [Fact]
     public async Task Without_a_mail_server_no_link_ends_up_in_the_log()
     {
-        using var f = new ProductionMailFactory(smtp: false, baseUrl: "https://potel.example");
+        using var f = await TestHostStart.Started(new ProductionMailFactory(smtp: false, baseUrl: "https://potel.example"));
         Assert.Equal(HttpStatusCode.Created, (await TryRegisterAsync(f, "prod-zonder-mail@example.com")).Status);
         var res = await ForgotAsync(f, "prod-zonder-mail@example.com");
         Assert.Equal(HttpStatusCode.ServiceUnavailable, res.StatusCode);
@@ -419,7 +419,7 @@ public class ProductionMailTests
     [Fact]
     public async Task Without_a_public_address_nothing_is_mailed_whatever_the_host_header_says()
     {
-        using var f = new ProductionMailFactory(smtp: true, baseUrl: null);
+        using var f = await TestHostStart.Started(new ProductionMailFactory(smtp: true, baseUrl: null));
         Assert.Equal(HttpStatusCode.Created, (await TryRegisterAsync(f, "prod-zonder-adres@example.com")).Status);
         var res = await ForgotAsync(f, "prod-zonder-adres@example.com", host: "aanvaller.example");
         Assert.Equal(HttpStatusCode.ServiceUnavailable, res.StatusCode);
@@ -431,7 +431,7 @@ public class ProductionMailTests
     [Fact]
     public async Task With_a_public_address_the_link_uses_it()
     {
-        using var f = new ProductionMailFactory(smtp: true, baseUrl: "https://potel.jouwdomein.nl");
+        using var f = await TestHostStart.Started(new ProductionMailFactory(smtp: true, baseUrl: "https://potel.jouwdomein.nl"));
         Assert.Equal(HttpStatusCode.Created, (await TryRegisterAsync(f, "prod-met-adres@example.com")).Status);
         var verify = Assert.Single(f.Mail.Sent);
         Assert.Contains("https://potel.jouwdomein.nl/email-bevestigen#token=", verify.Body);
@@ -447,7 +447,7 @@ public class ForgotPasswordRateLimitTests
     [Fact]
     public async Task Forgot_password_is_rate_limited_per_address()
     {
-        using var factory = new StrictRateLimitFactory();
+        using var factory = await TestHostStart.Started(new StrictRateLimitFactory());
         var statuses = new List<HttpStatusCode>();
         for (var i = 0; i < 6; i++)
             statuses.Add((await factory.CreateClient().PostAsJsonAsync("/api/auth/forgot-password", new { email = $"iemand{i}@example.com" })).StatusCode);

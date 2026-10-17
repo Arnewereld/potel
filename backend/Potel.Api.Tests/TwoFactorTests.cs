@@ -561,15 +561,16 @@ public class TwoFactorTests(TwoFactorFactory factory) : IClassFixture<TwoFactorF
         Assert.False((await otherAdmin.GetFromJsonAsync<JsonElement>("/api/auth/me")).GetProperty("twoFactorSetupRequired").GetBoolean());
     }
 
+    // Asynchroon: wachten met GetResult() houdt een thread van xUnit bezet die de testclient nodig kan hebben.
     [Fact]
-    public void The_server_command_turns_it_off_for_a_locked_out_account()
+    public async Task The_server_command_turns_it_off_for_a_locked_out_account()
     {
-        var c = RegisterAsync(F, "tf-server@example.com").GetAwaiter().GetResult();
-        TwoFactorKit.EnableAsync(F, c).GetAwaiter().GetResult();
+        var c = await RegisterAsync(F, "tf-server@example.com");
+        await TwoFactorKit.EnableAsync(F, c);
         Assert.False(F.WithDb(db => Seed.ResetTwoFactor(db, "bestaat-niet@example.com", NullLogger.Instance)));
         Assert.True(F.WithDb(db => Seed.ResetTwoFactor(db, " TF-Server@example.com ", NullLogger.Instance)));
-        Assert.Equal(HttpStatusCode.Unauthorized, c.GetAsync("/api/customers").GetAwaiter().GetResult().StatusCode);
-        Assert.False(TwoFactorKit.NeedsCodeAsync(TwoFactorKit.PasswordStepAsync(Client(F), "tf-server@example.com").GetAwaiter().GetResult()).GetAwaiter().GetResult());
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.GetAsync("/api/customers")).StatusCode);
+        Assert.False(await TwoFactorKit.NeedsCodeAsync(await TwoFactorKit.PasswordStepAsync(Client(F), "tf-server@example.com")));
     }
 }
 

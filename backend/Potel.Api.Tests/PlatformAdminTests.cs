@@ -65,7 +65,7 @@ public class PlatformAdminTests(OpenPlatformSlotFactory factory) : IClassFixture
     [Fact]
     public async Task Owner_keeps_platform_access_after_changing_email_and_the_freed_address_gives_nothing()
     {
-        using var f = new PortalFactory();
+        using var f = await TestHostStart.Started(new PortalFactory());
         var owner = await f.LoginAsync();
         Assert.True(await HasPlatformAccessAsync(owner));
         var ownerId = await MyIdAsync(owner);
@@ -132,11 +132,11 @@ public class RestartTests
     public Task A_restart_does_not_hand_platform_rights_to_whoever_registered_a_listed_address() => WithSharedDb(async path =>
     {
         (string, string) slot = ("PlatformAdmins:1", "jij@jouwdomein.nl");
-        using (var first = new SharedDbFactory(path, slot))
+        using (var first = await TestHostStart.Started(new SharedDbFactory(path, slot)))
             await RegisterAsync(first, "jij@jouwdomein.nl");
 
         // Er is al een platformbeheerder (admin@potel.nl), dus de instellingen wijzen niemand meer aan.
-        using var second = new SharedDbFactory(path, slot);
+        using var second = await TestHostStart.Started(new SharedDbFactory(path, slot));
         var attacker = await LoginAsync(second, "jij@jouwdomein.nl");
         Assert.Equal(HttpStatusCode.Forbidden, (await attacker.GetAsync("/api/platform/workspaces")).StatusCode);
     });
@@ -147,7 +147,7 @@ public class RestartTests
     public Task A_restart_never_hands_platform_rights_to_a_self_registered_account() => WithSharedDb(async path =>
     {
         var settings = new[] { ("Admin:Email", ""), ("PlatformAdmins:0", "eigenaar@example.com") };
-        using (var first = new SharedDbFactory(path, settings))
+        using (var first = await TestHostStart.Started(new SharedDbFactory(path, settings)))
         {
             await RegisterAsync(first, "klant-van-het-platform@example.com");
             // Een vreemde is de eigenaar voor en meldt zich aan met diens adres.
@@ -155,7 +155,7 @@ public class RestartTests
             Assert.Equal(HttpStatusCode.Forbidden, (await attacker.GetAsync("/api/platform/workspaces")).StatusCode);
         }
 
-        using var second = new SharedDbFactory(path, settings);
+        using var second = await TestHostStart.Started(new SharedDbFactory(path, settings));
         var again = await LoginAsync(second, "eigenaar@example.com", "aanvaller1");
         Assert.Equal(HttpStatusCode.Forbidden, (await again.GetAsync("/api/platform/workspaces")).StatusCode);
         Assert.False(second.WithDb(db => db.Users.IgnoreQueryFilters().Any(u => u.IsPlatformAdmin)));
@@ -165,7 +165,7 @@ public class RestartTests
     public Task The_server_command_makes_an_account_platform_admin() => WithSharedDb(async path =>
     {
         var settings = new[] { ("Admin:Email", ""), ("PlatformAdmins:0", "eigenaar@example.com") };
-        using var f = new SharedDbFactory(path, settings);
+        using var f = await TestHostStart.Started(new SharedDbFactory(path, settings));
         var owner = await RegisterAsync(f, "eigenaar@example.com");
         var other = await RegisterAsync(f, "tweede@example.com");
         Assert.Equal(HttpStatusCode.Forbidden, (await owner.GetAsync("/api/platform/workspaces")).StatusCode);
@@ -239,7 +239,7 @@ public class AppointedPlatformAdminTests(PortalFactory factory) : IClassFixture<
     [Fact]
     public async Task The_last_platform_admin_cannot_delete_their_own_workspace()
     {
-        using var own = new PortalFactory();
+        using var own = await TestHostStart.Started(new PortalFactory());
         var owner = await own.LoginAsync();
         var refused = await owner.SendAsync(DeleteWorkspace("welkom123"));
         Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);

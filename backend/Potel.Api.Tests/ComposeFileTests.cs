@@ -3,15 +3,7 @@ namespace Potel.Api.Tests;
 // docker-compose.yml: de app mag alleen via je eigen proxy bereikbaar zijn, en alleen die proxy mag een IP-adres doorgeven.
 public class ComposeFileTests
 {
-    static string ComposeFile()
-    {
-        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
-        {
-            var path = Path.Combine(dir.FullName, "docker-compose.yml");
-            if (File.Exists(path)) return File.ReadAllText(path);
-        }
-        throw new FileNotFoundException("docker-compose.yml niet gevonden");
-    }
+    static string ComposeFile() => File.ReadAllText(SourceTree.RepoFile("docker-compose.yml"));
 
     // Alleen de regels die echt meedoen, zonder commentaar.
     static List<string> Settings() => ComposeFile().Split('\n')

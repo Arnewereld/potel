@@ -1,5 +1,7 @@
 using System.Net.Http.Json;
+using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
@@ -61,6 +63,53 @@ static class TestHostStart
         }) { IsBackground = true, Name = "Testhost starten" }.Start();
         return started.Task;
     }
+
+    // Voor een host die een test zelf maakt in plaats van als fixture: zo start hij net zo, voor het eerste verzoek.
+    // Lukt het starten niet, dan ruimt dit de factory meteen op; de fout gaat gewoon door naar de test.
+    public static async Task<T> Started<T>(T factory) where T : WebApplicationFactory<Program>
+    {
+        try
+        {
+            await OnOwnThread(factory);
+        }
+        catch
+        {
+            factory.Dispose();
+            throw;
+        }
+        return factory;
+    }
+}
+
+// De bronmap van dit testproject, vastgelegd bij het bouwen (zie Potel.Api.Tests.csproj). Omhoog zoeken vanaf de map met de
+// testbestanden faalt zodra die ergens anders heen gekopieerd zijn; zo controleren deze tests altijd de echte bronbestanden.
+static class SourceTree
+{
+    public static string TestProject { get; } = typeof(SourceTree).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+        .Single(a => a.Key == "TestProjectDir").Value!;
+
+    public static string RepoRoot => Path.GetFullPath(Path.Combine(TestProject, "..", ".."));
+
+    // Een bestand in de repository; bestaat het niet, dan faalt de test in plaats van niets te controleren.
+    public static string RepoFile(string name)
+    {
+        var path = Path.Combine(RepoRoot, name);
+        if (!File.Exists(path)) throw new FileNotFoundException($"{name} niet gevonden in {RepoRoot}", path);
+        return path;
+    }
+
+    // De regels uit de .cs-bestanden van dit testproject, zonder bin en obj en zonder commentaarregels.
+    public static List<(string Where, string Text)> TestCode()
+    {
+        var dir = new DirectoryInfo(TestProject);
+        if (!File.Exists(Path.Combine(dir.FullName, "Potel.Api.Tests.csproj"))) throw new DirectoryNotFoundException($"Geen testproject in {dir.FullName}");
+        var sep = Path.DirectorySeparatorChar;
+        return dir.EnumerateFiles("*.cs", SearchOption.AllDirectories)
+            .Where(f => !f.FullName.Contains($"{sep}obj{sep}") && !f.FullName.Contains($"{sep}bin{sep}"))
+            .SelectMany(f => File.ReadLines(f.FullName).Select((line, i) => (Where: $"{f.Name}:{i + 1}", Text: line.Trim())))
+            .Where(l => !l.Text.StartsWith("//"))
+            .ToList();
+    }
 }
 
 // Start de echte API met een eigen, tijdelijke database per testklasse.
@@ -84,6 +133,9 @@ public class PortalFactory : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("Backup:Path", backupPath);
         builder.UseSetting("Backup:Daily", "false");
         builder.UseSetting("Workflows:Scheduler", "false");
+        // Een webhook naar een testserver in hetzelfde proces kan op een drukke machine langer dan de gewone 5 seconden duren.
+        // Een run heeft daarnaast zijn eigen grens (MaxSecondsPerRun), dus trage webhooks stoppen nog steeds.
+        builder.UseSetting("Workflows:WebhookTimeoutSeconds", "30");
         builder.UseSetting("Smtp:Host", "");
         builder.UseSetting("RateLimit:AuthPerMinute", "10000");
         builder.UseSetting("RateLimit:SignupsPerHour", "10000");
@@ -127,17 +179,20 @@ public class TestDatabaseTests
     [Fact]
     public void No_test_closes_the_connections_of_other_test_classes()
     {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Potel.Api.Tests.csproj"))) dir = dir.Parent;
-        Assert.NotNull(dir);
-        var sep = Path.DirectorySeparatorChar;
+        var code = SourceTree.TestCode();
+        Assert.Contains(code, l => l.Where.StartsWith("PortalFactory.cs:"));
         var call = $"{nameof(SqliteConnection.ClearAllPools)}(";
-        var found = dir.EnumerateFiles("*.cs", SearchOption.AllDirectories)
-            .Where(f => !f.FullName.Contains($"{sep}obj{sep}") && !f.FullName.Contains($"{sep}bin{sep}"))
-            .SelectMany(f => File.ReadLines(f.FullName).Select((line, i) => (Where: $"{f.Name}:{i + 1}", Text: line.Trim())))
-            .Where(l => !l.Text.StartsWith("//") && l.Text.Contains(call))
-            .Select(l => l.Where)
-            .ToList();
-        Assert.Empty(found);
+        Assert.Empty(code.Where(l => l.Text.Contains(call)).Select(l => l.Where));
+    }
+
+    // Een host die een test zelf maakt, start via TestHostStart.Started. Anders start hij synchroon op een thread van xUnit
+    // bij het eerste verzoek, en onder belasting liepen verzoeken dan tegen de time-out van 100 seconden aan.
+    [Fact]
+    public void Every_host_made_inside_a_test_starts_on_its_own_thread()
+    {
+        var code = SourceTree.TestCode();
+        var made = new Regex(@"\bnew\s+[A-Z]\w*Factory\d*\s*\(|\.WithWebHostBuilder\s*\(");
+        Assert.Contains(code, l => made.IsMatch(l.Text));
+        Assert.Empty(code.Where(l => made.IsMatch(l.Text) && !l.Text.Contains("TestHostStart.Started(")).Select(l => l.Where));
     }
 }

@@ -53,7 +53,7 @@ public class AccountRateLimitTests
     [Fact]
     public async Task Adding_users_is_rate_limited()
     {
-        using var factory = new StrictRateLimitFactory();
+        using var factory = await TestHostStart.Started(new StrictRateLimitFactory());
         var a = await RegisterAsync(factory, "enum-a@example.com");
         var statuses = new List<HttpStatusCode>();
         for (var i = 0; i < 8; i++)
@@ -64,7 +64,7 @@ public class AccountRateLimitTests
     [Fact]
     public async Task Changing_users_is_rate_limited()
     {
-        using var factory = new StrictRateLimitFactory();
+        using var factory = await TestHostStart.Started(new StrictRateLimitFactory());
         var a = await RegisterAsync(factory, "enum-b@example.com");
         var me = await MyIdAsync(a);
         var statuses = new List<HttpStatusCode>();
@@ -76,7 +76,7 @@ public class AccountRateLimitTests
     [Fact]
     public async Task Registering_is_rate_limited()
     {
-        using var factory = new StrictRateLimitFactory();
+        using var factory = await TestHostStart.Started(new StrictRateLimitFactory());
         var statuses = new List<HttpStatusCode>();
         for (var i = 0; i < 6; i++) statuses.Add((await TryRegisterAsync(factory, $"aanmelden{i}@example.com")).Status);
         Assert.Contains(HttpStatusCode.TooManyRequests, statuses);

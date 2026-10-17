@@ -297,9 +297,8 @@ public class BackupBeforeUpdateTests : IDisposable
     [Fact]
     public async Task Startup_makes_a_backup_with_the_old_schema_before_migrating()
     {
-        using (var f = new UpdateFactory(DbPath, ("Backup:Path", Folder)))
+        using (var f = await TestHostStart.Started(new UpdateFactory(DbPath, ("Backup:Path", Folder))))
         {
-            await TestHostStart.OnOwnThread(f);
             var file = Assert.Single(Directory.GetFiles(Folder, "potel-voor-update-*.db"));
             Assert.Matches(@"potel-voor-update-\d{4}-\d{2}-\d{2}-\d{6}\.db$", file);
 
@@ -313,8 +312,7 @@ public class BackupBeforeUpdateTests : IDisposable
         Assert.True(HasFocusColumn(DbPath));
 
         // Een volgende start zonder nieuwe migraties maakt geen nieuwe back-up voor een update.
-        using (var again = new UpdateFactory(DbPath, ("Backup:Path", Folder)))
-            await TestHostStart.OnOwnThread(again);
+        (await TestHostStart.Started(new UpdateFactory(DbPath, ("Backup:Path", Folder)))).Dispose();
         Assert.Single(Directory.GetFiles(Folder, "potel-voor-update-*.db"));
     }
 
@@ -323,11 +321,8 @@ public class BackupBeforeUpdateTests : IDisposable
     {
         // Een bestand waar de map voor back-ups had moeten komen: de back-up kan niet.
         File.WriteAllText(Folder, "geen map");
-        using (var f = new UpdateFactory(DbPath, ("Backup:Path", Folder)))
-        {
-            var ex = await Assert.ThrowsAnyAsync<Exception>(() => TestHostStart.OnOwnThread(f));
-            Assert.Contains("Backup:AllowMigrationWithoutBackup", ex.ToString());
-        }
+        var ex = await Assert.ThrowsAnyAsync<Exception>(() => TestHostStart.Started(new UpdateFactory(DbPath, ("Backup:Path", Folder))));
+        Assert.Contains("Backup:AllowMigrationWithoutBackup", ex.ToString());
         Assert.Equal(Before, LastMigration(DbPath));
         Assert.False(HasFocusColumn(DbPath));
     }
@@ -336,9 +331,8 @@ public class BackupBeforeUpdateTests : IDisposable
     public async Task The_override_migrates_without_a_backup()
     {
         File.WriteAllText(Folder, "geen map");
-        using (var f = new UpdateFactory(DbPath, ("Backup:Path", Folder), ("Backup:AllowMigrationWithoutBackup", "true")))
+        using (var f = await TestHostStart.Started(new UpdateFactory(DbPath, ("Backup:Path", Folder), ("Backup:AllowMigrationWithoutBackup", "true"))))
         {
-            await TestHostStart.OnOwnThread(f);
             Assert.False(f.WithDb(db => db.Database.GetPendingMigrations().Any()));
         }
         Assert.True(HasFocusColumn(DbPath));
@@ -348,13 +342,11 @@ public class BackupBeforeUpdateTests : IDisposable
     public async Task The_daily_backup_runs_at_startup_when_the_newest_is_older_than_a_day()
     {
         // Eerst bijwerken (met de back-up voor de update), en die back-up oud maken.
-        using (var f = new UpdateFactory(DbPath, ("Backup:Path", Folder)))
-            await TestHostStart.OnOwnThread(f);
+        (await TestHostStart.Started(new UpdateFactory(DbPath, ("Backup:Path", Folder)))).Dispose();
         var update = Assert.Single(Directory.GetFiles(Folder));
         File.Move(update, Path.Combine(Folder, "potel-voor-update-2020-01-01-030000.db"));
 
-        using var daily = new UpdateFactory(DbPath, ("Backup:Path", Folder), ("Backup:Daily", "true"), ("Backup:StartupDelaySeconds", "0"));
-        await TestHostStart.OnOwnThread(daily);
+        using var daily = await TestHostStart.Started(new UpdateFactory(DbPath, ("Backup:Path", Folder), ("Backup:Daily", "true"), ("Backup:StartupDelaySeconds", "0")));
         var deadline = DateTime.UtcNow.AddSeconds(30);
         while (Directory.GetFiles(Folder, "potel-20*.db").Length == 0 && DateTime.UtcNow < deadline) await Task.Delay(100);
         var made = Assert.Single(Directory.GetFiles(Folder, "potel-20*.db"));

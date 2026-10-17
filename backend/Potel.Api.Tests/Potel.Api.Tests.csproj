@@ -23,6 +23,14 @@
     </PackageReference>
   </ItemGroup>
 
+  <!-- De bronmap, vastgelegd bij het bouwen: tests die bronbestanden controleren vinden ze zo ook als de testbestanden gekopieerd zijn. -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>TestProjectDir</_Parameter1>
+      <_Parameter2>$(MSBuildProjectDirectory)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Potel.Api\Potel.Api.csproj" />
   </ItemGroup>
