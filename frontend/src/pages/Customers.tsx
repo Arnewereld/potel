@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Users, Plus, Search, Mail, Phone } from 'lucide-react'
 import { useApi } from '../lib/useApi'
+import { useNewRequest } from '../lib/palette'
 import type { Customer } from '../lib/types'
 import { initials } from '../lib/format'
 import { colorFor } from '../lib/status'
@@ -12,6 +13,8 @@ export function CustomersPage() {
   const { data, error, loading, reload } = useApi<Customer[]>('/customers')
   const [q, setQ] = useState('')
   const [creating, setCreating] = useState(false)
+  // "Nieuwe klant" vanuit het zoekvenster.
+  useNewRequest('klant', () => setCreating(true))
   const navigate = useNavigate()
 
   const filtered = useMemo(() => {

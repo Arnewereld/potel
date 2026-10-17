@@ -1,9 +1,9 @@
-import { Fragment, useEffect, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, CalendarDays, Users, Target, Receipt, Workflow, Blocks, X, Search, FileSignature,
   ChevronsLeft, ChevronsRight, Moon, Sun, Plus, ShieldCheck, LogOut, KeyRound, Timer, FolderKanban, Settings, Square, Pause, Crown, Wallet, Landmark, CalendarRange,
-  ArrowLeftRight, Car, Package, Coffee, ChartNoAxesCombined, Bell,
+  ArrowLeftRight, Car, Package, Coffee, ChartNoAxesCombined, Bell, Repeat,
 } from 'lucide-react'
 import { clock, useTimer } from '../lib/timer'
 import { mmss } from '../lib/focus'
@@ -16,7 +16,7 @@ import { PasswordModal } from './PasswordModal'
 import { useTabs } from '../lib/tabs'
 import { useModules } from '../lib/modules'
 import { ModuleIcon } from './Icon'
-import { CommandPalette } from './CommandPalette'
+import { CommandPalette, type PaletteLink } from './CommandPalette'
 import { VerifyEmailBanner } from './VerifyEmailBanner'
 import { UpdateBanner } from './UpdateBanner'
 import { FocusView } from './FocusView'
@@ -45,6 +45,18 @@ const nav = [
   { to: '/instellingen', label: 'Instellingen', icon: Settings, group: 'Systeem' },
 ]
 const navGroups = [...new Set(nav.map(n => n.group))]
+
+// De tabbladen van Instellingen, om er vanuit het zoekvenster meteen heen te gaan.
+const settingsTabs = [
+  { id: 'bedrijf', label: 'Bedrijfsgegevens' }, { id: 'huisstijl', label: 'Huisstijl' }, { id: 'email', label: 'E-mail en herinneringen' },
+  { id: 'meldingen', label: 'Meldingen instellen' }, { id: 'belastingpot', label: 'Belastingpot' }, { id: 'ideal', label: 'iDEAL' },
+  { id: 'github', label: 'GitHub' }, { id: 'telefoon', label: 'Op je telefoon' }, { id: 'agenda', label: 'Agendalink' },
+  { id: 'abonnement', label: 'Abonnement' }, { id: 'account', label: 'Account' },
+]
+
+// Een veld waarin je typt: daar is een / gewoon een teken en opent hij het zoekvenster niet.
+const isTyping = (target: EventTarget | null) =>
+  target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
 
 const navLinks = (items: typeof nav) => items.map(item => (
   <NavLink key={item.to} to={item.to} end={item.end} className="nav-item" title={item.label}>
@@ -90,11 +102,35 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setPaletteOpen(o => !o)
+      } else if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.defaultPrevented && !e.isComposing
+        && !isTyping(e.target) && !document.querySelector('.modal-backdrop, [aria-modal="true"]')) {
+        // Ook met / als je niet in een veld typt en er geen venster of focusweergave openstaat.
+        e.preventDefault()
+        setPaletteOpen(true)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+
+  const toggleTheme = useCallback(() => setTheme(t => (t === 'dark' ? 'light' : 'dark')), [])
+  const admin = user.role === 'beheerder'
+  const platformAdmin = workspace?.platformAdmin ?? false
+
+  // Alle pagina's voor het zoekvenster, met dezelfde regels als het menu: wat alleen voor beheerders is, zie je alleen als beheerder.
+  const pages = useMemo<PaletteLink[]>(() => {
+    const list: PaletteLink[] = nav.filter(n => !n.admin || admin).map(n => ({ to: n.to, label: n.label, icon: <n.icon size={16} />, keywords: [n.group] }))
+    list.push({ to: '/meldingen', label: 'Meldingen', icon: <Bell size={16} />, keywords: ['bel', 'notificaties'] })
+    if (admin) list.push({ to: '/inzichten?tab=cashflow', label: 'Cashflow', hint: 'Inzichten', icon: <ChartNoAxesCombined size={16} /> })
+    list.push({ to: '/facturen?tab=terugkerend', label: 'Terugkerende facturen', hint: 'Facturen', icon: <Repeat size={16} /> })
+    list.push({ to: '/kosten?tab=vast', label: 'Vaste kosten', hint: 'Kosten', icon: <Repeat size={16} /> })
+    if (admin) list.push({ to: '/gebruikers', label: 'Gebruikers', icon: <ShieldCheck size={16} />, keywords: ['medewerkers', 'team'] })
+    if (platformAdmin) list.push({ to: '/platform', label: 'Platform', icon: <Crown size={16} /> })
+    for (const m of modules) list.push({ to: `/modules/${m.id}`, label: m.name, hint: 'Eigen module', icon: <ModuleIcon name={m.icon} size={16} /> })
+    list.push({ to: '/modules', label: 'Modules beheren', hint: 'Eigen modules', icon: <Blocks size={16} /> })
+    for (const t of settingsTabs) list.push({ to: `/instellingen?tab=${t.id}`, label: t.label, hint: 'Instellingen', icon: <Settings size={16} />, keywords: ['instellingen'] })
+    return list
+  }, [admin, platformAdmin, modules])
 
   return (
     <div className={`app ${collapsed ? 'collapsed' : ''}`}>
@@ -109,7 +145,7 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
         <button className="search-trigger" onClick={() => setPaletteOpen(true)}>
           <Search size={16} />
           <span>Zoeken…</span>
-          <kbd>Ctrl K</kbd>
+          <kbd title="Of druk op / als je niet in een veld typt">Ctrl K</kbd>
         </button>
 
         <nav className="nav">
@@ -162,7 +198,7 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
               <span>{workspace.trialDaysLeft === 1 ? 'dag' : 'dagen'} proef over<small>Kies een abonnement</small></span>
             </button>
           )}
-          <button className="nav-item" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title="Thema wisselen">
+          <button className="nav-item" onClick={toggleTheme} title="Thema wisselen">
             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
             <span>{theme === 'dark' ? 'Licht thema' : 'Donker thema'}</span>
           </button>
@@ -229,7 +265,7 @@ export function Layout({ renderTab }: { renderTab: (path: string, active: boolea
       </div>
 
       <FocusView />
-      {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
+      {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} theme={theme} onToggleTheme={toggleTheme} pages={pages} />}
       {changingPassword && <PasswordModal onClose={() => setChangingPassword(false)} />}
       {workspace && !workspace.onboarded && user.role === 'beheerder' && <OnboardingWizard onDone={reloadWorkspace} />}
     </div>

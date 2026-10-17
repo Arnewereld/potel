@@ -4,6 +4,7 @@ import { Wallet, Plus, Search, ChevronLeft, ChevronRight, Paperclip, Receipt, Pe
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useToast } from '../lib/toast'
+import { useNewRequest } from '../lib/palette'
 import type { Expense, ExpenseCategory, RecurringExpense, RecurringExpenseOverview, Settings } from '../lib/types'
 import { date, euro, toDateInput } from '../lib/format'
 import { categoryLabel, costForProfit, expenseCategories } from '../lib/expenses'
@@ -33,6 +34,8 @@ export function ExpensesPage() {
   const [category, setCategory] = useState<'alle' | ExpenseCategory>('alle')
   const [missingOnly, setMissingOnly] = useState(false)
   const [editing, setEditing] = useState<{ expense?: Expense } | null>(null)
+  // "Nieuwe uitgave" vanuit het zoekvenster.
+  useNewRequest('uitgave', () => setEditing({}))
 
   const shift = (months: number) => setMonth(m => new Date(m.getFullYear(), m.getMonth() + months, 1))
   const isThisMonth = from === `${today.slice(0, 8)}01`

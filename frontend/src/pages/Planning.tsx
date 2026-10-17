@@ -5,6 +5,7 @@ import { useApi } from '../lib/useApi'
 import { api } from '../lib/api'
 import { useToast } from '../lib/toast'
 import { useAuth } from '../lib/auth'
+import { useNewRequest } from '../lib/palette'
 import type { Appointment, Customer, Person } from '../lib/types'
 import { dateTime, parseDate, time, toDateInput, toDateTimeInput } from '../lib/format'
 import { appointmentKinds, kindColor } from '../lib/status'
@@ -47,6 +48,10 @@ export function PlanningPage() {
     setEditing({ title: '', kind: 'afspraak', start: toDateTimeInput(s), end: toDateTimeInput(e), done: false, userId: user.id })
   }
 
+  // Inplannen vanaf het volgende hele uur, net als de knop bovenaan; ook voor "Nieuwe afspraak" vanuit het zoekvenster.
+  const newNow = () => newAt(new Date(), Math.min(END_HOUR - 1, new Date().getHours() + 1))
+  useNewRequest('afspraak', newNow)
+
   const toggleDone = async (a: Appointment) => {
     setData(prev => prev?.map(x => (x.id === a.id ? { ...x, done: !a.done } : x)) ?? null)
     try { await api.put(`/appointments/${a.id}`, { ...a, done: !a.done }) } catch (e) { toast((e as Error).message, 'error'); reload() }
@@ -63,7 +68,7 @@ export function PlanningPage() {
         subtitle="Afspraken, taken en projecten op één plek."
         actions={<>
           <Link className="btn" to="/instellingen?tab=agenda" title="Zet je planning in Apple Agenda, Google Agenda of Outlook"><CalendarCheck size={16} /> In je eigen agenda</Link>
-          <button className="btn btn-primary" onClick={() => newAt(new Date(), Math.min(END_HOUR - 1, new Date().getHours() + 1))}><Plus size={16} /> Inplannen</button>
+          <button className="btn btn-primary" onClick={newNow}><Plus size={16} /> Inplannen</button>
         </>}
       />
 

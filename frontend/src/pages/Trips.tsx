@@ -3,6 +3,7 @@ import { Car, Plus, ChevronLeft, ChevronRight, Repeat, Info, Briefcase, Home, Re
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { useToast } from '../lib/toast'
+import { useNewRequest } from '../lib/palette'
 import type { Trip, TripRoute, TripYear } from '../lib/types'
 import { date, euro, toDateInput } from '../lib/format'
 import { km, tripKinds } from '../lib/trips'
@@ -20,6 +21,8 @@ export function TripsPage() {
   const { data, error, loading, reload } = useApi<TripYear>(`/trips?year=${year}`)
   const { data: routes, reload: reloadRoutes } = useApi<TripRoute[]>('/trips/routes')
   const [editing, setEditing] = useState<{ trip?: Trip } | null>(null)
+  // "Nieuwe rit" vanuit het zoekvenster.
+  useNewRequest('rit', () => setEditing({}))
   const toast = useToast()
 
   const trips = useMemo(() => (data?.trips ?? []).filter(t => month === 'alle' || t.date.startsWith(month)), [data, month])

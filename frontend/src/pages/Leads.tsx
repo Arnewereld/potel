@@ -4,6 +4,7 @@ import { Target, Plus, KanbanSquare, List, Building2, UserCheck, Trash2, FileSig
 import { useApi } from '../lib/useApi'
 import { api } from '../lib/api'
 import { useToast } from '../lib/toast'
+import { useNewRequest } from '../lib/palette'
 import type { Customer, Lead, LeadStatus } from '../lib/types'
 import { euro, initials } from '../lib/format'
 import { colorFor, leadStatuses } from '../lib/status'
@@ -19,6 +20,8 @@ export function LeadsPage() {
   const [dragId, setDragId] = useState<number | null>(null)
   const [overCol, setOverCol] = useState<LeadStatus | null>(null)
   const toast = useToast()
+  // "Nieuwe lead" vanuit het zoekvenster.
+  useNewRequest('lead', () => setEditing({ status: 'nieuw', value: 0 }))
 
   const move = async (lead: Lead, status: LeadStatus) => {
     if (lead.status === status) return

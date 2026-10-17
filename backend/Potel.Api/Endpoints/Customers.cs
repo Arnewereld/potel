@@ -92,5 +92,47 @@ public static class CustomerEndpoints
             await db.SaveChangesAsync();
             return Results.NoContent();
         });
+
+        // Alle open uren van deze klant in één keer op een nieuwe conceptfactuur, een regel per project op uurbasis.
+        // Voor de snelle actie "Factureer open uren van ..." in het zoekvenster. Net als daar alleen voor beheerders.
+        g.MapPost("/{id:int}/invoice-hours", async (AppDb db, BusinessClock clock, int id) =>
+        {
+            await using var tx = await WriteLock.BeginAsync(db);
+            var c = await db.Customers.FindAsync(id);
+            if (c is null) return Results.NotFound();
+            var projects = await db.Projects.Where(p => p.CustomerId == id && p.Billing == Billing.Hourly).OrderBy(p => p.Name).ToListAsync();
+            var parts = new List<(InvoiceLine Line, List<TimeEntry> Entries)>();
+            foreach (var p in projects)
+            {
+                var entries = await ProjectEndpoints.OpenEntries(db, p.Id);
+                if (entries.Count > 0) parts.AddRange(ProjectEndpoints.HourLines(p, entries, false, c.Language));
+            }
+            var claimed = parts.SelectMany(x => x.Entries).ToList();
+            if (claimed.Count == 0) return Results.BadRequest(new { error = $"Er staan geen open uren voor {c.Company ?? c.Name}" });
+
+            var settings = await SettingsEndpoints.GetAsync(db);
+            var today = clock.Today;
+            var regime = VatRegimes.DefaultFor(settings, c);
+            var lines = parts.Select(x => x.Line).ToList();
+            for (var i = 0; i < lines.Count; i++)
+            {
+                lines[i].Position = i;
+                if (VatRegimes.ZeroVat(regime)) lines[i].VatRate = 0;
+            }
+            var inv = new Invoice
+            {
+                CustomerId = c.Id, IssueDate = today, DueDate = today.AddDays(settings.PaymentTermDays), Status = InvoiceStatus.Draft,
+                VatRegime = regime, DeliveryFrom = claimed.Min(e => e.Date).Date, DeliveryTo = claimed.Max(e => e.Date).Date,
+                Language = c.Language, Notes = SettingsEndpoints.Note(c.Language), Lines = lines,
+            };
+            db.Invoices.Add(inv);
+            await db.SaveChangesAsync();
+            if (!await ProjectEndpoints.ClaimAsync(db, inv.Id, parts)) return Results.Conflict(new { error = InvoiceEndpoints.HoursTaken });
+            var minutes = claimed.Sum(e => e.Minutes);
+            db.Log("factuur", $"Conceptfactuur gemaakt van {ProjectEndpoints.Hours(minutes):0.##} uur voor {c.Company ?? c.Name}");
+            await db.SaveChangesAsync();
+            await tx.CommitAsync();
+            return Results.Created($"/api/invoices/{inv.Id}", new { id = inv.Id, minutes, projects = lines.Count });
+        }).RequireAuthorization(p => p.RequireRole(Roles.Admin));
     }
 }
