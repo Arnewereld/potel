@@ -1,9 +1,12 @@
 import { useMemo, useState } from 'react'
-import { CalendarDays, ChevronLeft, ChevronRight, Plus, List, LayoutGrid, Trash2, MapPin, Check } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { CalendarDays, ChevronLeft, ChevronRight, Plus, List, LayoutGrid, Trash2, MapPin, Check, CalendarCheck, User } from 'lucide-react'
 import { useApi } from '../lib/useApi'
 import { api } from '../lib/api'
 import { useToast } from '../lib/toast'
-import type { Appointment, Customer } from '../lib/types'
+import { useAuth } from '../lib/auth'
+import { useNewRequest } from '../lib/palette'
+import type { Appointment, Customer, Person } from '../lib/types'
 import { dateTime, parseDate, time, toDateInput, toDateTimeInput } from '../lib/format'
 import { appointmentKinds, kindColor } from '../lib/status'
 import { Empty, Field, Modal, PageHeader, SubTabs } from '../components/ui'
@@ -25,7 +28,10 @@ export function PlanningPage() {
   const [editing, setEditing] = useState<Partial<Appointment> | null>(null)
   const { data, setData, reload } = useApi<Appointment[]>('/appointments')
   const { data: customers } = useApi<Customer[]>('/customers')
+  const { data: people } = useApi<Person[]>('/appointments/people')
+  const { user } = useAuth()
   const toast = useToast()
+  const personName = (id?: number | null) => (id ? people?.find(p => p.id === id)?.name : undefined)
 
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart); d.setDate(d.getDate() + i); return d
@@ -38,8 +44,13 @@ export function PlanningPage() {
   const newAt = (day: Date, hour: number) => {
     const s = new Date(day); s.setHours(hour, 0, 0, 0)
     const e = new Date(s); e.setHours(hour + 1)
-    setEditing({ title: '', kind: 'afspraak', start: toDateTimeInput(s), end: toDateTimeInput(e), done: false })
+    // Nieuw is voor jezelf; kies Iedereen als het voor de hele werkruimte is.
+    setEditing({ title: '', kind: 'afspraak', start: toDateTimeInput(s), end: toDateTimeInput(e), done: false, userId: user.id })
   }
+
+  // Inplannen vanaf het volgende hele uur, net als de knop bovenaan; ook voor "Nieuwe afspraak" vanuit het zoekvenster.
+  const newNow = () => newAt(new Date(), Math.min(END_HOUR - 1, new Date().getHours() + 1))
+  useNewRequest('afspraak', newNow)
 
   const toggleDone = async (a: Appointment) => {
     setData(prev => prev?.map(x => (x.id === a.id ? { ...x, done: !a.done } : x)) ?? null)
@@ -55,7 +66,10 @@ export function PlanningPage() {
         icon={<CalendarDays size={20} />}
         title="Planning"
         subtitle="Afspraken, taken en projecten op één plek."
-        actions={<button className="btn btn-primary" onClick={() => newAt(new Date(), Math.min(END_HOUR - 1, new Date().getHours() + 1))}><Plus size={16} /> Inplannen</button>}
+        actions={<>
+          <Link className="btn" to="/instellingen?tab=agenda" title="Zet je planning in Apple Agenda, Google Agenda of Outlook"><CalendarCheck size={16} /> In je eigen agenda</Link>
+          <button className="btn btn-primary" onClick={newNow}><Plus size={16} /> Inplannen</button>
+        </>}
       />
 
       <div className="row between wrap" style={{ marginBottom: 16 }}>
@@ -64,11 +78,14 @@ export function PlanningPage() {
           { id: 'lijst', label: 'Takenlijst', icon: <List size={14} />, count: appointments.filter(a => !a.done).length },
         ]} />
         {view === 'week' && (
-          <div className="row" style={{ marginBottom: 16 }}>
+          <div className="row wrap" style={{ marginBottom: 16 }}>
             <button className="btn btn-sm" onClick={() => setWeekStart(startOfWeek(new Date()))}>Vandaag</button>
-            <button className="icon-btn" onClick={() => shiftWeek(-1)} aria-label="Vorige week"><ChevronLeft size={18} /></button>
-            <strong style={{ minWidth: 170, textAlign: 'center' }}>{weekLabel}</strong>
-            <button className="icon-btn" onClick={() => shiftWeek(1)} aria-label="Volgende week"><ChevronRight size={18} /></button>
+            {/* De pijlen en de week blijven bij elkaar als het op een telefoon niet op één regel past. */}
+            <div className="row">
+              <button className="icon-btn" onClick={() => shiftWeek(-1)} aria-label="Vorige week"><ChevronLeft size={18} /></button>
+              <strong style={{ minWidth: 170, textAlign: 'center' }}>{weekLabel}</strong>
+              <button className="icon-btn" onClick={() => shiftWeek(1)} aria-label="Volgende week"><ChevronRight size={18} /></button>
+            </div>
           </div>
         )}
       </div>
@@ -132,7 +149,10 @@ export function PlanningPage() {
                     <span className="kind-bar" style={{ background: kindColor(a.kind) }} />
                     <div className="grow clickable" onClick={() => setEditing({ ...a, start: a.start.slice(0, 16), end: a.end.slice(0, 16) })}>
                       <div className="task-title">{a.title}</div>
-                      <div className="cell-sub row">{dateTime(a.start)}{a.location && <><MapPin size={11} /> {a.location}</>}</div>
+                      <div className="cell-sub row wrap">
+                        {dateTime(a.start)}{a.location && <><MapPin size={11} /> {a.location}</>}
+                        {personName(a.userId) && <><User size={11} /> {personName(a.userId)}</>}
+                      </div>
                     </div>
                     <span className="badge badge-gray">{a.kind}</span>
                   </div>
@@ -143,16 +163,20 @@ export function PlanningPage() {
         </div>
       )}
 
-      {editing && <AppointmentForm item={editing} customers={customers ?? []} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload() }} />}
+      {editing && <AppointmentForm item={editing} customers={customers ?? []} people={people ?? []} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload() }} />}
     </>
   )
 }
 
-function AppointmentForm({ item, customers, onClose, onSaved }: { item: Partial<Appointment>; customers: Customer[]; onClose: () => void; onSaved: () => void }) {
+function AppointmentForm({ item, customers, people, onClose, onSaved }: {
+  item: Partial<Appointment>; customers: Customer[]; people: Person[]; onClose: () => void; onSaved: () => void
+}) {
   const [form, setForm] = useState(item)
   const toast = useToast()
   const set = (k: keyof Appointment) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-    setForm(f => ({ ...f, [k]: k === 'customerId' ? (Number(e.target.value) || null) : e.target.value }))
+    setForm(f => ({ ...f, [k]: k === 'customerId' || k === 'userId' ? (Number(e.target.value) || null) : e.target.value }))
+  // Iemand die niet meer actief is, blijft zichtbaar bij wat al voor hem stond (zodra de lijst er is).
+  const missing = !!form.userId && people.length > 0 && !people.some(p => p.id === form.userId)
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -196,6 +220,13 @@ function AppointmentForm({ item, customers, onClose, onSaved }: { item: Partial<
           <select value={form.customerId ?? 0} onChange={set('customerId')}>
             <option value={0}>Geen</option>
             {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Voor wie">
+          <select value={form.userId ?? 0} onChange={set('userId')}>
+            <option value={0}>Iedereen</option>
+            {missing && <option value={form.userId!}>Iemand die niet meer actief is</option>}
+            {people.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </Field>
         <Field label="Locatie"><input value={form.location ?? ''} onChange={set('location')} /></Field>

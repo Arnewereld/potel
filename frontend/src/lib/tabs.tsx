@@ -16,21 +16,42 @@ interface TabsContextValue {
 
 const TabsContext = createContext<TabsContextValue | null>(null)
 const STORAGE_KEY = 'potel.tabs'
+const publicPaths = ['/inloggen', '/login', '/aanmelden', '/wachtwoord-vergeten']
 
 export function defaultTitle(fullPath: string) {
   const path = fullPath.split('?')[0]!
   if (path === '/') return 'Dashboard'
+  if (path === '/inzichten') return fullPath.includes('tab=cashflow') ? 'Cashflow' : 'Inzichten'
+  if (path === '/uren') return 'Uren'
+  if (path === '/projecten') return 'Projecten'
+  if (path.startsWith('/projecten/')) return 'Project'
+  if (path === '/instellingen') return 'Instellingen'
+  if (path === '/platform') return 'Platform'
   if (path.startsWith('/planning')) return 'Planning'
   if (path === '/klanten') return 'Klanten'
   if (path.startsWith('/klanten/')) return 'Klant'
   if (path === '/leads') return 'Leads'
-  if (path === '/facturen') return 'Facturen'
+  if (path === '/offertes') return 'Offertes'
+  if (path === '/offertes/nieuw') return 'Nieuwe offerte'
+  if (path.startsWith('/offertes/')) return 'Offerte'
+  if (path === '/facturen') return fullPath.includes('tab=terugkerend') ? 'Terugkerende facturen' : 'Facturen'
   if (path === '/facturen/nieuw') return 'Nieuwe factuur'
+  if (path === '/facturen/terugkerend/nieuw') return 'Nieuwe terugkerende factuur'
+  if (path.startsWith('/facturen/terugkerend/')) return 'Terugkerende factuur'
   if (path.startsWith('/facturen/')) return 'Factuur'
+  if (path === '/kosten') return fullPath.includes('tab=vast') ? 'Vaste kosten' : 'Kosten'
+  if (path === '/ritten') return 'Ritten'
+  if (path === '/bank') return 'Bank'
+  if (path === '/btw-aangifte') return 'Btw-aangifte'
+  if (path === '/jaaroverzicht') return 'Jaaroverzicht'
+  if (path === '/investeringen') return 'Investeringen'
   if (path === '/werkstromen') return 'Werkstromen'
   if (path.startsWith('/werkstromen/')) return 'Werkstroom'
   if (path === '/modules') return 'Eigen modules'
   if (path.startsWith('/modules/')) return 'Module'
+  if (path === '/gebruikers') return 'Gebruikers'
+  if (path === '/importeren') return 'Importeren'
+  if (path === '/meldingen') return 'Meldingen'
   return 'Pagina'
 }
 
@@ -49,9 +70,12 @@ export function TabsProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
   const current = location.pathname + location.search
 
+  // Na inloggen of aanmelden kom je op het dashboard, niet op een tabblad "Inloggen".
+  const isPublic = publicPaths.includes(location.pathname)
   useEffect(() => {
+    if (isPublic) { navigate('/', { replace: true }); return }
     setTabs(prev => (prev.some(t => t.path === current) ? prev : [...prev, { path: current, title: defaultTitle(current) }]))
-  }, [current])
+  }, [current, isPublic, navigate])
 
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(tabs)) } catch { /* negeren */ }

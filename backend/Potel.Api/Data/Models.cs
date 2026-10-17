@@ -1,16 +1,230 @@
+using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
+
 namespace Potel.Api.Data;
 
-public class Customer
+// Elke klant van het portaal heeft een eigen werkruimte. Alle gegevens hangen aan een werkruimte
+// en zijn via een filter in AppDb alleen zichtbaar binnen de eigen werkruimte.
+public interface IWorkspaceOwned
+{
+    int WorkspaceId { get; set; }
+}
+
+public static class Plans
+{
+    public const string Trial = "proef";
+    public const string Solo = "zzp";
+    public const string Team = "team";
+    public static readonly string[] All = [Trial, Solo, Team];
+
+    // Hoeveel gebruikers (ook uitgeschakelde) een werkruimte per abonnement mag hebben.
+    // De verkooppagina toont dit vanuit frontend/src/lib/plans.ts; PlanTests controleert dat die gelijk blijft.
+    static readonly Dictionary<string, int> UserLimits = new() { [Trial] = 5, [Solo] = 1, [Team] = 5 };
+    public static int MaxUsers(string plan) => UserLimits.GetValueOrDefault(plan, 1);
+    // Boekhouders tellen niet mee voor de gebruikers van het abonnement: ze kijken alleen mee. Wel hooguit zoveel per werkruimte,
+    // in elk abonnement, zodat niemand zo onbeperkt uitnodigingen verstuurt.
+    public const int MaxAccountants = 3;
+
+    // De prijs per maand in euro, exclusief btw. Ook dit staat in frontend/src/lib/plans.ts (monthly); PlanTests controleert dat.
+    static readonly Dictionary<string, decimal> MonthlyPrices = new() { [Trial] = 0, [Solo] = 12, [Team] = 29 };
+    public static decimal MonthlyPrice(string plan) => MonthlyPrices.GetValueOrDefault(plan);
+    public static readonly string[] Paid = [Solo, Team];
+    public static string Name(string plan) => plan switch { Solo => "ZZP", Team => "Team", _ => "Proef" };
+
+    public const string TrialEndedError = "Je proefperiode is afgelopen. Kies een abonnement onder Instellingen om weer te kunnen werken.";
+    public const string SubscriptionEndedError = "Je abonnement is afgelopen. Kies opnieuw een abonnement onder Instellingen om weer te kunnen werken.";
+    public const string PaymentMissingError = "We hebben de laatste betaling van je abonnement niet ontvangen. Betaal opnieuw onder Instellingen, Abonnement om weer te kunnen werken.";
+    // Zo lang wachten we op een automatische incasso voordat de werkruimte alleen-lezen wordt. Een incasso duurt een paar werkdagen.
+    public const int PaymentGraceDays = 10;
+}
+
+// De versie van de algemene voorwaarden en de verwerkersovereenkomst (de teksten staan in frontend/src/pages/public/Legal.tsx).
+// Pas je de tekst aan, verhoog dan deze versie: bij elke werkruimte staat welke versie bij het aanmelden is geaccepteerd.
+public static class Terms
+{
+    public const string Version = "2026-10-concept";
+}
+
+public class Workspace
 {
     public int Id { get; set; }
+    public string Name { get; set; } = "";
+    public string Plan { get; set; } = Plans.Trial;
+    public DateTime? TrialEndsAt { get; set; }
+    // Leeg zolang de welkomstwizard nog niet is afgerond.
+    public DateTime? OnboardedAt { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    // Hoeveel e-mails werkstromen op EmailDay (UTC) verstuurden, voor de daglimiet per werkruimte.
+    public DateTime? EmailDay { get; set; }
+    public int EmailsSent { get; set; }
+    // Hetzelfde voor webhooks.
+    public DateTime? WebhookDay { get; set; }
+    public int WebhooksSent { get; set; }
+    // Gezet zolang er voorbeelddata in de werkruimte staat, zodat je die in één keer kunt weghalen.
+    public DateTime? DemoDataAt { get; set; }
+    // Het KvK-nummer uit het aanmelden: Potel is alleen voor bedrijven.
+    public string? Kvk { get; set; }
+    // Welke versie van de voorwaarden en verwerkersovereenkomst is geaccepteerd, wanneer en door wie.
+    public string? TermsVersion { get; set; }
+    public DateTime? TermsAcceptedAt { get; set; }
+    public int? TermsAcceptedByUserId { get; set; }
+    public string? TermsAcceptedByEmail { get; set; }
+    // Online betalen via Mollie: de klant en het lopende abonnement daar, en tot wanneer er betaald is.
+    // PaidUntil is leeg als jij het abonnement zelf omzet op de pagina Platform; dan loopt het door tot je het weer omzet.
+    public string? MollieCustomerId { get; set; }
+    public string? MollieSubscriptionId { get; set; }
+    public DateTime? PaidUntil { get; set; }
+    public DateTime? SubscriptionCanceledAt { get; set; }
+    // De klant die bij deze werkruimte hoort in de werkruimte van de eigenaar, voor de facturen van het abonnement.
+    public int? BillingCustomerId { get; set; }
+    // Beheerders moeten inloggen in twee stappen. Wie het nog niet heeft, stelt het in voordat hij verder kan.
+    public bool RequireTwoFactorForAdmins { get; set; }
+    // Hetzelfde voor boekhouders. Kan alleen aan als het voor beheerders al verplicht is.
+    public bool RequireTwoFactorForAccountants { get; set; }
+
+    // Na de proef zonder abonnement is een werkruimte alleen-lezen: niets wijzigen en geen werkstromen meer.
+    public bool TrialExpired(DateTime utcNow) => Plan == Plans.Trial && TrialEndsAt is { } end && end < utcNow;
+
+    // Waarom deze werkruimte nu alleen-lezen is, of null als alles kan. Na een opgezegd abonnement gaat dat in zodra de
+    // betaalde periode voorbij is; loopt het abonnement nog, dan wachten we eerst een paar dagen op de incasso.
+    public string? ReadOnlyReason(DateTime utcNow)
+    {
+        if (TrialExpired(utcNow)) return Plans.TrialEndedError;
+        if (Plan == Plans.Trial || PaidUntil is not { } until) return null;
+        if (MollieSubscriptionId is null) return until < utcNow ? Plans.SubscriptionEndedError : null;
+        return until.AddDays(Plans.PaymentGraceDays) < utcNow ? Plans.PaymentMissingError : null;
+    }
+
+    public bool ReadOnly(DateTime utcNow) => ReadOnlyReason(utcNow) is not null;
+}
+
+// Een betaling bij Mollie voor het abonnement van een werkruimte: de eerste met iDEAL, daarna de maandelijkse incasso's.
+// Het id is dat van Mollie (tr_...). De status nemen we altijd over van Mollie zelf, nooit uit de webhook.
+public class MolliePayment : IWorkspaceOwned
+{
+    public string Id { get; set; } = "";
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public string Plan { get; set; } = "";
+    // "first" voor de betaling met iDEAL, "recurring" voor een incasso van het abonnement.
+    public string SequenceType { get; set; } = "first";
+    public string Status { get; set; } = "open";
+    // Het bedrag inclusief btw, en het btw-percentage.
+    public decimal Amount { get; set; }
+    public decimal VatRate { get; set; }
+    public string? SubscriptionId { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? PaidAt { get; set; }
+    // De maand waarvoor deze betaling is.
+    public DateTime? PeriodStart { get; set; }
+    public DateTime? PeriodEnd { get; set; }
+    // Gezet zodra de betaling is verwerkt, zodat een herhaalde webhook niets dubbel doet.
+    public DateTime? AppliedAt { get; set; }
+    // De factuur voor deze betaling in de werkruimte van de eigenaar van het platform.
+    public int? InvoiceId { get; set; }
+}
+
+// Tellers over het hele platform, los van werkruimtes. Bijvoorbeeld hoeveel e-mails alle proefwerkruimtes samen vandaag stuurden.
+public class PlatformCounter
+{
+    public const string TrialEmails = "proef-emails";
+
+    public string Key { get; set; } = "";
+    public DateTime? Day { get; set; }
+    public int Count { get; set; }
+}
+
+// Voorbeelddata uit de welkomstwizard. Die staat apart, zodat je hem in één keer kunt weghalen.
+public interface IDemoData
+{
+    bool IsDemo { get; set; }
+}
+
+public class Customer : IWorkspaceOwned, IDemoData
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
     public string Name { get; set; } = "";
     public string? Company { get; set; }
     public string? Email { get; set; }
     public string? Phone { get; set; }
     public string? Address { get; set; }
     public string? City { get; set; }
+    // Bepaalt welke btw-regeling mag: btw verlegd alleen voor een ander EU-land, "buiten de EU" alleen daarbuiten.
+    public string Country { get; set; } = Countries.Netherlands;
+    public string? VatNumber { get; set; }
+    // Het KvK-nummer van de klant (8 cijfers in Nederland), voor je eigen administratie.
+    public string? Kvk { get; set; }
+    // Het rekeningnummer waarvan de klant betaalt. Daarmee herkent Potel zijn betalingen in je bankafschrift.
+    public string? Iban { get; set; }
     public string? Notes { get; set; }
+    // Geen automatische herinneringen aan deze klant.
+    public bool RemindersOff { get; set; }
+    // Wat je deze klant per kilometer rekent voor ritten die je doorbelast. Leeg is: ritten niet doorbelasten.
+    public decimal? KilometreRate { get; set; }
+    // De taal van alles wat de klant van je ziet: facturen, offertes, mails, de openbare pagina's en het klantportaal.
+    public string Language { get; set; } = Languages.Dutch;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    // De import die deze klant aanmaakte, zodat die import ongedaan kan worden gemaakt. Bewust zonder databasekoppeling.
+    [JsonIgnore] public int? ImportBatchId { get; set; }
+}
+
+// De talen waarin je klant zijn facturen, offertes en mails krijgt. Je eigen schermen blijven Nederlands.
+public static class Languages
+{
+    public const string Dutch = "nl";
+    public const string English = "en";
+    public static readonly string[] All = [Dutch, English];
+    public const string Error = "Kies Nederlands of Engels als taal.";
+
+    // Leeg telt als Nederlands; iets anders dan nl of en is onbekend.
+    public static bool IsKnown(string? language) => string.IsNullOrWhiteSpace(language) || All.Contains(language.Trim().ToLowerInvariant());
+
+    // De taal om mee te werken: alleen "en" is Engels, al het andere Nederlands.
+    public static string Of(string? language) => string.Equals(language?.Trim(), English, StringComparison.OrdinalIgnoreCase) ? English : Dutch;
+}
+
+// Landen zoals we ze op de factuur zetten, met de EU-landen apart om de btw-regeling te kunnen controleren.
+public static class Countries
+{
+    public const string Netherlands = "Nederland";
+
+    public static readonly string[] Eu =
+    [
+        "België", "Bulgarije", "Cyprus", "Denemarken", "Duitsland", "Estland", "Finland", "Frankrijk", "Griekenland", "Hongarije",
+        "Ierland", "Italië", "Kroatië", "Letland", "Litouwen", "Luxemburg", "Malta", "Nederland", "Oostenrijk", "Polen",
+        "Portugal", "Roemenië", "Slovenië", "Slowakije", "Spanje", "Tsjechië", "Zweden",
+    ];
+
+    // Andere schrijfwijzen (Engels, zonder trema of als landcode) van de EU-landen, zodat "Germany" of "DE" ook als EU telt.
+    static readonly Dictionary<string, string> Aliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["NL"] = "Nederland", ["Netherlands"] = "Nederland", ["The Netherlands"] = "Nederland", ["Holland"] = "Nederland",
+        ["BE"] = "België", ["Belgie"] = "België", ["Belgium"] = "België", ["BG"] = "Bulgarije", ["Bulgaria"] = "Bulgarije",
+        ["CY"] = "Cyprus", ["DK"] = "Denemarken", ["Denmark"] = "Denemarken", ["DE"] = "Duitsland", ["Germany"] = "Duitsland",
+        ["Deutschland"] = "Duitsland", ["EE"] = "Estland", ["Estonia"] = "Estland", ["FI"] = "Finland", ["FR"] = "Frankrijk",
+        ["France"] = "Frankrijk", ["GR"] = "Griekenland", ["EL"] = "Griekenland", ["Greece"] = "Griekenland", ["HU"] = "Hongarije",
+        ["Hungary"] = "Hongarije", ["IE"] = "Ierland", ["Ireland"] = "Ierland", ["IT"] = "Italië", ["Italie"] = "Italië",
+        ["Italy"] = "Italië", ["HR"] = "Kroatië", ["Kroatie"] = "Kroatië", ["Croatia"] = "Kroatië", ["LV"] = "Letland",
+        ["Latvia"] = "Letland", ["LT"] = "Litouwen", ["Lithuania"] = "Litouwen", ["LU"] = "Luxemburg", ["Luxembourg"] = "Luxemburg",
+        ["MT"] = "Malta", ["AT"] = "Oostenrijk", ["Austria"] = "Oostenrijk", ["PL"] = "Polen", ["Poland"] = "Polen",
+        ["PT"] = "Portugal", ["RO"] = "Roemenië", ["Roemenie"] = "Roemenië", ["Romania"] = "Roemenië", ["SI"] = "Slovenië",
+        ["Slovenie"] = "Slovenië", ["Slovenia"] = "Slovenië", ["SK"] = "Slowakije", ["Slovakia"] = "Slowakije", ["ES"] = "Spanje",
+        ["Spain"] = "Spanje", ["CZ"] = "Tsjechië", ["Tsjechie"] = "Tsjechië", ["Czechia"] = "Tsjechië", ["Czech Republic"] = "Tsjechië",
+        ["SE"] = "Zweden", ["Sweden"] = "Zweden",
+    };
+
+    // Leeg wordt Nederland; een bekende andere schrijfwijze wordt de Nederlandse naam.
+    public static string Normalize(string? country)
+    {
+        var c = (country ?? "").Trim();
+        if (c == "") return Netherlands;
+        if (Aliases.TryGetValue(c, out var name)) return name;
+        return Eu.FirstOrDefault(e => string.Equals(e, c, StringComparison.OrdinalIgnoreCase)) ?? c;
+    }
+
+    public static bool IsNetherlands(string? country) => Normalize(country) == Netherlands;
+    public static bool InEu(string? country) => Eu.Contains(Normalize(country));
 }
 
 public static class LeadStatus
@@ -18,9 +232,11 @@ public static class LeadStatus
     public static readonly string[] All = ["nieuw", "contact", "offerte", "gewonnen", "verloren"];
 }
 
-public class Lead
+public class Lead : IWorkspaceOwned, IDemoData
 {
     public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
     public string Name { get; set; } = "";
     public string? Company { get; set; }
     public string? Email { get; set; }
@@ -29,41 +245,1101 @@ public class Lead
     public string Status { get; set; } = "nieuw";
     public string? Source { get; set; }
     public string? Notes { get; set; }
+    // De taal voor een offerte aan deze lead; wordt hij klant, dan neemt de klant hem over.
+    public string Language { get; set; } = Languages.Dutch;
     public int? CustomerId { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
 public static class InvoiceStatus
 {
-    public static readonly string[] All = ["concept", "verzonden", "betaald", "verlopen"];
+    public const string Draft = "concept";
+    public const string Sent = "verzonden";
+    public const string Paid = "betaald";
+    public const string Overdue = "verlopen";
+    public static readonly string[] All = [Draft, Sent, Paid, Overdue];
+
+    // Een verstuurde factuur ligt vast: de status mag daarna alleen nog vooruit (verzonden, verlopen, betaald).
+    public static bool CanMove(string from, string to) => from == to || (from, to) switch
+    {
+        (Draft, Sent or Paid) => true,
+        (Sent, Overdue or Paid) => true,
+        (Overdue, Paid) => true,
+        _ => false,
+    };
 }
 
-public class Invoice
+// De btw-regeling van een factuur. Normaal: gewoon btw. Verlegd: de klant in een ander EU-land draagt de btw af.
+// KOR: de kleineondernemersregeling, zonder btw. Vrijgesteld: diensten die vrijgesteld zijn van btw (art. 11 Wet OB),
+// zoals CRKBO-onderwijs. Buiten de EU: geen Nederlandse btw voor een klant buiten de EU.
+public static class VatRegimes
+{
+    public const string Normal = "normaal";
+    public const string ReverseCharge = "verlegd";
+    public const string Kor = "kor";
+    public const string Exempt = "vrijgesteld";
+    public const string OutsideEu = "buiten-eu";
+    public static readonly string[] All = [Normal, ReverseCharge, Kor, Exempt, OutsideEu];
+    // Wat een werkruimte standaard gebruikt; verleggen en buiten de EU hangen van de klant af.
+    public static readonly string[] WorkspaceDefaults = [Normal, Kor, Exempt];
+
+    // Alleen bij normaal staat er btw op de regels.
+    public static bool ZeroVat(string regime) => regime != Normal;
+
+    // De regeling die bij een klant in het buitenland past: verlegd voor een zakelijke klant in een ander EU-land met een
+    // btw-nummer dat de juiste vorm heeft, buiten de EU daarbuiten. Voor een klant in Nederland, of in de EU zonder (geldig)
+    // btw-nummer, geen voorstel: dan geldt wat de werkruimte standaard gebruikt. De frontend doet hetzelfde (lib/vat.ts).
+    public static string? Suggest(Customer? customer)
+    {
+        if (customer is null || Countries.IsNetherlands(customer.Country)) return null;
+        if (!Countries.InEu(customer.Country)) return OutsideEu;
+        return VatNumbers.LooksValid(customer.VatNumber, customer.Country) ? ReverseCharge : null;
+    }
+
+    // De regeling voor een nieuwe factuur: het voorstel voor de klant, en anders wat de werkruimte standaard gebruikt
+    // (normaal, KOR of vrijgesteld).
+    public static string DefaultFor(Settings settings, Customer? customer) =>
+        Suggest(customer) ?? (WorkspaceDefaults.Contains(settings.VatRegime) ? settings.VatRegime : Normal);
+}
+
+public class Invoice : IWorkspaceOwned, IDemoData
 {
     public int Id { get; set; }
-    public string Number { get; set; } = "";
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
+    // Het doorlopende nummer komt pas bij versturen; een concept heeft nog geen nummer.
+    public string? Number { get; set; }
     public int CustomerId { get; set; }
     public Customer? Customer { get; set; }
     public DateTime IssueDate { get; set; } = DateTime.UtcNow.Date;
     public DateTime DueDate { get; set; } = DateTime.UtcNow.Date.AddDays(14);
-    public string Status { get; set; } = "concept";
+    public string Status { get; set; } = InvoiceStatus.Draft;
+    // Referentie of inkoopnummer van de klant.
+    public string? Reference { get; set; }
+    public string VatRegime { get; set; } = VatRegimes.Normal;
+    // De taal van de factuur: bij aanmaken die van de klant, in het concept aan te passen en vast zodra hij verstuurd is.
+    public string Language { get => language; set { language = value; LanguageGiven = true; } }
+    string language = Languages.Dutch;
+    // Of er bij opslaan een taal is meegestuurd; zo niet, dan neemt een nieuwe factuur die van de klant.
+    [NotMapped, JsonIgnore] public bool LanguageGiven { get; private set; }
+    // Leverdatum, of de periode waarin het werk is gedaan als DeliveryTo later ligt.
+    public DateTime? DeliveryFrom { get; set; }
+    public DateTime? DeliveryTo { get; set; }
+    public DateTime? SentAt { get; set; }
+    public DateTime? PaidAt { get; set; }
     public string? Notes { get; set; }
+    // Bij een creditnota: de factuur die hij corrigeert.
+    public int? CreditForInvoiceId { get; set; }
+    [JsonIgnore] public Invoice? CreditFor { get; set; }
+    // Gemaakt door een terugkerende factuur, voor de periode die op RecurringPeriodStart begint. Per terugkerende factuur
+    // bestaat elke periode hooguit één keer (unieke index), ook als de planner twee keer tegelijk draait. Bewust zonder
+    // databasekoppeling: die zou de hele tabel met facturen laten herbouwen. Verwijderen van de terugkerende factuur maakt dit leeg.
+    public int? RecurringInvoiceId { get; set; }
+    public DateTime? RecurringPeriodStart { get; set; }
+    // Geen automatische herinneringen voor deze factuur. Mag ook na versturen nog aan of uit: het staat niet op de factuur.
+    public bool RemindersOff { get; set; }
+    // Urenspecificatie meesturen: een extra pagina met de boekingen op deze factuur. Telt alleen als er uren aan hangen.
+    public bool HourSpecification { get; set; } = true;
+    // Op de urenspecificatie ook het bedrag per boeking, voor boekingen op een regel per uur.
+    public bool HourAmounts { get; set; }
+    // De urenspecificatie zoals hij bij versturen was (JSON, zie Invoicing/HourSpecs.cs). Een verstuurde factuur toont deze,
+    // nooit de boekingen van nu, zodat een latere wijziging aan uren of projecten hem niet verandert.
+    [JsonIgnore] public string? HoursSnapshot { get; set; }
+    // De gegevens van jou en je klant zoals ze bij versturen waren. Een verstuurde factuur toont deze, niet de huidige.
+    public InvoiceParty? Seller { get; set; }
+    public InvoiceParty? Buyer { get; set; }
     public List<InvoiceLine> Lines { get; set; } = [];
+
+    // De creditnota's die deze factuur corrigeren (ook concepten).
+    [JsonIgnore] public List<Invoice> Credits { get; set; } = [];
+    // De (deel)betalingen op deze factuur, oudste eerst.
+    public List<InvoicePayment> Payments { get; set; } = [];
+
+    [NotMapped] public string? CreditForNumber => CreditFor?.Number;
+    [NotMapped] public DateTime? CreditForIssueDate => CreditFor?.IssueDate;
+    [NotMapped] public bool IsCredit => CreditForInvoiceId != null || Totals.Total < 0;
+    [NotMapped] public InvoiceTotals Totals => Money.Totals(Lines);
+    // Voorbeeldfactuur uit de welkomstwizard: eigen nummerreeks en altijd te verwijderen.
+    [NotMapped] public bool Demo => IsDemo;
+
+    // Verstuurde creditnota's op deze factuur (alleen bekend als Credits met hun regels geladen zijn).
+    [NotMapped] public List<CreditRef> CreditNotes =>
+        Credits.Where(c => c.Status != InvoiceStatus.Draft).OrderBy(c => c.Id).Select(c => new CreditRef(c.Id, c.Number, c.IssueDate, c.Totals.Total)).ToList();
+    // Wat er met creditnota's van deze factuur af is gegaan (0 of negatief).
+    [NotMapped] public decimal CreditedTotal => CreditNotes.Sum(c => c.Total);
+    // Wat er al betaald is (alleen bekend als Payments geladen zijn).
+    [NotMapped] public decimal PaidTotal => Payments.Sum(p => p.Amount);
+    // Wat de klant nog moet betalen: het totaal min wat er gecrediteerd en betaald is. Alleen voor een verstuurde, onbetaalde factuur.
+    [NotMapped] public decimal OpenAmount =>
+        IsCredit || Status is not (InvoiceStatus.Sent or InvoiceStatus.Overdue) ? 0 : Math.Max(0, Totals.Total + CreditedTotal - PaidTotal);
+    // Helemaal tegengeboekt met creditnota's: niemand hoeft nog iets te betalen.
+    [NotMapped] public bool FullyCredited => !IsCredit && CreditNotes.Count > 0 && Totals.Total + CreditedTotal <= 0;
+}
+
+public record CreditRef(int Id, string? Number, DateTime IssueDate, decimal Total);
+
+// Hoe een betaling binnenkwam: zelf ingevuld, met iDEAL via je eigen Mollie, of gekoppeld vanuit je bankafschrift.
+public static class PaymentMethods
+{
+    public const string Manual = "handmatig";
+    public const string Ideal = "ideal";
+    public const string Bank = "bank";
+    public static readonly string[] All = [Manual, Ideal, Bank];
+
+    public static string Label(string method) => method switch { Ideal => "iDEAL", Bank => "bank", _ => "handmatig" };
+}
+
+// Een (deel)betaling op een factuur. Wat er nog open staat is het totaal min verstuurde creditnota's en betalingen; is dat 0,
+// dan is de factuur betaald, met als betaaldatum de datum van de laatste betaling. De btw volgt de factuur, niet de betaling.
+public class InvoicePayment : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int InvoiceId { get; set; }
+    public decimal Amount { get; set; }
+    public DateTime Date { get; set; }
+    public string Method { get; set; } = PaymentMethods.Manual;
+    public string? Note { get; set; }
+    // De regel uit het bankafschrift waar deze betaling uit komt. Per banktransactie hooguit één betaling (unieke index).
+    // Bewust zonder databasekoppeling: de koppeling hoort bij de betaling, en de banktransactie blijft altijd bestaan.
+    public int? BankTransactionId { get; set; }
+    // De betaling bij Mollie (tr_...) via de eigen Mollie van de werkruimte. Elke Mollie-betaling staat hier hooguit één keer.
+    public string? MolliePaymentId { get; set; }
+    public string? CreatedBy { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+// Naam, adres en nummers van een partij op de factuur, vastgelegd bij versturen.
+public class InvoiceParty
+{
+    public string Name { get; set; } = "";
+    // De eigenaar bij jou, of "t.a.v." bij je klant.
+    public string? Contact { get; set; }
+    public string? Address { get; set; }
+    public string? City { get; set; }
+    public string? Country { get; set; }
+    public string? Email { get; set; }
+    public string? Phone { get; set; }
+    public string? Website { get; set; }
+    public string? Kvk { get; set; }
+    public string? VatNumber { get; set; }
+    public string? Iban { get; set; }
+
+    static string? Clean(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+    // Een btw-id zoals hij op de factuur hoort: hoofdletters, zonder spaties of punten (NL001234567B01).
+    public static string? NormalizeVatId(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Replace(" ", "").Replace(".", "").Trim().ToUpperInvariant();
+
+    public static InvoiceParty Seller(Settings s) => new()
+    {
+        Name = s.CompanyName.Trim(), Contact = Clean(s.OwnerName), Address = Clean(s.Address), City = Clean(s.City), Country = Countries.Netherlands,
+        Email = Clean(s.Email), Phone = Clean(s.Phone), Website = Clean(s.Website), Kvk = Clean(s.Kvk), VatNumber = NormalizeVatId(s.Btw), Iban = Clean(s.Iban),
+    };
+
+    public InvoiceParty Copy() => (InvoiceParty)MemberwiseClone();
+
+    public static InvoiceParty Buyer(Customer c) => new()
+    {
+        Name = Clean(c.Company) ?? c.Name.Trim(), Contact = Clean(c.Company) is null ? null : Clean(c.Name), Address = Clean(c.Address),
+        City = Clean(c.City), Country = Countries.Normalize(c.Country), Email = Clean(c.Email), Phone = Clean(c.Phone), VatNumber = Clean(c.VatNumber),
+    };
+}
+
+public record VatGroup(decimal Rate, decimal Base, decimal Vat);
+public record InvoiceTotals(decimal Subtotal, decimal Vat, decimal Total, List<VatGroup> VatGroups);
+
+// Eén manier van afronden voor de hele app, op de server en in de frontend (frontend/src/lib/format.ts):
+// elk regelbedrag op centen, de btw per tarief over het totaal van dat tarief, en altijd half van nul af (2,345 → 2,35 en -2,345 → -2,35).
+public static class Money
+{
+    // Grenzen voor één regel, zodat aantal × prijs en de btw daarover altijd in een decimal passen.
+    public const decimal MaxQuantity = 1_000_000;
+    public const decimal MaxAmount = 1_000_000_000;
+    public const string TooLargeError = "Een regel heeft een te groot aantal of bedrag. Een aantal kan tot 1.000.000 en een prijs tot 1.000.000.000.";
+
+    public static bool TooLarge(InvoiceLine l) => Math.Abs(l.Quantity) > MaxQuantity || Math.Abs(l.UnitPrice) > MaxAmount;
+
+    public static decimal Round(decimal amount) => Math.Round(amount, 2, MidpointRounding.AwayFromZero);
+
+    public static decimal LineAmount(InvoiceLine l) => Round(l.Quantity * l.UnitPrice);
+
+    public static InvoiceTotals Totals(IEnumerable<InvoiceLine> lines)
+    {
+        var groups = lines.GroupBy(l => l.VatRate).OrderByDescending(g => g.Key)
+            .Select(g => { var b = g.Sum(LineAmount); return new VatGroup(g.Key, b, Round(b * g.Key / 100)); }).ToList();
+        var subtotal = groups.Sum(g => g.Base);
+        var vat = groups.Sum(g => g.Vat);
+        return new InvoiceTotals(subtotal, vat, subtotal + vat, groups);
+    }
 }
 
 public class InvoiceLine
 {
     public int Id { get; set; }
     public int InvoiceId { get; set; }
+    // De volgorde op de factuur; bij gelijke positie telt het id.
+    [JsonIgnore] public int Position { get; set; }
     public string Description { get; set; } = "";
     public decimal Quantity { get; set; } = 1;
+    public string Unit { get; set; } = "stuk";
     public decimal UnitPrice { get; set; }
     public decimal VatRate { get; set; } = 21;
 }
 
-public class Appointment
+// Hoe vaak een terugkerende factuur komt, welke periode hij dekt en wat er bij elke keer gebeurt.
+public static class RecurringIntervals
+{
+    public const string Monthly = "maand";
+    public const string Quarterly = "kwartaal";
+    public const string Yearly = "jaar";
+    public static readonly string[] All = [Monthly, Quarterly, Yearly];
+
+    public static int Months(string interval) => interval switch { Quarterly => 3, Yearly => 12, _ => 1 };
+}
+
+// Wat elke reeks perioden heeft: een terugkerende factuur en een vaste kost (abonnement) rekenen met dezelfde perioden.
+// NextPeriodStart is de eerste periode die nog niet is afgehandeld; NextRunDate de dag waarop die aan de beurt is.
+public interface IRecurringSchedule
+{
+    DateTime StartDate { get; }
+    DateTime? EndDate { get; }
+    string Interval { get; }
+    string PeriodRule { get; }
+    DateTime NextPeriodStart { get; set; }
+    DateTime? NextRunDate { get; set; }
+}
+
+public static class RecurringPeriodRules
+{
+    // Vooraf: de factuur komt aan het begin van de periode die hij dekt (hosting, een abonnement).
+    public const string InAdvance = "vooraf";
+    // Achteraf: de factuur komt de dag nadat de periode voorbij is (een retainer, onderhoud per maand).
+    public const string InArrears = "achteraf";
+    public static readonly string[] All = [InAdvance, InArrears];
+}
+
+public static class RecurringActions
+{
+    public const string Draft = "concept";
+    public const string Send = "versturen";
+    public static readonly string[] All = [Draft, Send];
+}
+
+// Een factuur die elke maand, elk kwartaal of elk jaar terugkomt voor dezelfde klant, zoals onderhoud, hosting of een retainer.
+// De planner maakt per periode precies één factuur (zie RecurringInvoiceService). NextPeriodStart is de eerste periode die
+// nog geen factuur heeft; NextRunDate is de dag waarop die aan de beurt is, of leeg als de einddatum voorbij is.
+public class RecurringInvoice : IWorkspaceOwned, IDemoData, IRecurringSchedule
 {
     public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
+    public string Name { get; set; } = "";
+    public int CustomerId { get; set; }
+    public Customer? Customer { get; set; }
+    public string VatRegime { get; set; } = VatRegimes.Normal;
+    public string Interval { get; set; } = RecurringIntervals.Monthly;
+    public string PeriodRule { get; set; } = RecurringPeriodRules.InAdvance;
+    public string Action { get; set; } = RecurringActions.Draft;
+    public DateTime StartDate { get; set; }
+    public DateTime? EndDate { get; set; }
+    public DateTime NextPeriodStart { get; set; }
+    public DateTime? NextRunDate { get; set; }
+    public bool Active { get; set; } = true;
+    public string? Reference { get; set; }
+    public string? Notes { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public List<RecurringInvoiceLine> Lines { get; set; } = [];
+    [NotMapped] public bool Demo => IsDemo;
+}
+
+// Een regel van een terugkerende factuur, net als een factuurregel. In de omschrijving mogen {maand}, {jaar}, {kwartaal} en {periode}.
+public class RecurringInvoiceLine
+{
+    public int Id { get; set; }
+    public int RecurringInvoiceId { get; set; }
+    [JsonIgnore] public int Position { get; set; }
+    public string Description { get; set; } = "";
+    public decimal Quantity { get; set; } = 1;
+    public string Unit { get; set; } = "maand";
+    public decimal UnitPrice { get; set; }
+    public decimal VatRate { get; set; } = 21;
+}
+
+// Wat een mail over een factuur is: de factuur zelf (0) of een van de drie herinneringen bij een te late factuur.
+public static class MailSteps
+{
+    public const int Invoice = 0;
+    public const int First = 1;
+    public const int Second = 2;
+    public const int Final = 3;
+
+    public static string Label(int step) => step switch
+    {
+        First => "Herinnering",
+        Second => "Tweede herinnering",
+        Final => "Aanmaning",
+        _ => "Factuur",
+    };
+}
+
+public static class MailStatus
+{
+    public const string Sending = "bezig";
+    public const string Sent = "verstuurd";
+    public const string Failed = "mislukt";
+    public const string Skipped = "overgeslagen";
+}
+
+// Elke mail over een factuur: wanneer, welke stap en aan wie. Ook wat niet weg kon, met de reden.
+// Een automatische herinnering staat er per stap hooguit één keer als "bezig" of "verstuurd" (unieke index), zodat
+// twee rondes tegelijk dezelfde herinnering nooit twee keer sturen.
+public class InvoiceMail : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int InvoiceId { get; set; }
+    public int Step { get; set; }
+    public string To { get; set; } = "";
+    public string Subject { get; set; } = "";
+    public string Status { get; set; } = MailStatus.Sending;
+    public string? Note { get; set; }
+    public bool Automatic { get; set; }
+    // Wie hem handmatig verstuurde.
+    public string? SentBy { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? SentAt { get; set; }
+}
+
+// Een openbare link naar één verstuurde factuur, voor in de mail. Het token zelf staat alleen in de mail; hier bewaren we
+// alleen de SHA-256-hash. Intrekken maakt de link meteen onbruikbaar.
+public class InvoiceLink : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int InvoiceId { get; set; }
+    [JsonIgnore] public string TokenHash { get; set; } = "";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? RevokedAt { get; set; }
+    public DateTime? LastOpenedAt { get; set; }
+    public int Opens { get; set; }
+    // Gemaakt vanuit het klantportaal: werkt alleen zolang die portaallink werkt en facturen daar zichtbaar zijn.
+    // Het token is afgeleid van het portaaltoken (zie CustomerPortalEndpoints.InvoiceToken), dus ook hier alleen de hash.
+    public int? PortalLinkId { get; set; }
+}
+
+// De status van een offerte. Verlopen staat nooit in de database: een verstuurde offerte is verlopen zodra de dag na
+// de geldigheidsdatum begint. Ingetrokken: de freelancer haalde hem terug (of verstuurde een nieuwe versie).
+public static class QuoteStatus
+{
+    public const string Draft = "concept";
+    public const string Sent = "verstuurd";
+    public const string Accepted = "geaccepteerd";
+    public const string Rejected = "afgewezen";
+    public const string Withdrawn = "ingetrokken";
+    public const string Expired = "verlopen";
+
+    // Wat de offerte op een dag is, met verlopen erbij.
+    public static string Of(Quote q, DateTime today) => q.Status == Sent && today > q.ValidUntil.Date ? Expired : q.Status;
+}
+
+// Een offerte aan een klant of een lead. Net als een factuur ligt hij vast zodra hij verstuurd is: dan krijgt hij een nummer
+// (OFF-2026-001) en leggen we de gegevens van beide partijen vast. Wil je iets veranderen, dan maak je een nieuwe versie.
+// De klant accepteert of wijst af via een geheime link; dat kan één keer, vóór het einde van de geldigheid en niet na intrekken.
+public class Quote : IWorkspaceOwned, IDemoData
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
+    public string? Number { get; set; }
+    // Voor een klant of voor een lead, nooit allebei. Wordt een lead klant (bij accepteren), dan komt de klant erbij.
+    public int? CustomerId { get; set; }
+    public Customer? Customer { get; set; }
+    public int? LeadId { get; set; }
+    public Lead? Lead { get; set; }
+    // Versie 2 en verder vervangen een eerdere offerte. Bewust zonder databasekoppeling, zodat oude versies los blijven staan.
+    public int Version { get; set; } = 1;
+    public int? PreviousVersionId { get; set; }
+    public DateTime IssueDate { get; set; } = DateTime.UtcNow.Date;
+    // De laatste dag waarop de klant kan accepteren (tot en met).
+    public DateTime ValidUntil { get; set; } = DateTime.UtcNow.Date.AddDays(30);
+    public string Status { get; set; } = QuoteStatus.Draft;
+    public string VatRegime { get; set; } = VatRegimes.Normal;
+    // De taal van de offerte, net als bij een factuur: die van de klant of lead, vast zodra hij verstuurd is.
+    public string Language { get => language; set { language = value; LanguageGiven = true; } }
+    string language = Languages.Dutch;
+    [NotMapped, JsonIgnore] public bool LanguageGiven { get; private set; }
+    public string? Subject { get; set; }
+    public string? Intro { get; set; }
+    public string? Terms { get; set; }
+    // Een aanbetaling bij akkoord, als percentage van het totaal.
+    public decimal? DepositPercent { get; set; }
+    public DateTime? SentAt { get; set; }
+    // Het besluit van de klant: wanneer (UTC), met welke naam, vanaf welk IP-adres, en bij afwijzen eventueel waarom.
+    public DateTime? DecidedAt { get; set; }
+    public string? DecidedName { get; set; }
+    public string? DecidedIp { get; set; }
+    public string? RejectReason { get; set; }
+    public DateTime? WithdrawnAt { get; set; }
+    public DateTime? MailedAt { get; set; }
+    public string? MailedTo { get; set; }
+    public InvoiceParty? Seller { get; set; }
+    public InvoiceParty? Buyer { get; set; }
+    public List<QuoteLine> Lines { get; set; } = [];
+    // Wat er na akkoord van gemaakt is (nooit vanzelf): een project, een factuur voor de aanbetaling en een factuur voor het geheel.
+    public int? ProjectId { get; set; }
+    public int? DepositInvoiceId { get; set; }
+    public int? InvoiceId { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    [NotMapped] public InvoiceTotals Totals => Money.Totals(Lines.Select(l => l.AsInvoiceLine()));
+    [NotMapped] public bool Demo => IsDemo;
+    // Vult de API in: de status van vandaag (met verlopen), het nummer van de vorige versie en of er een nieuwere versie is.
+    [NotMapped] public string? State { get; set; }
+    [NotMapped] public string? PreviousNumber { get; set; }
+    [NotMapped] public int? NewerVersionId { get; set; }
+}
+
+// Een regel van een offerte, net als een factuurregel.
+public class QuoteLine
+{
+    public int Id { get; set; }
+    public int QuoteId { get; set; }
+    [JsonIgnore] public int Position { get; set; }
+    public string Description { get; set; } = "";
+    public decimal Quantity { get; set; } = 1;
+    public string Unit { get; set; } = "stuk";
+    public decimal UnitPrice { get; set; }
+    public decimal VatRate { get; set; } = 21;
+
+    // Om met dezelfde afronding als facturen te rekenen.
+    public InvoiceLine AsInvoiceLine() => new() { Description = Description, Quantity = Quantity, Unit = Unit, UnitPrice = UnitPrice, VatRate = VatRate };
+}
+
+// Een geheime link naar één verstuurde offerte, net als de factuurlink: alleen de SHA-256-hash van het token staat hier.
+// Hij werkt tot een jaar na de geldigheidsdatum, zodat je klant later nog kan zien wat hij accepteerde.
+public class QuoteLink : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int QuoteId { get; set; }
+    [JsonIgnore] public string TokenHash { get; set; } = "";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public string? CreatedBy { get; set; }
+    public DateTime ExpiresAt { get; set; }
+    public DateTime? RevokedAt { get; set; }
+    public DateTime? LastOpenedAt { get; set; }
+    public int Opens { get; set; }
+
+    public bool Works(DateTime utcNow) => RevokedAt is null && ExpiresAt > utcNow;
+}
+
+// Wat een klant in zijn portaal ziet. Hooguit één rij per klant; zonder rij gelden de standaardwaarden hieronder.
+public class CustomerPortal : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int CustomerId { get; set; }
+    public bool ShowHours { get; set; } = true;
+    public bool ShowBudget { get; set; } = true;
+    public bool ShowInvoices { get; set; } = true;
+    // Uurtarieven en de waarde van de uren. Facturen tonen altijd hun eigen bedrag.
+    public bool ShowAmounts { get; set; }
+    // Een kort bericht van de freelancer bovenaan het portaal.
+    public string? Note { get; set; }
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+}
+
+// Een geheime link naar het portaal van één klant. Net als bij de factuurlink staat alleen de SHA-256-hash van het token
+// hier; het token zelf ziet de beheerder één keer. Per klant werkt hooguit één link tegelijk.
+public class PortalLink : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int CustomerId { get; set; }
+    [JsonIgnore] public string TokenHash { get; set; } = "";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public string? CreatedBy { get; set; }
+    public DateTime? ExpiresAt { get; set; }
+    public DateTime? RevokedAt { get; set; }
+    public DateTime? LastOpenedAt { get; set; }
+    public int Opens { get; set; }
+
+    public bool Works(DateTime utcNow) => RevokedAt is null && (ExpiresAt is not { } end || end > utcNow);
+}
+
+// De koppeling met GitHub van een werkruimte. Het persoonlijke toegangstoken staat versleuteld met ASP.NET Data Protection
+// in de database en gaat nooit terug naar de browser; daar zie je alleen dat het is ingesteld en de laatste 4 tekens.
+public class GitHubSettings : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public string ProtectedToken { get; set; } = "";
+    public string TokenLast4 { get; set; } = "";
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public string? UpdatedBy { get; set; }
+}
+
+// De eigen Mollie van een werkruimte: daarmee betalen klanten facturen met iDEAL en komt het geld op de rekening van de
+// freelancer. Los van het abonnement op Potel zelf (Mollie:ApiKey van het platform). De sleutel staat versleuteld in de
+// database en gaat nooit meer terug naar de browser; je ziet alleen of hij test of live is en de laatste 4 tekens.
+public class MollieAccount : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public string ProtectedKey { get; set; } = "";
+    public string KeyLast4 { get; set; } = "";
+    // "test" of "live", uit het begin van de sleutel.
+    public string Mode { get; set; } = "test";
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public string? UpdatedBy { get; set; }
+}
+
+// Een iDEAL-betaling voor een factuur via de eigen Mollie van de werkruimte. Mollie meldt alleen een id; alleen een id dat
+// hier staat doet iets, en wat er gebeurd is vragen we altijd zelf op met de sleutel van deze werkruimte.
+public class OnlinePayment : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public string MollieId { get; set; } = "";
+    public int InvoiceId { get; set; }
+    public decimal Amount { get; set; }
+    public string Mode { get; set; } = "test";
+    // Zoals Mollie hem noemt: open, pending, authorized, paid, canceled, expired of failed.
+    public string Status { get; set; } = "open";
+    // Hash van de code in het terugkeeradres (/factuur?betaling=...). Daarmee ziet de klant na het betalen alleen de status.
+    [JsonIgnore] public string ReturnTokenHash { get; set; } = "";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? PaidAt { get; set; }
+    // Wanneer de betaling op de factuur is gezet. Daarna nooit nog een keer, ook niet als Mollie hem opnieuw meldt.
+    public DateTime? RecordedAt { get; set; }
+}
+
+// Met welke e-mailadressen een gebruiker commit. Zonder rij gebruiken we het e-mailadres van zijn account.
+public class GitHubAuthor : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int UserId { get; set; }
+    // Eén adres per regel.
+    public string Emails { get; set; } = "";
+}
+
+// Een commit die als uren geboekt of overgeslagen is. Zo komt dezelfde commit nooit twee keer als voorstel.
+public class GitHubCommit : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public string Sha { get; set; } = "";
+    public int ProjectId { get; set; }
+    // De boeking met deze commit; leeg als hij is overgeslagen of als de boeking later is verwijderd.
+    public int? TimeEntryId { get; set; }
+    public bool Skipped { get; set; }
+    public int? UserId { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+// Automatische herinneringen bij te late facturen: aan of uit, hoeveel dagen na de vervaldatum elke stap komt, en de teksten.
+// Een lege tekst betekent de standaardtekst (Invoicing/MailTemplates.cs), zodat verbeteringen daarin vanzelf meekomen.
+public class ReminderSettings : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public bool Enabled { get; set; }
+    public int FirstDays { get; set; } = 7;
+    public int SecondDays { get; set; } = 14;
+    public int FinalDays { get; set; } = 28;
+    public string? InvoiceSubject { get; set; }
+    public string? InvoiceBody { get; set; }
+    public string? FirstSubject { get; set; }
+    public string? FirstBody { get; set; }
+    public string? SecondSubject { get; set; }
+    public string? SecondBody { get; set; }
+    public string? FinalSubject { get; set; }
+    public string? FinalBody { get; set; }
+    // De laatste melding in het logboek dat herinneringen niet weg konden (dag en reden), zodat die hooguit één keer per dag komt.
+    [JsonIgnore] public string? LastNotice { get; set; }
+}
+
+public static class ProjectStatus
+{
+    public static readonly string[] All = ["actief", "gepauzeerd", "afgerond"];
+}
+
+public static class Billing
+{
+    // Per uur: uren worden gefactureerd tegen het uurtarief. Vast: één afgesproken prijs voor het hele project.
+    public const string Hourly = "uur";
+    public const string Fixed = "vast";
+    public static readonly string[] All = [Hourly, Fixed];
+}
+
+public class Project : IWorkspaceOwned, IDemoData
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
+    public string Name { get; set; } = "";
+    public int CustomerId { get; set; }
+    public Customer? Customer { get; set; }
+    public string Status { get; set; } = "actief";
+    public string Billing { get; set; } = Data.Billing.Hourly;
+    public decimal HourlyRate { get; set; }
+    public decimal FixedPrice { get; set; }
+    public decimal? BudgetHours { get; set; }
+    public string Color { get; set; } = "#ff6d5a";
+    public string? RepoUrl { get; set; }
+    public string? Description { get; set; }
+    public DateTime? Deadline { get; set; }
+    // Kilometertarief voor doorbelaste ritten op dit project. Leeg is: het tarief van de klant.
+    public decimal? KilometreRate { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    // De import die dit project aanmaakte. Bewust zonder databasekoppeling.
+    [JsonIgnore] public int? ImportBatchId { get; set; }
+}
+
+public class TimeEntry : IWorkspaceOwned, IDemoData
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
+    public int ProjectId { get; set; }
+    public DateTime Date { get; set; } = DateTime.UtcNow.Date;
+    public int Minutes { get; set; }
+    public string Description { get; set; } = "";
+    public bool Billable { get; set; } = true;
+    // Gevuld zodra de uren op een factuur staan; daarna liggen ze vast.
+    public int? InvoiceId { get; set; }
+    // De factuurregel met deze uren. Gaat die regel van een concept af, dan komen de uren weer vrij.
+    public int? InvoiceLineId { get; set; }
+    // Wie de uren boekte, voor de urenspecificatie in een team. Leeg bij boekingen van voor deze kolom. Bewust zonder
+    // databasekoppeling: die zou de hele tabel met uren laten herbouwen. De naam zoeken we op binnen de eigen werkruimte.
+    public int? UserId { get; set; }
+    // Kenmerk dat de timer meestuurt, zodat dubbel stoppen maar één boeking oplevert.
+    public string? ClientId { get; set; }
+    // Afgemaakte focusblokken van de timer die deze boeking maakte, voor het aantal per dag op de urenpagina.
+    public int FocusBlocks { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    // De import die deze boeking aanmaakte. Bewust zonder databasekoppeling: die zou de hele tabel met uren laten herbouwen.
+    [JsonIgnore] public int? ImportBatchId { get; set; }
+}
+
+// De timer die nu loopt. Hij staat op de server, per gebruiker, zodat je hem op je laptop start en op je telefoon stopt.
+// Hooguit één per gebruiker: een unieke index houdt een tweede tegen, ook als twee apparaten tegelijk starten.
+public class RunningTimer : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    public int WorkspaceId { get; set; }
+    public int UserId { get; set; }
+    public int ProjectId { get; set; }
+    public string Description { get; set; } = "";
+    public bool Billable { get; set; } = true;
+    // Alle tijden in UTC. Gepauzeerde tijd telt niet mee: PausedSeconds is wat er al aan pauzes achter de rug is,
+    // PausedAt staat zolang de timer nu stilstaat.
+    public DateTime StartedAt { get; set; }
+    public DateTime? PausedAt { get; set; }
+    public int PausedSeconds { get; set; }
+    // Kenmerk van deze timer. Een apparaat stuurt het mee bij stoppen, pauzeren of weggooien, zodat een verouderd scherm
+    // nooit een nieuwere timer stopt. De boeking krijgt hetzelfde kenmerk, dus twee keer stoppen geeft één boeking.
+    public string Key { get; set; } = "";
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    // Focusmodus: werken in blokken van FocusMinutes minuten, met een pauze ertussen. Leeg is een gewone timer.
+    public int? FocusMinutes { get; set; }
+    // Gewerkte seconden van de timer toen het huidige blok begon. Na wisselen van project negatief, zodat het blok doorloopt.
+    public int FocusBlockStart { get; set; }
+    // Gevuld tijdens de pauze na een blok. De timer staat dan stil, want een pauze boeken we niet.
+    public DateTime? FocusBreakStartedAt { get; set; }
+    public int FocusBreakMinutes { get; set; }
+    // Afgemaakte blokken met deze timer; die gaan mee op de boeking. FocusRound telt de blokken tot de lange pauze.
+    public int FocusBlocks { get; set; }
+    public int FocusRound { get; set; }
+}
+
+// Soorten ritten. Alleen zakelijke kilometers met je eigen auto geven aftrek voor de inkomstenbelasting. Met een auto van
+// de zaak zitten de autokosten al in je kosten, dus die kilometers leggen we alleen vast. Woon-werkverkeer met je eigen
+// auto telt voor de inkomstenbelasting als zakelijk.
+public static class TripKinds
+{
+    public const string Business = "zakelijk";
+    public const string CompanyCar = "auto-van-de-zaak";
+    public const string Private = "prive";
+    public static readonly string[] All = [Business, CompanyCar, Private];
+
+    public static bool IsBusiness(string kind) => kind is Business or CompanyCar;
+
+    public static string Label(string kind) => kind switch
+    {
+        Business => "Zakelijk, eigen auto",
+        CompanyCar => "Zakelijk, auto van de zaak",
+        _ => "Privé",
+    };
+}
+
+// Een rit voor de kilometerregistratie. Een zakelijke rit voor een klant kan doorbelast worden; staat hij op een factuur,
+// dan ligt hij vast, net als uren.
+public class Trip : IWorkspaceOwned, IDemoData
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
+    public DateTime Date { get; set; } = DateTime.UtcNow.Date;
+    public string From { get; set; } = "";
+    public string To { get; set; } = "";
+    // Op een tiende kilometer.
+    public decimal Kilometres { get; set; }
+    public string? Purpose { get; set; }
+    public string Kind { get; set; } = TripKinds.Business;
+    public int? CustomerId { get; set; }
+    public int? ProjectId { get; set; }
+    // De kilometerstand voor en na de rit, als je die bijhoudt.
+    public int? OdometerStart { get; set; }
+    public int? OdometerEnd { get; set; }
+    // Doorbelasten aan de klant, tegen het kilometertarief van het project of de klant.
+    public bool Billable { get; set; }
+    // Gevuld zodra de rit op een factuur staat; daarna ligt hij vast.
+    public int? InvoiceId { get; set; }
+    public int? InvoiceLineId { get; set; }
+    // Wie de rit vastlegde, uit de inlog.
+    public int? UserId { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+// Een vaste route die je vaak rijdt, om een rit snel in te vullen.
+public class TripRoute : IWorkspaceOwned, IDemoData
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
+    public string Name { get; set; } = "";
+    public string From { get; set; } = "";
+    public string To { get; set; } = "";
+    public decimal Kilometres { get; set; }
+    public string? Purpose { get; set; }
+    public string Kind { get; set; } = TripKinds.Business;
+    public int? CustomerId { get; set; }
+    public int? ProjectId { get; set; }
+    public bool Billable { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+// Eén rij met de gegevens van de freelancer zelf: voor op de factuur en voor de doelen op het dashboard.
+public class Settings : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public string CompanyName { get; set; } = "Jouw Naam Development";
+    public string? OwnerName { get; set; }
+    public string? Address { get; set; }
+    public string? City { get; set; }
+    public string? Email { get; set; }
+    public string? Phone { get; set; }
+    public string? Website { get; set; }
+    public string? Kvk { get; set; }
+    public string? Btw { get; set; }
+    public string? Iban { get; set; }
+    public decimal DefaultHourlyRate { get; set; } = 95;
+    public int PaymentTermDays { get; set; } = 14;
+    // Hoeveel dagen een nieuwe offerte geldig is.
+    public int QuoteValidDays { get; set; } = 30;
+    // Standaard btw-regeling voor nieuwe facturen: normaal, KOR (kleineondernemersregeling) of vrijgesteld.
+    public string VatRegime { get; set; } = VatRegimes.Normal;
+    public int WeeklyHoursTarget { get; set; } = 32;
+    // Het urencriterium voor de zelfstandigenaftrek.
+    public int YearlyHoursTarget { get; set; } = 1225;
+    // Huisstijl op de factuur: een logo als data-URL en een accentkleur.
+    public string? LogoDataUrl { get; set; }
+    public string BrandColor { get; set; } = "#ff6d5a";
+}
+
+// Voor de belastingpot: hoe je reserveert, per kalenderjaar. Berekend (schijven, heffingskortingen en Zvw) of een vast
+// percentage van wat er op je facturen betaald is.
+public static class ReserveModes
+{
+    public const string Calculated = "berekend";
+    public const string Percentage = "percentage";
+    public static readonly string[] All = [Calculated, Percentage];
+}
+
+// Een voorlopige aanslag: geen, één bedrag voor het hele jaar, of een bedrag per maand gedurende een aantal maanden.
+public static class ProvisionalKinds
+{
+    public const string None = "geen";
+    public const string Total = "totaal";
+    public const string Monthly = "per-maand";
+    public static readonly string[] All = [None, Total, Monthly];
+}
+
+// Je persoonlijke situatie in een jaar, voor de belastingpot: loon uit loondienst met de ingehouden loonheffing, of je starter
+// bent, je voorlopige aanslag (inkomstenbelasting en Zvw samen) en hoe je reserveert. Bedragen voor het hele jaar.
+// Eén rij per werkruimte per jaar; alleen een beheerder ziet en wijzigt dit.
+public class TaxReserveYear : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int Year { get; set; }
+    public decimal Wage { get; set; }
+    public decimal WageTaxWithheld { get; set; }
+    public bool Starter { get; set; }
+    public string Provisional { get; set; } = ProvisionalKinds.None;
+    public decimal ProvisionalAmount { get; set; }
+    public int ProvisionalMonths { get; set; } = 12;
+    public string Mode { get; set; } = ReserveModes.Calculated;
+    public decimal Percentage { get; set; }
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public string? UpdatedBy { get; set; }
+
+    // Wat de voorlopige aanslag over het hele jaar dekt.
+    [NotMapped] public decimal ProvisionalTotal => Provisional switch
+    {
+        ProvisionalKinds.Total => ProvisionalAmount,
+        ProvisionalKinds.Monthly => ProvisionalAmount * ProvisionalMonths,
+        _ => 0,
+    };
+}
+
+// Een btw-aangifte die je al hebt gedaan. Die telt dan niet meer mee in de belastingpot.
+public class VatFiling : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int Year { get; set; }
+    public int Quarter { get; set; }
+    public DateTime FiledAt { get; set; } = DateTime.UtcNow;
+    public string? FiledBy { get; set; }
+}
+
+// De instellingen voor de cashflow-prognose op de pagina Inzichten, één rij per werkruimte. Het banksaldo is wat je zelf invult,
+// met de dag waarop je dat deed; leeg is: geen saldo. Vaste kosten zijn wat je per maand kwijt bent, met btw. Een geaccepteerde
+// offerte komt binnen in de maand na vandaag, of verdeeld over QuoteSpreadMonths maanden.
+public class CashflowSettings : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public decimal? BankBalance { get; set; }
+    public DateTime? BankBalanceDate { get; set; }
+    public decimal FixedCostsPerMonth { get; set; }
+    public int QuoteSpreadMonths { get; set; } = 1;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public string? UpdatedBy { get; set; }
+}
+
+// Soorten zakelijke kosten, met de naam zoals we hem tonen (ook in de export voor je boekhouder).
+public static class ExpenseCategories
+{
+    public const string Hardware = "hardware";
+    public const string Software = "software";
+    public const string Hosting = "hosting";
+    public const string Training = "opleiding";
+    public const string Travel = "reiskosten";
+    public const string Phone = "telefoon";
+    public const string Office = "kantoor";
+    public const string Other = "overig";
+    public static readonly string[] All = [Hardware, Software, Hosting, Training, Travel, Phone, Office, Other];
+
+    public static string Label(string category) => category switch
+    {
+        Hardware => "Hardware",
+        Software => "Software en abonnementen",
+        Hosting => "Hosting en domeinen",
+        Training => "Opleiding",
+        Travel => "Reiskosten",
+        Phone => "Telefoon en internet",
+        Office => "Kantoor",
+        _ => "Overig",
+    };
+}
+
+// Waar een leverancier zit als de btw naar jou is verlegd: binnen de EU (rubriek 4b) of daarbuiten (rubriek 4a).
+public static class SupplierRegions
+{
+    public const string Eu = "eu";
+    public const string OutsideEu = "buiten-eu";
+    public static readonly string[] All = [Eu, OutsideEu];
+}
+
+// Een zakelijke uitgave met de btw erop. Amount is wat je betaalde. Bij btw verlegd staat er geen btw op de rekening:
+// dan is Amount het bedrag zonder btw en is VatAmount de Nederlandse btw die je zelf aangeeft en weer aftrekt.
+public class Expense : IWorkspaceOwned, IDemoData
+{
+    // Btw-tarieven voor een uitgave; null is "geen btw".
+    public static readonly decimal[] VatRates = [21, 9, 0];
+
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
+    public DateTime Date { get; set; } = DateTime.UtcNow.Date;
+    public string Supplier { get; set; } = "";
+    public string? Description { get; set; }
+    public string Category { get; set; } = ExpenseCategories.Other;
+    public decimal Amount { get; set; }
+    public decimal? VatRate { get; set; } = 21;
+    public decimal VatAmount { get; set; }
+    // "Btw verlegd naar mij": een buitenlandse leverancier rekende geen btw. Dan staat hier waar hij zit.
+    public bool ReverseCharge { get; set; }
+    public string? SupplierRegion { get; set; }
+    public int? ProjectId { get; set; }
+    public int? CustomerId { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    // Een investering (bedrijfsmiddel) schrijf je af over de gebruiksduur in plaats van de prijs in één keer af te trekken.
+    public bool Investment { get; set; }
+    public int? UsefulLifeYears { get; set; }
+    // Wat het bedrijfsmiddel aan het eind van de gebruiksduur vermoedelijk nog waard is; daar schrijf je niet onder.
+    public decimal? ResidualValue { get; set; }
+    // Een personenauto die niet bedoeld is voor beroepsvervoer telt niet mee voor de kleinschaligheidsinvesteringsaftrek.
+    public bool PassengerCar { get; set; }
+    // Verkocht of weggedaan: vanaf dan stopt de afschrijving. De verkoopprijs is zonder btw; null of 0 is niets gekregen.
+    public DateTime? DisposedOn { get; set; }
+    public decimal? DisposalPrice { get; set; }
+
+    // Gemaakt door een vaste kost (abonnement), voor de periode die op RecurringPeriodStart begint. Per vaste kost en periode
+    // hooguit één uitgave (unieke index). Bewust zonder databasekoppeling: die zou de hele tabel met kosten laten herbouwen.
+    // Gaat de vaste kost weg, dan zet RecurringExpenseEndpoints deze koppeling zelf op leeg.
+    public int? RecurringExpenseId { get; set; }
+    public DateTime? RecurringPeriodStart { get; set; }
+    // Klaargezet door een vaste kost en nog niet nagekeken ("concept, nog controleren"). Weg zodra je hem opslaat, op Klopt
+    // klikt of hem aan een regel uit je bank koppelt.
+    public bool NeedsReview { get; set; }
+
+    // Het bedrag zonder btw. Bij btw verlegd betaalde je al geen btw.
+    [NotMapped] public decimal AmountExclVat => ReverseCharge ? Amount : Amount - VatAmount;
+    [NotMapped] public bool Demo => IsDemo;
+
+    // Wat de uitgave van je winst afhaalt. Trek je geen btw af (KOR of vrijgestelde omzet), dan hoort de btw bij de kosten,
+    // ook de verlegde btw die je zelf afdraagt. Dezelfde regel staat in frontend/src/lib/expenses.ts.
+    public decimal CostForProfit(bool deduction) => deduction ? AmountExclVat : Amount + (ReverseCharge ? VatAmount : 0);
+
+    // De btw zoals een kassabon hem uitrekent: uit het bedrag inclusief btw, of bij btw verlegd erbovenop. Op centen, half van nul af.
+    public static decimal VatFor(decimal amount, decimal? rate, bool reverseCharge) => rate is not > 0
+        ? 0
+        : Money.Round(reverseCharge ? amount * rate.Value / 100 : amount * rate.Value / (100 + rate.Value));
+}
+
+// Wat er bij een vaste kost elke periode gebeurt: Potel zet de uitgave klaar als concept om na te kijken, of herinnert je alleen.
+public static class RecurringExpenseActions
+{
+    public const string Draft = "concept";
+    public const string Remind = "herinneren";
+    public static readonly string[] All = [Draft, Remind];
+}
+
+// Een vaste kost: een abonnement of andere uitgave die elke maand, elk kwartaal of elk jaar terugkomt, zoals software, hosting of
+// je telefoon. Bedrag, btw en categorie werken net als bij een uitgave; bij btw verlegd is Amount het bedrag zonder btw.
+// Elke periode wordt hooguit één uitgave (zie RecurringExpenseService). Een abonnement schrijft af op de eerste dag van de periode.
+public class RecurringExpense : IWorkspaceOwned, IDemoData, IRecurringSchedule
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
+    public string Supplier { get; set; } = "";
+    // Mag {maand}, {jaar}, {kwartaal} en {periode} bevatten, net als een terugkerende factuur.
+    public string? Description { get; set; }
+    public string Category { get; set; } = ExpenseCategories.Software;
+    public decimal Amount { get; set; }
+    public decimal? VatRate { get; set; } = 21;
+    public bool ReverseCharge { get; set; }
+    public string? SupplierRegion { get; set; }
+    public int? ProjectId { get; set; }
+    public int? CustomerId { get; set; }
+    public string Interval { get; set; } = RecurringIntervals.Monthly;
+    public string Action { get; set; } = RecurringExpenseActions.Draft;
+    public DateTime StartDate { get; set; }
+    public DateTime? EndDate { get; set; }
+    public DateTime NextPeriodStart { get; set; }
+    public DateTime? NextRunDate { get; set; }
+    // Hoeveel perioden je na elkaar oversloeg. Twee of meer is een teken dat het abonnement misschien niet meer loopt.
+    public int SkippedInARow { get; set; }
+    // De periode waarvoor de laatste herinnering in het logboek staat, zodat elke periode er één krijgt.
+    public DateTime? RemindedPeriodStart { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    // Een abonnement betaal je vooraf, aan het begin van de periode.
+    [NotMapped, JsonIgnore] public string PeriodRule => RecurringPeriodRules.InAdvance;
+    [NotMapped] public bool Demo => IsDemo;
+}
+
+// Wat je met een regel uit je bankafschrift doet als hij niet bij een factuur of uitgave hoort.
+public static class BankMarks
+{
+    public const string Private = "prive";
+    public const string Ignore = "negeren";
+    public static readonly string[] All = [Private, Ignore];
+}
+
+// Een regel uit een ingelezen bankafschrift. Amount is positief voor geld dat binnenkwam en negatief voor geld dat eraf ging.
+// Een regel hoort bij hooguit één ding: een betaling op een factuur (InvoicePayment.BankTransactionId), een uitgave
+// (ExpenseId), of hij staat op privé of genegeerd. Potel koppelt nooit vanzelf; het doet alleen voorstellen.
+public class BankTransaction : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int ImportId { get; set; }
+    // Je eigen rekening, zoals hij in het afschrift staat.
+    public string? Account { get; set; }
+    public DateTime Date { get; set; }
+    public decimal Amount { get; set; }
+    public string? CounterpartyName { get; set; }
+    public string? CounterpartyIban { get; set; }
+    public string? Description { get; set; }
+    // Het kenmerk van de bank, als het afschrift er een heeft.
+    public string? BankReference { get; set; }
+    // Herkent dezelfde regel als je een afschrift nog eens inleest (uniek per werkruimte), zie StatementParser.DedupeKeys.
+    [JsonIgnore] public string DedupeKey { get; set; } = "";
+    public string? Mark { get; set; }
+    public int? ExpenseId { get; set; }
+    // Of de betaling op de factuur door deze koppeling is gemaakt. Dan gaat hij weer weg als je de koppeling ongedaan maakt;
+    // een betaling die je zelf al had ingevuld blijft staan.
+    public bool PaymentCreated { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+// Eén keer een afschrift inlezen: welk bestand, hoeveel nieuwe regels en hoeveel er al waren.
+public class BankImport : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public string FileName { get; set; } = "";
+    public string Format { get; set; } = "";
+    public int Added { get; set; }
+    public int Skipped { get; set; }
+    public DateTime ImportedAt { get; set; } = DateTime.UtcNow;
+    public string? ImportedBy { get; set; }
+}
+
+// Welke kolom van een CSV wat is, voor een bank die we niet herkennen. Eén per werkruimte, met de namen uit de kopregel.
+public class BankCsvMapping : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public string DateColumn { get; set; } = "";
+    public string AmountColumn { get; set; } = "";
+    public string? DescriptionColumn { get; set; }
+    public string? NameColumn { get; set; }
+    public string? IbanColumn { get; set; }
+    public string? SignColumn { get; set; }
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+}
+
+// Het bonnetje bij een uitgave (PNG, JPEG, WebP of PDF), in de database van de werkruimte. Los van de uitgave,
+// zodat een lijst met kosten de bestanden niet meeleest.
+public class ExpenseReceipt : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int ExpenseId { get; set; }
+    public string FileName { get; set; } = "";
+    // Bepaald aan de inhoud van het bestand, nooit aan wat de browser zegt.
+    public string ContentType { get; set; } = "";
+    public int Size { get; set; }
+    [JsonIgnore] public byte[] Data { get; set; } = [];
+    public DateTime UploadedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class Appointment : IWorkspaceOwned, IDemoData
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
     public string Title { get; set; } = "";
     public DateTime Start { get; set; }
     public DateTime End { get; set; }
@@ -72,39 +1348,279 @@ public class Appointment
     public string? Location { get; set; }
     public string? Notes { get; set; }
     public bool Done { get; set; }
+    // Voor wie het is, voor de eigen agendalink. Leeg is: voor iedereen in de werkruimte.
+    public int? UserId { get; set; }
+}
+
+// Je planning in je eigen agenda (Apple, Google, Outlook): één geheime link per gebruiker (zie CalendarFeedEndpoints). Alleen de
+// hash van het token staat hier; leeg is: geen werkende link. Wat erin staat kies je zelf; facturen, offertes en btw alleen als
+// beheerder, en bedragen en notities alleen met ShowAmounts. LastFetchedAt, Fetches en LastClient zeggen wanneer je agenda keek.
+public class CalendarFeed : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int UserId { get; set; }
+    [JsonIgnore] public string? TokenHash { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public bool Planning { get; set; } = true;
+    public bool Deadlines { get; set; } = true;
+    public bool Invoices { get; set; } = true;
+    public bool Quotes { get; set; } = true;
+    public bool Vat { get; set; } = true;
+    public bool ShowAmounts { get; set; }
+    public DateTime? LastFetchedAt { get; set; }
+    public int Fetches { get; set; }
+    public string? LastClient { get; set; }
 }
 
 // Eigen modules: de gebruiker bepaalt zelf de velden, records worden als JSON opgeslagen.
-public class CustomModule
+public class CustomModule : IWorkspaceOwned, IDemoData
 {
     public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
     public string Name { get; set; } = "";
     public string Icon { get; set; } = "box";
     public string Color { get; set; } = "#ff6d5a";
     public string FieldsJson { get; set; } = "[]";
 }
 
-public class CustomRecord
+public class CustomRecord : IWorkspaceOwned, IDemoData
 {
     public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
     public int ModuleId { get; set; }
     public string DataJson { get; set; } = "{}";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
-public class Workflow
+public class Workflow : IWorkspaceOwned, IDemoData
 {
     public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public bool IsDemo { get; set; }
     public string Name { get; set; } = "";
     public bool Active { get; set; }
     public string GraphJson { get; set; } = "{\"nodes\":[],\"edges\":[]}";
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? LastScheduledAt { get; set; }
 }
 
-public class Activity
+public class Activity : IWorkspaceOwned
 {
     public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
     public string Kind { get; set; } = "";
     public string Text { get; set; } = "";
     public DateTime At { get; set; } = DateTime.UtcNow;
+}
+
+public static class Roles
+{
+    public const string Admin = "beheerder";
+    public const string Employee = "medewerker";
+    // Kijkt mee in de geldzaken en kan niets wijzigen, behalve wat een beheerder hem apart toestaat (zie AccountantAccess).
+    // Een boekhouder nodig je uit per e-mail; met hetzelfde adres kan hij boekhouder zijn in meer werkruimtes.
+    public const string Accountant = "boekhouder";
+    public static readonly string[] All = [Admin, Employee, Accountant];
+}
+
+public class User : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public string Name { get; set; } = "";
+    public string Email { get; set; } = "";
+    public string PasswordHash { get; set; } = "";
+    public string Role { get; set; } = Roles.Employee;
+    public bool Active { get; set; } = true;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? LastLoginAt { get; set; }
+    // Verandert bij een nieuw wachtwoord, e-mailadres, andere rol of uitschakelen; oudere inlogcookies werken dan niet meer.
+    public string SecurityStamp { get; set; } = Guid.NewGuid().ToString("N");
+    // Eigenaar van het platform. Wordt alleen bij het opstarten uit de instellingen gezet of door een andere platformbeheerder.
+    public bool IsPlatformAdmin { get; set; }
+    // Wanneer de gebruiker zijn e-mailadres bevestigde via de link in de mail. Leeg na een nieuw adres.
+    public DateTime? EmailVerifiedAt { get; set; }
+    // Hoe lang een focusblok duurt bij deze gebruiker, op elk apparaat. Leeg is de standaard van 25 minuten.
+    public int? FocusMinutes { get; set; }
+    // Inloggen in twee stappen: het geheim voor de app op je telefoon (versleuteld met Data Protection), sinds wanneer het aan staat,
+    // en de laatst gebruikte tijdstap, zodat elke code maar één keer werkt. Tijdens het instellen staat het nieuwe geheim apart,
+    // tot de eerste code uit de app klopt.
+    [JsonIgnore] public string? TwoFactorSecret { get; set; }
+    [JsonIgnore] public string? TwoFactorPendingSecret { get; set; }
+    public DateTime? TwoFactorEnabledAt { get; set; }
+    [JsonIgnore] public long? TwoFactorLastStep { get; set; }
+    // Alleen voor een boekhouder: wat een beheerder hem daarnaast toestaat. Een btw-aangifte als gedaan markeren, en bij een
+    // uitgave een bonnetje of categorie aanvullen.
+    public bool CanFileVat { get; set; }
+    public bool CanCompleteExpenses { get; set; }
+    // Een uitgenodigde boekhouder die de uitnodiging nog niet heeft aangenomen. Kan nog niet inloggen en heeft nog geen wachtwoord.
+    public bool InvitePending { get; set; }
+
+    public bool TwoFactorEnabled => TwoFactorEnabledAt is not null && TwoFactorSecret is not null;
+
+    public void NewSecurityStamp() => SecurityStamp = Guid.NewGuid().ToString("N");
+}
+
+// Een herstelcode voor inloggen in twee stappen, voor als je telefoon kwijt is. Alleen de hash staat hier; elke code werkt één keer.
+public class RecoveryCode : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int UserId { get; set; }
+    public string CodeHash { get; set; } = "";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? UsedAt { get; set; }
+}
+
+public static class TokenPurposes
+{
+    public const string PasswordReset = "wachtwoord";
+    public const string VerifyEmail = "e-mail";
+    public const string Invite = "uitnodiging";
+}
+
+// Een link uit een mail om je wachtwoord te herstellen of je e-mailadres te bevestigen. Werkt één keer en kort.
+public class AccountToken : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int UserId { get; set; }
+    public string Purpose { get; set; } = "";
+    // Alleen de SHA-256 van het token; het token zelf staat alleen in de mail.
+    public string TokenHash { get; set; } = "";
+    // Het adres waar de mail heen ging. Heeft de gebruiker intussen een ander adres, dan werkt de link niet meer.
+    public string Email { get; set; } = "";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime ExpiresAt { get; set; }
+    public DateTime? UsedAt { get; set; }
+}
+
+public class WorkflowRun : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int WorkflowId { get; set; }
+    public string Trigger { get; set; } = "";
+    // bezig, wachtend, klaar, fout
+    public string Status { get; set; } = "bezig";
+    public DateTime StartedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? FinishedAt { get; set; }
+    // Vroegste moment waarop een wachtend blok verder mag.
+    public DateTime? ResumeAt { get; set; }
+    public string ContextJson { get; set; } = "{}";
+    public string PendingJson { get; set; } = "[]";
+    public string LogJson { get; set; } = "[]";
+    // Tellers over het hele leven van de run, ook na wachten: stappen, keren gewacht en verstuurde e-mails of webhooks.
+    public int Steps { get; set; }
+    public int Waits { get; set; }
+    public int Calls { get; set; }
+    // Wie de run met de hand startte. Loopt hij later vast, dan krijgt die gebruiker een melding (zie Notifier).
+    [JsonIgnore] public int? StartedByUserId { get; set; }
+}
+
+// Een melding in Potel voor één gebruiker: iets wat buiten hem om gebeurde, zoals een betaalde factuur of een vastgelopen werkstroom.
+// Key maakt de gebeurtenis uniek per gebruiker (unieke index), zodat er hooguit één melding komt, ook als dezelfde code twee keer
+// loopt. Title is de onderwerpregel van een mail, Text de zin in de bel en Detail wat er verder in de mail staat.
+public class Notification : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int UserId { get; set; }
+    public string Kind { get; set; } = "";
+    public string Key { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string Text { get; set; } = "";
+    public string? Detail { get; set; }
+    // Waar de melding over gaat, als pad in de app, zoals /facturen/12.
+    public string? Link { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? ReadAt { get; set; }
+    // Uit als de gebruiker deze soort alleen per e-mail wil: dan staat hij niet in de bel en niet in de lijst.
+    public bool InApp { get; set; } = true;
+    // Of en hoe hij gemaild wordt (zie NotificationMail); leeg is geen mail.
+    public string? Mail { get; set; }
+    public DateTime? MailedAt { get; set; }
+}
+
+public static class NotificationMail
+{
+    // Wacht op een losse mail, of op het dagelijkse overzicht.
+    public const string Direct = "direct";
+    public const string Digest = "overzicht";
+    public const string Sent = "verstuurd";
+    public const string Skipped = "overgeslagen";
+}
+
+// Welke meldingen een gebruiker wil: soorten die niet in de app hoeven en soorten die ook per e-mail komen, gescheiden door komma's.
+// Zonder rij gelden de standaarden uit NotificationKinds. Met Digest komen de mails als één overzicht per dag. DigestSentOn, MailDay
+// en MailsSent houden bij dat er hooguit één overzicht per dag en een begrensd aantal losse mails per dag weggaan.
+public class NotificationSettings : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public int UserId { get; set; }
+    public string InAppOff { get; set; } = "";
+    public string EmailOn { get; set; } = "";
+    public bool Digest { get; set; }
+    public DateTime? DigestSentOn { get; set; }
+    public DateTime? MailDay { get; set; }
+    public int MailsSent { get; set; }
+}
+
+// Wat je uit een ander pakket kunt importeren, met een CSV-bestand per soort.
+public static class ImportKinds
+{
+    public const string Customers = "klanten";
+    public const string Projects = "projecten";
+    public const string TimeEntries = "uren";
+    public const string Invoices = "facturen";
+    public static readonly string[] All = [Customers, Projects, TimeEntries, Invoices];
+}
+
+// Een import uit een ander pakket: welk bestand, wat het opleverde en of hij ongedaan is gemaakt. Wat de import aanmaakte, wijst
+// hiernaar met ImportBatchId; ongedaan maken haalt precies die rijen weg, behalve wat sindsdien gebruikt is.
+public class ImportBatch : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    public string Kind { get; set; } = "";
+    public string FileName { get; set; } = "";
+    // Het pakket dat we herkenden aan de kolommen (zoals Toggl Track), of leeg.
+    public string? Source { get; set; }
+    public int Created { get; set; }
+    public int Updated { get; set; }
+    public int Skipped { get; set; }
+    public int CustomersCreated { get; set; }
+    public int ProjectsCreated { get; set; }
+    public string? ImportedBy { get; set; }
+    public DateTime ImportedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? UndoneAt { get; set; }
+    public string? UndoneBy { get; set; }
+    // Wat bij het ongedaan maken bleef staan omdat het inmiddels gebruikt werd.
+    public int Kept { get; set; }
+}
+
+// Een factuur uit je vorige pakket. Alleen ter informatie: hij telt mee in je omzet, het jaaroverzicht en de inzichten, maar
+// Potel verstuurt, nummert of wijzigt hem nooit, en hij gebruikt geen nummer uit je eigen nummerreeks. Niet in de btw-aangifte:
+// die heb je voor deze facturen al in je vorige pakket gedaan.
+public class ImportedInvoice : IWorkspaceOwned
+{
+    public int Id { get; set; }
+    [JsonIgnore] public int WorkspaceId { get; set; }
+    [JsonIgnore] public int ImportBatchId { get; set; }
+    public string Number { get; set; } = "";
+    public DateTime IssueDate { get; set; }
+    public int CustomerId { get; set; }
+    public Customer? Customer { get; set; }
+    // Bedrag zonder btw en de btw. Negatief bij een creditnota.
+    public decimal Subtotal { get; set; }
+    public decimal Vat { get; set; }
+    public DateTime? PaidAt { get; set; }
+    public string? Source { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    [NotMapped] public decimal Total => Subtotal + Vat;
 }

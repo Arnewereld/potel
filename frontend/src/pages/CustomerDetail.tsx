@@ -1,23 +1,39 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Pencil, Trash2, Mail, Phone, MapPin, Receipt, CalendarDays, StickyNote, User, Plus } from 'lucide-react'
+import { Pencil, Trash2, Mail, Phone, MapPin, Receipt, CalendarDays, StickyNote, User, Plus, FolderKanban, Repeat, Globe } from 'lucide-react'
 import { useApi } from '../lib/useApi'
 import { api } from '../lib/api'
 import { useTabs, useTabTitle } from '../lib/tabs'
 import { useToast } from '../lib/toast'
-import type { Appointment, Customer, Invoice } from '../lib/types'
+import { useAuth } from '../lib/auth'
+import { isAccountant } from '../lib/accountant'
+import type { Appointment, Customer, CustomerPortalSettings, Invoice, Project, RecurringInvoice } from '../lib/types'
 import { date, dateTime, euro, initials, invoiceTotals } from '../lib/format'
 import { colorFor, invoiceStatuses, kindColor } from '../lib/status'
+import { isNetherlands } from '../lib/invoice'
+import { recurringIntervals, recurringStates } from '../lib/recurring'
 import { Badge, Empty, ErrorBox, Loading, SubTabs } from '../components/ui'
 import { CustomerForm } from '../components/CustomerForm'
+import { ProjectForm } from '../components/ProjectForm'
+import { CustomerPortalTab } from '../components/CustomerPortal'
+import { portalOpened } from '../lib/portal'
+import { languages } from '../lib/docTexts'
+import { ProjectCard } from './Projects'
 
-type TabId = 'overzicht' | 'facturen' | 'planning' | 'notities'
+type TabId = 'overzicht' | 'projecten' | 'facturen' | 'planning' | 'notities' | 'portaal'
 
 export function CustomerDetailPage() {
   const { id } = useParams()
+  const { user } = useAuth()
+  // Een boekhouder ziet alleen de factuurgegevens en de facturen van een klant.
+  const accountant = isAccountant(user)
   const { data: customer, setData, error, loading } = useApi<Customer>(`/customers/${id}`)
   const { data: invoices } = useApi<Invoice[]>('/invoices')
-  const { data: appointments } = useApi<Appointment[]>('/appointments')
+  const { data: appointments } = useApi<Appointment[]>(accountant ? null : '/appointments')
+  const { data: projects } = useApi<Project[]>(accountant ? null : `/projects?customerId=${id}`)
+  const { data: recurring } = useApi<RecurringInvoice[]>(accountant ? null : `/recurring-invoices?customerId=${id}`)
+  const { data: portal, setData: setPortal } = useApi<CustomerPortalSettings>(accountant ? null : `/customers/${id}/portal`)
+  const [newProject, setNewProject] = useState(false)
   const [tab, setTab] = useState<TabId>('overzicht')
   const [editing, setEditing] = useState(false)
   const [notes, setNotes] = useState<string | null>(null)
@@ -70,20 +86,27 @@ export function CustomerDetailPage() {
             {customer.city && <span className="row"><MapPin size={14} /> {customer.city}</span>}
           </div>
         </div>
-        <div className="row">
-          <button className="btn" onClick={() => setEditing(true)}><Pencil size={15} /> Bewerken</button>
-          <button className="btn btn-danger" onClick={remove}><Trash2 size={15} /></button>
-        </div>
+        {!accountant && (
+          <div className="row">
+            <button className="btn" onClick={() => setEditing(true)}><Pencil size={15} /> Bewerken</button>
+            <button className="btn btn-danger" onClick={remove}><Trash2 size={15} /></button>
+          </div>
+        )}
       </div>
 
       <SubTabs<TabId>
         value={tab}
         onChange={setTab}
-        tabs={[
+        tabs={accountant ? [
           { id: 'overzicht', label: 'Overzicht', icon: <User size={14} /> },
+          { id: 'facturen', label: 'Facturen', icon: <Receipt size={14} />, count: mine.length },
+        ] : [
+          { id: 'overzicht', label: 'Overzicht', icon: <User size={14} /> },
+          { id: 'projecten', label: 'Projecten', icon: <FolderKanban size={14} />, count: projects?.length },
           { id: 'facturen', label: 'Facturen', icon: <Receipt size={14} />, count: mine.length },
           { id: 'planning', label: 'Planning', icon: <CalendarDays size={14} />, count: myAppointments.length },
           { id: 'notities', label: 'Notities', icon: <StickyNote size={14} /> },
+          { id: 'portaal', label: 'Klantportaal', icon: <Globe size={14} /> },
         ]}
       />
 
@@ -97,8 +120,12 @@ export function CustomerDetailPage() {
                 <dt>Bedrijf</dt><dd>{customer.company || '—'}</dd>
                 <dt>E-mail</dt><dd>{customer.email || '—'}</dd>
                 <dt>Telefoon</dt><dd>{customer.phone || '—'}</dd>
-                <dt>Adres</dt><dd>{[customer.address, customer.city].filter(Boolean).join(', ') || '—'}</dd>
+                <dt>Adres</dt><dd>{[customer.address, customer.city, !isNetherlands(customer.country) && customer.country].filter(Boolean).join(', ') || '—'}</dd>
+                <dt>Btw-nummer</dt><dd>{customer.vatNumber || '—'}</dd>
+                <dt>KvK-nummer</dt><dd>{customer.kvk || '—'}</dd>
+                <dt>Taal</dt><dd>{languages.find(l => l.id === (customer.language ?? 'nl'))?.label}</dd>
                 <dt>Klant sinds</dt><dd>{date(customer.createdAt)}</dd>
+                {!accountant && <><dt>Klantportaal</dt><dd><a href="#portaal" onClick={e => { e.preventDefault(); setTab('portaal') }}>{portalOpened(portal)}</a></dd></>}
               </dl>
             </div>
           </div>
@@ -113,9 +140,54 @@ export function CustomerDetailPage() {
         </div>
       )}
 
-      {tab === 'facturen' && (
+      {tab === 'projecten' && (<>
+        <div className="row" style={{ justifyContent: 'flex-end', marginBottom: 12 }}>
+          <button className="btn btn-sm btn-primary" onClick={() => setNewProject(true)}><Plus size={14} /> Project</button>
+        </div>
+        {projects?.length === 0 && <div className="card"><Empty icon={<FolderKanban size={22} />} title="Nog geen projecten voor deze klant" /></div>}
+        <div className="project-grid">
+          {projects?.map(p => <ProjectCard key={p.id} project={p} onClick={() => navigate(`/projecten/${p.id}`)} />)}
+        </div>
+      </>)}
+
+      {tab === 'facturen' && (<>
+        {!accountant && <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-head">
+            <h3><Repeat size={16} /> Terugkerende facturen</h3>
+            {user.role === 'beheerder' && <button className="btn btn-sm" onClick={() => navigate(`/facturen/terugkerend/nieuw?klant=${customer.id}`)}><Plus size={14} /> Terugkerende factuur</button>}
+          </div>
+          {(recurring ?? []).length === 0 ? (
+            <div className="card-body muted" style={{ fontSize: 13 }}>Factureer je deze klant elke maand, elk kwartaal of elk jaar hetzelfde? Maak een terugkerende factuur, dan zet Potel hem vanzelf klaar.</div>
+          ) : (
+            <div className="table-wrap" style={{ marginTop: 10 }}>
+              <table>
+                <thead><tr><th>Naam</th><th>Hoe vaak</th><th>Volgende factuur</th><th>Status</th><th className="num">Per keer</th></tr></thead>
+                <tbody>
+                  {recurring!.map(t => {
+                    const st = recurringStates[t.state]
+                    return (
+                      <tr key={t.id} className="clickable" onClick={() => navigate(`/facturen/terugkerend/${t.id}`)}>
+                        <td>{t.name}</td>
+                        <td className="muted">{recurringIntervals.find(i => i.id === t.interval)?.label}</td>
+                        <td className="muted">{t.state === 'actief' && t.nextPeriod ? `${date(t.nextPeriod.runDate)} (${t.nextPeriod.label})` : st.label}</td>
+                        <td><Badge tone={st.tone}>{st.label}</Badge></td>
+                        <td className="num">{euro(t.totals.total)}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>}
         <div className="card">
-          <div className="card-head"><h3>Facturen</h3><button className="btn btn-sm btn-primary" onClick={() => navigate(`/facturen/nieuw?klant=${customer.id}`)}><Plus size={14} /> Factuur</button></div>
+          <div className="card-head">
+            <h3>Facturen</h3>
+            {!accountant && <div className="row" style={{ gap: 6 }}>
+              <button className="btn btn-sm" onClick={() => navigate(`/offertes/nieuw?klant=${customer.id}`)}><Plus size={14} /> Offerte</button>
+              <button className="btn btn-sm btn-primary" onClick={() => navigate(`/facturen/nieuw?klant=${customer.id}`)}><Plus size={14} /> Factuur</button>
+            </div>}
+          </div>
           {mine.length === 0 ? <Empty icon={<Receipt size={22} />} title="Nog geen facturen" /> : (
             <div className="table-wrap" style={{ marginTop: 10 }}>
               <table>
@@ -125,7 +197,7 @@ export function CustomerDetailPage() {
                     const st = invoiceStatuses.find(s => s.id === i.status)!
                     return (
                       <tr key={i.id} className="clickable" onClick={() => navigate(`/facturen/${i.id}`)}>
-                        <td>{i.number}</td><td className="muted">{date(i.issueDate)}</td>
+                        <td>{i.number ?? <span className="muted">Concept</span>}</td><td className="muted">{date(i.issueDate)}</td>
                         <td><Badge tone={st.tone}>{st.label}</Badge></td>
                         <td className="num">{euro(invoiceTotals(i.lines).total)}</td>
                       </tr>
@@ -136,7 +208,7 @@ export function CustomerDetailPage() {
             </div>
           )}
         </div>
-      )}
+      </>)}
 
       {tab === 'planning' && (
         <div className="card">
@@ -170,6 +242,9 @@ export function CustomerDetailPage() {
         </div>
       )}
 
+      {tab === 'portaal' && <CustomerPortalTab customerId={customer.id} admin={user.role === 'beheerder'} onChanged={setPortal} />}
+
+      {newProject && <ProjectForm customerId={customer.id} onClose={() => setNewProject(false)} onSaved={p => { setNewProject(false); navigate(`/projecten/${p.id}`) }} />}
       {editing && <CustomerForm customer={customer} onClose={() => setEditing(false)} onSaved={c => { setData(c); setEditing(false) }} />}
     </>
   )

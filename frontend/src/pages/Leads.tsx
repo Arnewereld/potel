@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Target, Plus, KanbanSquare, List, Building2, UserCheck, Trash2 } from 'lucide-react'
+import { Target, Plus, KanbanSquare, List, Building2, UserCheck, Trash2, FileSignature } from 'lucide-react'
 import { useApi } from '../lib/useApi'
 import { api } from '../lib/api'
 import { useToast } from '../lib/toast'
+import { useNewRequest } from '../lib/palette'
 import type { Customer, Lead, LeadStatus } from '../lib/types'
 import { euro, initials } from '../lib/format'
 import { colorFor, leadStatuses } from '../lib/status'
+import { languages } from '../lib/docTexts'
 import { Badge, Empty, ErrorBox, Field, Loading, Modal, PageHeader, SubTabs } from '../components/ui'
 
 type View = 'bord' | 'lijst'
@@ -18,6 +20,8 @@ export function LeadsPage() {
   const [dragId, setDragId] = useState<number | null>(null)
   const [overCol, setOverCol] = useState<LeadStatus | null>(null)
   const toast = useToast()
+  // "Nieuwe lead" vanuit het zoekvenster.
+  useNewRequest('lead', () => setEditing({ status: 'nieuw', value: 0 }))
 
   const move = async (lead: Lead, status: LeadStatus) => {
     if (lead.status === status) return
@@ -132,7 +136,7 @@ export function LeadsPage() {
 }
 
 function LeadForm({ lead, onClose, onSaved }: { lead: Partial<Lead>; onClose: () => void; onSaved: () => void }) {
-  const [form, setForm] = useState<Partial<Lead>>({ name: '', company: '', email: '', phone: '', source: '', notes: '', ...lead })
+  const [form, setForm] = useState<Partial<Lead>>({ name: '', company: '', email: '', phone: '', source: '', notes: '', language: 'nl', ...lead })
   const toast = useToast()
   const navigate = useNavigate()
   const set = (k: keyof Lead) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
@@ -179,6 +183,12 @@ function LeadForm({ lead, onClose, onSaved }: { lead: Partial<Lead>; onClose: ()
             <UserCheck size={15} /> {lead.customerId ? 'Open klant' : 'Maak klant'}
           </button>
         )}
+        {lead.id && (
+          // Een offerte voor de lead, of voor de klant als hij dat al is. Accepteert de lead hem, dan wordt hij vanzelf klant.
+          <button className="btn" type="button" onClick={() => { onClose(); navigate(lead.customerId ? `/offertes/nieuw?klant=${lead.customerId}` : `/offertes/nieuw?lead=${lead.id}`) }}>
+            <FileSignature size={15} /> Offerte maken
+          </button>
+        )}
         <span className="spacer" />
         <button className="btn" type="button" onClick={onClose}>Annuleren</button>
         <button className="btn btn-primary" form="lead-form">Opslaan</button>
@@ -195,7 +205,13 @@ function LeadForm({ lead, onClose, onSaved }: { lead: Partial<Lead>; onClose: ()
             {leadStatuses.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
           </select>
         </Field>
-        <Field label="Bron" full><input placeholder="Website, beurs, doorverwijzing…" value={form.source ?? ''} onChange={set('source')} /></Field>
+        <Field label="Bron"><input placeholder="Website, beurs, doorverwijzing…" value={form.source ?? ''} onChange={set('source')} /></Field>
+        {/* Offertes voor deze lead en de mails erbij krijgt hij in deze taal. Wordt hij klant, dan neemt de klant hem over. */}
+        <Field label="Taal van offertes en mails">
+          <select value={form.language ?? 'nl'} onChange={set('language')}>
+            {languages.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+          </select>
+        </Field>
         <Field label="Notities" full><textarea value={form.notes ?? ''} onChange={set('notes')} /></Field>
       </form>
     </Modal>

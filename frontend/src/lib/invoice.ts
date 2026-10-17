@@ -1,0 +1,165 @@
+import type { Customer, Invoice, InvoiceParty, Language, PaymentMethod, Settings, VatRegime } from './types'
+import { invoiceTotals, parseDate } from './format'
+import { docDate, docEuro, t } from './docTexts'
+import { vatNumberLooksValid } from './vat'
+
+export const units = ['uur', 'dag', 'stuk', 'km', 'maand', 'jaar']
+
+// Dagen tot de vervaldatum; negatief als hij al verstreken is.
+export function daysUntil(due: string) {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return Math.round((parseDate(due.slice(0, 10)).getTime() - today.getTime()) / 86400000)
+}
+
+// Dezelfde regel als de server: gekoppeld aan een factuur, of (bij oude facturen) een negatief totaal.
+export const isCredit = (inv: Pick<Invoice, 'lines' | 'creditForInvoiceId'>) =>
+  inv.creditForInvoiceId != null || invoiceTotals(inv.lines).total < 0
+
+// "Factuur 2026-0012", "Creditnota 2026-0013" of, zolang er nog geen nummer is, "Conceptfactuur".
+export function invoiceTitle(inv: Pick<Invoice, 'number' | 'lines' | 'creditForInvoiceId'>) {
+  const credit = isCredit(inv)
+  if (!inv.number) return credit ? 'Conceptcreditnota' : 'Conceptfactuur'
+  return `${credit ? 'Creditnota' : 'Factuur'} ${inv.number}`
+}
+
+// Landen voor bij een klant. De server gebruikt dezelfde EU-lijst (Countries in Models.cs).
+export const netherlands = 'Nederland'
+export const euCountries = [
+  'België', 'Bulgarije', 'Cyprus', 'Denemarken', 'Duitsland', 'Estland', 'Finland', 'Frankrijk', 'Griekenland', 'Hongarije',
+  'Ierland', 'Italië', 'Kroatië', 'Letland', 'Litouwen', 'Luxemburg', 'Malta', 'Nederland', 'Oostenrijk', 'Polen',
+  'Portugal', 'Roemenië', 'Slovenië', 'Slowakije', 'Spanje', 'Tsjechië', 'Zweden',
+]
+export const otherCountries = ['Verenigd Koninkrijk', 'Zwitserland', 'Noorwegen', 'Verenigde Staten', 'Canada', 'Australië']
+
+export const isNetherlands = (country?: string | null) => !country?.trim() || country.trim() === netherlands
+export const inEu = (country?: string | null) => isNetherlands(country) || euCountries.includes(country!.trim())
+
+export const vatRegimes: { id: VatRegime; label: string; help: string }[] = [
+  { id: 'normaal', label: 'Normaal, met btw', help: 'Btw per regel, voor klanten in Nederland en particulieren.' },
+  { id: 'verlegd', label: 'Btw verlegd (EU)', help: 'Voor een zakelijke klant in een ander EU-land met een btw-nummer. De klant draagt de btw zelf af.' },
+  { id: 'kor', label: 'Kleineondernemersregeling (KOR)', help: 'Je gebruikt de KOR: er staat geen btw op de factuur, wel de vermelding dat je de KOR gebruikt.' },
+  { id: 'vrijgesteld', label: 'Vrijgesteld van btw', help: 'Je werk is vrijgesteld van btw, bijvoorbeeld als zorgverlener of docent. Er staat geen btw op de factuur, wel de vermelding van de vrijstelling.' },
+  { id: 'buiten-eu', label: 'Klant buiten de EU', help: 'Geen Nederlandse btw voor een zakelijke klant buiten de EU.' },
+]
+
+// Alleen bij normaal staat er btw op de regels.
+export const zeroVat = (regime: VatRegime) => regime !== 'normaal'
+
+// De regeling die bij een klant in het buitenland past, net als VatRegimes.Suggest op de server: verlegd voor een
+// klant in een ander EU-land met een btw-nummer van de juiste vorm, buiten de EU daarbuiten, anders geen voorstel.
+export function suggestedRegime(customer: Customer | null | undefined): VatRegime | null {
+  if (!customer || isNetherlands(customer.country)) return null
+  if (!inEu(customer.country)) return 'buiten-eu'
+  return vatNumberLooksValid(customer.vatNumber, customer.country) ? 'verlegd' : null
+}
+
+// De regeling voor een nieuwe factuur, net als op de server: het voorstel voor de klant, en anders wat je bij
+// Instellingen als standaard hebt gekozen.
+export function defaultRegime(settings: Pick<Settings, 'vatRegime'> | null | undefined, customer: Customer | null | undefined): VatRegime {
+  return suggestedRegime(customer) ?? (settings?.vatRegime === 'kor' || settings?.vatRegime === 'vrijgesteld' ? settings.vatRegime : 'normaal')
+}
+
+// Past de regeling bij de klant? Dezelfde controle als RegimeError op de server.
+export function regimeProblem(regime: VatRegime, customer: Customer | null | undefined) {
+  if (!customer) return null
+  if (regime === 'verlegd' && (isNetherlands(customer.country) || !inEu(customer.country)))
+    return 'Btw verlegd kan alleen voor een zakelijke klant in een ander EU-land. Een klant in Nederland betaalt gewoon btw.'
+  if (regime === 'verlegd' && !customer.vatNumber?.trim()) return 'Voor btw verlegd moet het btw-nummer van de klant bekend zijn.'
+  if (regime === 'verlegd' && !vatNumberLooksValid(customer.vatNumber, customer.country))
+    return `Het btw-nummer van de klant (${customer.vatNumber!.trim()}) heeft niet de vorm van een btw-nummer uit ${customer.country!.trim()}. Pas het aan bij de klant.`
+  if (regime === 'buiten-eu' && inEu(customer.country)) return '"Buiten de EU" kan alleen voor een klant buiten de EU.'
+  return null
+}
+
+type Sendable = Pick<Invoice, 'vatRegime' | 'deliveryFrom' | 'lines' | 'buyer'>
+
+// Wat er nog ontbreekt om te mogen versturen, in dezelfde woorden als de server (Missing in Invoices.cs).
+// Een creditnota heeft de klantgegevens van de factuur die hij corrigeert al bij zich; anders tellen die van de klant nu.
+export function missingForSending(inv: Sendable, customer: Customer | null | undefined, s: Settings) {
+  const buyer = inv.buyer ?? (customer ? buyerFrom(customer) : null)
+  const missing: string[] = []
+  const need = (value: string | null | undefined, label: string) => { if (!value?.trim()) missing.push(label) }
+  need(s.companyName, 'je bedrijfsnaam')
+  need(s.address, 'je adres')
+  need(s.city, 'je postcode en plaats')
+  need(s.kvk, 'je KvK-nummer')
+  need(s.btw, 'je btw-id')
+  need(buyer?.name, 'de naam van de klant')
+  need(buyer?.address, 'het adres van de klant')
+  need(buyer?.city, 'de postcode en plaats van de klant')
+  if (inv.vatRegime === 'verlegd') need(buyer?.vatNumber, 'het btw-nummer van de klant')
+  if (!inv.deliveryFrom) missing.push('de leverdatum of periode')
+  if (inv.lines.length === 0) missing.push('minstens één regel')
+  return missing
+}
+
+// Jij en je klant zoals ze nu zijn; na versturen gebruikt de factuur de vastgelegde gegevens.
+export const sellerFrom = (s: Settings): InvoiceParty => ({
+  name: s.companyName, contact: s.ownerName, address: s.address, city: s.city, country: netherlands, email: s.email,
+  phone: s.phone, website: s.website, kvk: s.kvk, vatNumber: s.btw, iban: s.iban,
+})
+export const buyerFrom = (c: Customer): InvoiceParty => ({
+  name: c.company?.trim() || c.name, contact: c.company?.trim() ? c.name : null, address: c.address, city: c.city,
+  country: c.country?.trim() || netherlands, email: c.email, phone: c.phone, vatNumber: c.vatNumber,
+})
+
+// De mails die je zelf vanuit je mailprogramma stuurt, in de taal van de factuur.
+const greeting = (lang: Language | undefined, c?: Customer | null) => {
+  const first = c?.name.split(' ')[0]
+  return first ? t(lang, 'mail.hi', { name: first }) : t(lang, 'mail.hiNoName')
+}
+const signature = (lang: Language | undefined, s: Settings) =>
+  `\n\n${t(lang, 'mail.regards')}\n${s.ownerName || s.companyName}\n${s.companyName}${s.website ? `\n${s.website}` : ''}`
+
+function mailto(to: string | null | undefined, subject: string, body: string) {
+  return `mailto:${encodeURIComponent(to ?? '')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+}
+
+// Opent je mailprogramma met een kant-en-klare mail. De PDF voeg je zelf als bijlage toe.
+export function sendMail(inv: Invoice, c: Customer | null | undefined, s: Settings) {
+  const lang = inv.language
+  const total = invoiceTotals(inv.lines).total
+  const Kind = t(lang, isCredit(inv) ? 'invoice.creditTitle' : 'invoice.title')
+  const kind = Kind.toLowerCase()
+  const named = inv.number ? t(lang, 'mail.named', { kind, number: inv.number }) : t(lang, 'mail.namedDraft', { kind })
+  const iban = inv.seller ? inv.seller.iban : s.iban
+  const holder = inv.seller?.name ?? s.companyName
+  const subject = inv.number ? t(lang, 'mail.subject', { kind: Kind, number: inv.number, seller: holder }) : t(lang, 'mail.subjectDraft', { kind: Kind, seller: holder })
+  return mailto(c?.email, subject,
+    `${greeting(lang, c)}\n\n${t(lang, 'mail.attached', {
+      named, amount: docEuro(lang, Math.abs(total)), reference: inv.reference ? t(lang, 'mail.reference', { reference: inv.reference }) : '',
+    })}`
+    + (total > 0 ? ` ${t(lang, 'mail.payBy', {
+      date: docDate(lang, inv.dueDate),
+      account: iban ? t(lang, 'mail.account', { iban, holder }) : '',
+      quoting: inv.number ? t(lang, 'mail.quoting', { number: inv.number }) : '',
+    })}` : '')
+    + signature(lang, s))
+}
+
+// Het bedrag dat nog openstaat: het totaal min wat er al gecrediteerd en betaald is.
+export const openAmount = (inv: Invoice) => inv.openAmount ?? invoiceTotals(inv.lines).total
+
+export const paymentMethods: { id: PaymentMethod; label: string }[] = [
+  { id: 'bank', label: 'Overboeking' },
+  { id: 'ideal', label: 'iDEAL' },
+  { id: 'handmatig', label: 'Anders (contant, Tikkie)' },
+]
+export const paymentMethodLabel = (m: PaymentMethod) => (m === 'bank' ? 'overboeking' : m === 'ideal' ? 'iDEAL' : 'handmatig')
+
+export function reminderMail(inv: Invoice, c: Customer | null | undefined, s: Settings) {
+  const lang = inv.language
+  const total = openAmount(inv)
+  const late = -daysUntil(inv.dueDate)
+  const iban = inv.seller ? inv.seller.iban : s.iban
+  const holder = inv.seller?.name ?? s.companyName
+  const number = inv.number ?? ''
+  return mailto(c?.email, t(lang, 'mail.reminderSubject', { number }),
+    `${greeting(lang, c)}\n\n${t(lang, 'mail.reminderOpen', {
+      number, date: docDate(lang, inv.issueDate), amount: docEuro(lang, total), due: docDate(lang, inv.dueDate),
+      late: late > 0 ? t(lang, 'mail.reminderLate', { days: late }) : '',
+    })} ${t(lang, 'mail.reminderTransfer', { account: iban ? t(lang, 'mail.account', { iban, holder }) : '', number })}\n\n`
+    + t(lang, 'mail.reminderPaid')
+    + signature(lang, s))
+}

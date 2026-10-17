@@ -2,6 +2,9 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Users, Plus, Search, Mail, Phone } from 'lucide-react'
 import { useApi } from '../lib/useApi'
+import { useNewRequest } from '../lib/palette'
+import { useAuth } from '../lib/auth'
+import { isAccountant } from '../lib/accountant'
 import type { Customer } from '../lib/types'
 import { initials } from '../lib/format'
 import { colorFor } from '../lib/status'
@@ -12,6 +15,10 @@ export function CustomersPage() {
   const { data, error, loading, reload } = useApi<Customer[]>('/customers')
   const [q, setQ] = useState('')
   const [creating, setCreating] = useState(false)
+  // Een boekhouder bekijkt alleen de factuurgegevens van klanten.
+  const accountant = isAccountant(useAuth().user)
+  // "Nieuwe klant" vanuit het zoekvenster.
+  useNewRequest('klant', () => { if (!accountant) setCreating(true) })
   const navigate = useNavigate()
 
   const filtered = useMemo(() => {
@@ -27,7 +34,7 @@ export function CustomersPage() {
         subtitle={data ? `${data.length} klanten in je portaal` : undefined}
         actions={<>
           <div className="search-input"><Search size={16} /><input placeholder="Zoek klant…" value={q} onChange={e => setQ(e.target.value)} /></div>
-          <button className="btn btn-primary" onClick={() => setCreating(true)}><Plus size={16} /> Nieuwe klant</button>
+          {!accountant && <button className="btn btn-primary" onClick={() => setCreating(true)}><Plus size={16} /> Nieuwe klant</button>}
         </>}
       />
 
@@ -39,7 +46,7 @@ export function CustomersPage() {
           {filtered.length === 0 ? (
             <Empty icon={<Users size={24} />} title={q ? 'Geen klanten gevonden' : 'Nog geen klanten'}
               text={q ? 'Probeer een andere zoekterm.' : 'Voeg je eerste klant toe om te beginnen.'}
-              action={!q && <button className="btn btn-primary" onClick={() => setCreating(true)}><Plus size={16} /> Klant toevoegen</button>} />
+              action={!q && !accountant && <button className="btn btn-primary" onClick={() => setCreating(true)}><Plus size={16} /> Klant toevoegen</button>} />
           ) : (
             <div className="table-wrap">
               <table>

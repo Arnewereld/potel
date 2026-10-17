@@ -1,4 +1,10 @@
-import type { InvoiceStatus, LeadStatus } from './types'
+import type { InvoiceStatus, LeadStatus, ProjectStatus, QuoteState } from './types'
+
+export const projectStatuses: { id: ProjectStatus; label: string; tone: string }[] = [
+  { id: 'actief', label: 'Actief', tone: 'green' },
+  { id: 'gepauzeerd', label: 'Gepauzeerd', tone: 'yellow' },
+  { id: 'afgerond', label: 'Afgerond', tone: 'gray' },
+]
 
 export const leadStatuses: { id: LeadStatus; label: string; tone: string; color: string }[] = [
   { id: 'nieuw', label: 'Nieuw', tone: 'blue', color: '#4ea5ff' },
@@ -13,6 +19,16 @@ export const invoiceStatuses: { id: InvoiceStatus; label: string; tone: string }
   { id: 'verzonden', label: 'Verzonden', tone: 'blue' },
   { id: 'betaald', label: 'Betaald', tone: 'green' },
   { id: 'verlopen', label: 'Verlopen', tone: 'red' },
+]
+
+// De stand van een offerte zoals je hem ziet; verlopen volgt uit de geldigheidsdatum.
+export const quoteStatuses: { id: QuoteState; label: string; tone: string }[] = [
+  { id: 'concept', label: 'Concept', tone: 'gray' },
+  { id: 'verstuurd', label: 'Verstuurd', tone: 'blue' },
+  { id: 'geaccepteerd', label: 'Geaccepteerd', tone: 'green' },
+  { id: 'afgewezen', label: 'Afgewezen', tone: 'red' },
+  { id: 'verlopen', label: 'Verlopen', tone: 'yellow' },
+  { id: 'ingetrokken', label: 'Ingetrokken', tone: 'gray' },
 ]
 
 export const appointmentKinds: { id: string; label: string; color: string }[] = [

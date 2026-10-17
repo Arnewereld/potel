@@ -2,14 +2,19 @@ import { useNavigate } from 'react-router-dom'
 import { Workflow as WorkflowIcon, Plus } from 'lucide-react'
 import { useApi } from '../lib/useApi'
 import { api } from '../lib/api'
+import { useAuth } from '../lib/auth'
+import { useToast } from '../lib/toast'
 import type { Workflow, WorkflowNode } from '../lib/types'
 import { relative } from '../lib/format'
-import { nodeType } from '../lib/nodes'
+import { needsAdmin, nodeType } from '../lib/nodes'
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/ui'
 
 export function WorkflowsPage() {
   const { data, error, loading, reload, setData } = useApi<Workflow[]>('/workflows')
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const toast = useToast()
+  const admin = user.role === 'beheerder'
 
   const create = async () => {
     const graph = { nodes: [{ id: 'n1', type: 'trigger.manual', label: 'Handmatig starten', x: 120, y: 160 }], edges: [] }
@@ -19,7 +24,12 @@ export function WorkflowsPage() {
 
   const toggle = async (w: Workflow) => {
     setData(prev => prev?.map(x => (x.id === w.id ? { ...x, active: !w.active } : x)) ?? null)
-    await api.put(`/workflows/${w.id}`, { ...w, active: !w.active })
+    try {
+      await api.put(`/workflows/${w.id}`, { ...w, active: !w.active })
+    } catch (e) {
+      setData(prev => prev?.map(x => (x.id === w.id ? { ...x, active: w.active } : x)) ?? null)
+      toast((e as Error).message, 'error')
+    }
   }
 
   return (
@@ -39,6 +49,7 @@ export function WorkflowsPage() {
         {data?.map(w => {
           let nodes: WorkflowNode[] = []
           try { nodes = JSON.parse(w.graphJson).nodes ?? [] } catch { /* lege grafiek */ }
+          const locked = !admin && needsAdmin(nodes)
           return (
             <div key={w.id} className="card wf-card" onClick={() => navigate(`/werkstromen/${w.id}`)}>
               <div className="wf-preview">
@@ -58,7 +69,8 @@ export function WorkflowsPage() {
                   <strong>{w.name}</strong>
                   <div className="cell-sub">{nodes.length} blokken · bijgewerkt {relative(w.updatedAt)}</div>
                 </div>
-                <button className={`switch ${w.active ? 'on' : ''}`} onClick={e => { e.stopPropagation(); toggle(w) }} aria-label="Actief" title={w.active ? 'Actief' : 'Uit'}><span /></button>
+                <button className={`switch ${w.active ? 'on' : ''}`} disabled={locked} onClick={e => { e.stopPropagation(); toggle(w) }} aria-label="Actief"
+                  title={locked ? 'Deze werkstroom stuurt e-mail of roept een webhook aan; alleen een beheerder zet hem aan of uit' : w.active ? 'Actief' : 'Uit'}><span /></button>
               </div>
             </div>
           )
